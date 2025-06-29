@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     openssl \
     curl \
     wget \
+    xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Create necessary directories
