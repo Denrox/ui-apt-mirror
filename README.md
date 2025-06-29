@@ -53,10 +53,10 @@ This will create:
 
 ### 2. Deploy the Container
 
-Run the startup script to deploy the container:
+Run the setup script to deploy the container:
 
 ```bash
-./startup.sh
+./setup.sh
 ```
 
 The script will:
@@ -71,10 +71,10 @@ The script will:
 
 ### Configuration Process
 
-The startup script uses a template-based approach:
+The setup script uses a template-based approach:
 
 1. **Template File**: `docker-compose.src.yml` contains the base configuration with environment variable placeholders
-2. **Generation**: The startup script copies the template to `docker-compose.yml` and replaces placeholders with actual values
+2. **Generation**: The setup script copies the template to `docker-compose.yml` and replaces placeholders with actual values
 3. **Customization**: You can modify the generated `docker-compose.yml` file directly if needed
 
 ### Configuration Variables
@@ -231,20 +231,20 @@ docker compose -f docker-compose.yml restart
 
 To update the configuration:
 
-1. **Automatic Method**: Run `./startup.sh` again to regenerate configuration
+1. **Automatic Method**: Run `./setup.sh` again to regenerate configuration
 2. **Manual Method**: 
    - Stop the container: `docker compose -f docker-compose.yml down`
    - Edit the generated `docker-compose.yml` file directly
    - Restart the container: `docker compose -f docker-compose.yml up -d`
 
-**Note**: The `.env` file is used internally by the startup script. For manual changes, edit `docker-compose.yml` directly.
+**Note**: The `.env` file is used internally by the setup script. For manual changes, edit `docker-compose.yml` directly.
 
 ## 📁 Directory Structure
 
 ```
 ui-apt-mirror/
 ├── build.sh                 # Build script for Docker images
-├── startup.sh               # Deployment and configuration script
+├── setup.sh               # Deployment and configuration script
 ├── README.md               # This file
 ├── .env                    # Configuration file (generated)
 ├── docker-compose.src.yml  # Docker Compose template

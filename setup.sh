@@ -193,19 +193,6 @@ cleanup_previous() {
     print_success "Cleanup completed."
 }
 
-# Function to load image
-load_image() {
-    local arch=$1
-    local tar_file="${DIST_DIR}/${IMAGE_NAME}-${arch}.tar.gz"
-    
-    print_status "Loading Docker image..."
-    
-    # Extract and load the image
-    gunzip -c "$tar_file" | docker load
-    
-    print_success "Image loaded successfully."
-}
-
 # Function to create data directories
 create_data_dirs() {
     print_status "Creating data directories..."
@@ -280,16 +267,6 @@ EOF
     print_success "apt-mirror configuration generated."
 }
 
-# Function to start container
-start_container() {
-    print_status "Starting container..."
-    
-    # Start with docker-compose
-    docker compose -f docker-compose.yml up -d
-    
-    print_success "Container started successfully."
-}
-
 # Function to show status
 show_status() {
     print_status "Container status:"
@@ -332,8 +309,8 @@ show_usage() {
     echo "  2. Validate that required image files exist"
     echo "  3. Get your custom configuration"
     echo "  4. Clean up previous installation"
-    echo "  5. Load the appropriate Docker image"
-    echo "  6. Start the container with your configuration"
+    echo "  5. Create data directories and generate configurations"
+    echo "  6. Call start.sh to load image and start container"
     echo ""
     echo "Prerequisites:"
     echo "  - Docker installed and running"
@@ -394,9 +371,6 @@ main() {
         cleanup_previous
     fi
     
-    # Load image
-    load_image "$arch"
-    
     # Create data directories
     create_data_dirs
     
@@ -406,8 +380,9 @@ main() {
     # Generate docker-compose.yml
     generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY"
     
-    # Start container
-    start_container
+    # Start container using start.sh
+    print_status "Starting container..."
+    ./start.sh
     
     # Show status
     show_status
