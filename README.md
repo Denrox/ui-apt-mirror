@@ -16,8 +16,9 @@ A comprehensive APT mirror solution with a modern web interface, built with Dock
 
 ## 📋 Requirements
 
+- arm64 or amd64 machine
 - Docker and Docker Compose
-- Linux system (tested on Ubuntu 22.04)
+- Linux system
 - Complete Mirroring apt repos usually requires a lot of disk space (> 500G) 
 
 ## 🏗️ Architecture
