@@ -16,7 +16,6 @@ NC='\033[0m' # No Color
 IMAGE_NAME="ui-apt-mirror"
 CONTAINER_NAME="ui-apt-mirror"
 DIST_DIR="dist"
-CONFIG_FILE=".env"
 
 # Function to print colored output
 print_status() {
@@ -122,17 +121,14 @@ get_user_config() {
     echo ""
     admin_pass=${admin_pass:-$default_admin_pass}
     
-    # Create environment configuration
-    cat > "$CONFIG_FILE" << EOF
-# ui-apt-mirror Configuration
-MIRROR_DOMAIN=$custom_domain
-ADMIN_DOMAIN=admin.$custom_domain
-FILES_DOMAIN=files.$custom_domain
-SYNC_FREQUENCY=$sync_freq
-ADMIN_PASSWORD=$admin_pass
-EOF
+    # Set global variables for use in other functions
+    MIRROR_DOMAIN="$custom_domain"
+    ADMIN_DOMAIN="admin.$custom_domain"
+    FILES_DOMAIN="files.$custom_domain"
+    SYNC_FREQUENCY="$sync_freq"
+    ADMIN_PASSWORD="$admin_pass"
     
-    print_success "Configuration saved to $CONFIG_FILE"
+    print_success "Configuration completed."
 }
 
 # Function to generate nginx htpasswd file
@@ -386,12 +382,7 @@ main() {
     get_user_config
     
     # Generate nginx htpasswd file
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        generate_htpasswd "$ADMIN_PASSWORD"
-    else
-        generate_htpasswd "admin"
-    fi
+    generate_htpasswd "$ADMIN_PASSWORD"
     
     if [ "$config_only" = true ]; then
         print_success "Configuration completed. Run without --config-only to start the container."
@@ -410,20 +401,10 @@ main() {
     create_data_dirs
     
     # Generate apt-mirror configuration
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        generate_mirror_config "$MIRROR_DOMAIN"
-    else
-        generate_mirror_config "mirror.intra"
-    fi
+    generate_mirror_config "$MIRROR_DOMAIN"
     
     # Generate docker-compose.yml
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-        generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY"
-    else
-        generate_docker_compose "mirror.intra" "14400"
-    fi
+    generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY"
     
     # Start container
     start_container
