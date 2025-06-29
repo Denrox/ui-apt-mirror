@@ -129,6 +129,26 @@ async function uploadFile(filePath: string, file: File): Promise<boolean> {
   }
 }
 
+async function createFolderAction(formData: FormData): Promise<{ success: boolean; error?: string }> {
+  const folderName = formData.get('folderName') as string;
+  const currentPath = formData.get('currentPath') as string;
+  
+  // Validate folder name
+  const validationError = getValidationError(folderName);
+  if (validationError) {
+    return { success: false, error: validationError };
+  }
+  
+  const newPath = path.join(currentPath, folderName);
+  const success = await createDirectory(newPath);
+  
+  if (success) {
+    return { success: true };
+  } else {
+    return { success: false, error: "Failed to create folder" };
+  }
+}
+
 export default function FileManager() {
   const [fileTree, setFileTree] = useState<FileTreeNode[]>([]);
   const [currentPath, setCurrentPath] = useState("/var/www/files.mirror.intra");
@@ -162,21 +182,17 @@ export default function FileManager() {
     // Clear previous error
     setError(null);
     
-    // Validate folder name
-    const validationError = getValidationError(newFolderName);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    const formData = new FormData();
+    formData.append('folderName', newFolderName);
+    formData.append('currentPath', currentPath);
     
-    const newPath = path.join(currentPath, newFolderName);
-    const success = await createDirectory(newPath);
+    const result = await createFolderAction(formData);
     
-    if (success) {
+    if (result.success) {
       setNewFolderName("");
       loadFiles();
     } else {
-      setError("Failed to create folder");
+      setError(result.error || "Failed to create folder");
     }
   };
 
