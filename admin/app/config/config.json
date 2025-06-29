@@ -1,0 +1,9 @@
+{
+  "mirrorLogsDir": "/logs/mirror",
+  "nginxLogsDir": "/logs/nginx",
+  "hosts": [
+    { "id": "mirror", "address": "domain", "name": "APT Mirror", "description": "APT Mirror" },
+    { "id": "admin", "address": "admin.domain", "name": "Admin", "description": "Admin UI for the mirror" },
+    { "id": "files", "address": "files.domain", "name": "Files", "description": "Files (user uploads)" }
+  ]
+}
