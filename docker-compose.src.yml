@@ -1,0 +1,37 @@
+services:
+  ui-apt-mirror:
+    image: ui-apt-mirror:latest
+    container_name: ui-apt-mirror
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./data/data/apt-mirror:/var/spool/apt-mirror
+      - ./data/logs/apt-mirror:/var/log
+      - ./data/conf/apt-mirror:/etc/apt
+      - ./data/conf/nginx/sites-available/mirror.intra.conf:/etc/nginx/sites-available/mirror.intra.conf
+      - ./data/conf/nginx/sites-available/admin.mirror.intra.conf:/etc/nginx/sites-available/admin.mirror.intra.conf
+      - ./data/conf/nginx/sites-available/files.mirror.intra.conf:/etc/nginx/sites-available/files.mirror.intra.conf
+      - ./data/logs/nginx:/var/log/nginx
+      - ./data/data/files:/var/www/files.mirror.intra
+    environment:
+      - SYNC_FREQUENCY=${SYNC_FREQUENCY:-3600}
+      - MIRROR_DOMAIN=${MIRROR_DOMAIN:-mirror.intra}
+      - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.mirror.intra}
+      - FILES_DOMAIN=${FILES_DOMAIN:-files.mirror.intra}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+    networks:
+      - mirror_network
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/health-check.sh", "once"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.docker.compose.project=ui-apt-mirror"
+      - "com.docker.compose.service=mirror"
+
+networks:
+  mirror_network:
+    driver: bridge

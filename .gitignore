@@ -1,0 +1,11 @@
+docker-compose.yml
+data/data/apt-mirror/*
+!data/data/apt-mirror/.gitkeep
+data/data/files/*
+!data/data/files/.gitkeep
+data/logs/apt-mirror/*
+!data/logs/apt-mirror/.gitkeep
+data/logs/nginx/*
+!data/logs/nginx/.gitkeep
+dist/*
+!dist/.gitkeep
