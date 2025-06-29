@@ -1,5 +1,5 @@
-# apt-mirror configuration for ui-apt-mirror
-# Generated on $(date)
+# apt-mirror configuration for mirror.intra
+# Generated on неділя, 29 червня 2025 14:53:06 +0300
 
 # Set base_path to the directory where you want to store the mirror
 set base_path    /var/spool/apt-mirror
@@ -46,4 +46,4 @@ deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-fr
 # Clean up old packages
 clean http://archive.ubuntu.com/ubuntu
 clean http://deb.debian.org/debian
-clean http://security.debian.org/debian-security 
+clean http://security.debian.org/debian-security

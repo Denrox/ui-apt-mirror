@@ -122,10 +122,6 @@ get_user_config() {
     echo ""
     admin_pass=${admin_pass:-$default_admin_pass}
     
-    # Generate admin password hash
-    print_status "Generating admin password hash..."
-    local pass_hash=$(openssl passwd -apr1 "$admin_pass")
-    
     # Create environment configuration
     cat > "$CONFIG_FILE" << EOF
 # ui-apt-mirror Configuration
@@ -134,7 +130,6 @@ ADMIN_DOMAIN=admin.$custom_domain
 FILES_DOMAIN=files.$custom_domain
 SYNC_FREQUENCY=$sync_freq
 ADMIN_PASSWORD=$admin_pass
-ADMIN_PASSWORD_HASH=$pass_hash
 EOF
     
     print_success "Configuration saved to $CONFIG_FILE"
