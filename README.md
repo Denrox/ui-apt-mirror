@@ -5,22 +5,20 @@ A comprehensive APT mirror solution with a modern web interface, built with Dock
 ## 🚀 Features
 
 - **APT Mirror**: Local Ubuntu package repository with automatic synchronization
-- **Modern Web Interface**: Beautiful, responsive web UI for all services
+- **Web Interface**: web UI for all services
 - **Multi-Host Setup**: Three distinct web services:
-  - `mirror.intra` - Main package repository
+  - `mirror.intra` - DEB packages repository
   - `admin.mirror.intra` - Admin panel with authentication
   - `files.mirror.intra` - File hosting service
 - **Multi-Architecture Support**: Builds for both AMD64 and ARM64
 - **Easy Deployment**: Simple scripts for building and deployment
 - **Configurable**: Custom domains, sync frequency, and admin passwords
-- **Health Monitoring**: Built-in health checks and monitoring
 
 ## 📋 Requirements
 
 - Docker and Docker Compose
 - Linux system (tested on Ubuntu 22.04)
-- At least 10GB free disk space (for initial mirror)
-- Internet connection for initial package download
+- Complete Mirroring apt repos usually requires a lot of disk space (> 500G) 
 
 ## 🏗️ Architecture
 
