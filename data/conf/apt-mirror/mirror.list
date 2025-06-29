@@ -1,5 +1,5 @@
-# apt-mirror configuration for mirror.intra
-# Generated on неділя, 29 червня 2025 14:53:06 +0300
+# apt-mirror configuration for mirror.root
+# Generated on неділя, 29 червня 2025 18:34:37 +0300
 
 # Set base_path to the directory where you want to store the mirror
 set base_path    /var/spool/apt-mirror

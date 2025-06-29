@@ -1,5 +1,5 @@
 # Multi-stage build for apt-mirror with nginx
-FROM ubuntu:22.04 as base
+FROM ubuntu:24.04 as base
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     openssl \
     curl \
     wget \
+    nodejs \
+    npm \
     xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,6 +20,9 @@ RUN mkdir -p /var/spool/apt-mirror \
     && mkdir -p /var/www/files.mirror.intra \
     && mkdir -p /etc/nginx/sites-available \
     && mkdir -p /etc/nginx/sites-enabled
+
+COPY admin/ /var/admin
+RUN cd /var/admin && npm install && npm run build
 
 # Copy scripts
 COPY scripts/ /usr/local/bin/

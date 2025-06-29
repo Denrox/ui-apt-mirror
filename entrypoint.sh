@@ -53,12 +53,19 @@ fi
 
 echo "✅ htpasswd file found"
 
+# Start admin server
+echo "🌐 Starting admin server..."
+cd /var/admin && npm run start &
+ADMIN_PID=$!
+
+# Wait a moment for admin to start
+sleep 2
+
 # Start nginx
 echo "🌐 Starting nginx..."
 nginx -g "daemon off;" &
 NGINX_PID=$!
 
-# Wait a moment for nginx to start
 sleep 2
 
 # Check if nginx started successfully
