@@ -14,7 +14,7 @@ export default function FormButton({
   disabled = false,
   size = 'medium' 
 }: PropsWithChildren<FormButtonProps>) {
-  const baseClasses = "font-semibold rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer";
+  const baseClasses = "font-semibold rounded-md outline-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap";
   
   const typeClasses = {
     primary: "bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500",

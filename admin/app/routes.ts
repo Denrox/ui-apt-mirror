@@ -6,7 +6,8 @@ export default [
     [
       index("routes/home.tsx"),
       route("logs/:log", "routes/logs.tsx"),
-      route("documentation/:section", "routes/documentation.tsx")
+      route("documentation/:section", "routes/documentation.tsx"),
+      route("file-manager", "routes/file-manager.tsx")
     ]
   ),
 ] satisfies RouteConfig;

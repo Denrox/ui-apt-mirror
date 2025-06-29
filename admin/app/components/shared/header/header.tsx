@@ -17,7 +17,8 @@ export default function Header() {
   const navItems = [
     { to: "/", label: "Status", isActive: location.pathname === "/" },
     { to: "/logs/mirror", label: "Logs", isActive: location.pathname.startsWith("/logs") },
-    { to: "/documentation/commands", label: "Documentation", isActive: location.pathname === "/documentation" }
+    { to: "/documentation/file-structure", label: "Documentation", isActive: location.pathname.startsWith("/documentation") },
+    { to: "/file-manager", label: "File Manager", isActive: location.pathname === "/file-manager" }
   ];
 
   const navLinkClasses = "text-[16px] hover:border-b-2 hover:border-blue-600 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-blue-200 hover:text-blue-600 text-center font-semibold";
