@@ -4,12 +4,14 @@
 # This script handles the synchronization of apt repositories
 
 MIRROR_CONFIG="/etc/apt/mirror.list"
-MIRROR_LOG="/var/log/apt-mirror.log"
+MIRROR_LOG="/var/log/apt-mirror/apt-mirror.log"
 SYNC_FREQUENCY="${SYNC_FREQUENCY:-3600}"  # Default: 1 hour
 LOCK_FILE="/var/run/apt-mirror.lock"
 
 # Function to log messages
 log() {
+    # Ensure log directory exists
+    mkdir -p "$(dirname "$MIRROR_LOG")"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$MIRROR_LOG"
 }
 

@@ -20,6 +20,7 @@ trap cleanup SIGTERM SIGINT
 
 # Create necessary directories if they don't exist
 mkdir -p /var/log/nginx
+mkdir -p /var/log/apt-mirror
 mkdir -p /var/spool/apt-mirror
 mkdir -p /var/www/mirror.intra
 

@@ -7,7 +7,7 @@ services:
       - "80:80"
     volumes:
       - ./data/data/apt-mirror:/var/spool/apt-mirror
-      - ./data/logs/apt-mirror:/var/log
+      - ./data/logs/apt-mirror:/var/log/apt-mirror
       - ./data/conf/apt-mirror:/etc/apt
       - ./data/conf/nginx/sites-available/mirror.intra.conf:/etc/nginx/sites-available/mirror.intra.conf
       - ./data/conf/nginx/sites-available/admin.mirror.intra.conf:/etc/nginx/sites-available/admin.mirror.intra.conf

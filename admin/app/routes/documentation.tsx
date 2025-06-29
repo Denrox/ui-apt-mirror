@@ -52,6 +52,7 @@ export default function Documentation() {
 │   └── files/                   # Custom file repository
 └── logs/
     ├── apt-mirror/              # apt-mirror logs
+    │   └── apt-mirror.log       # Main apt-mirror log file
     └── nginx/                   # Nginx access and error logs`}
           </pre>
         </div>

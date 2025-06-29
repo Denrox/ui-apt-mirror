@@ -19,7 +19,8 @@ RUN mkdir -p /var/spool/apt-mirror \
     && mkdir -p /var/www/admin.mirror.intra \
     && mkdir -p /var/www/files.mirror.intra \
     && mkdir -p /etc/nginx/sites-available \
-    && mkdir -p /etc/nginx/sites-enabled
+    && mkdir -p /etc/nginx/sites-enabled \
+    && mkdir -p /var/log/apt-mirror
 
 COPY admin/ /var/admin
 RUN cd /var/admin && npm install && npm run build
