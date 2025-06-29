@@ -45,12 +45,13 @@ else
     echo "⚠️  Nginx configuration not found. Please ensure nginx config volume is mounted."
 fi
 
-# Generate basic auth file if not exists
+# Check if htpasswd file exists
 if [ ! -f /etc/nginx/.htpasswd ]; then
-    echo "🔐 Generating default admin password..."
-    echo "admin:\$apr1\$rqx1VHAW\$ba.dgiFvpCyUhWZkkNPwT0" > /etc/nginx/.htpasswd
-    echo "Default admin credentials: admin/admin"
+    echo "❌ htpasswd file not found. Please ensure data/conf/nginx/.htpasswd is mounted."
+    exit 1
 fi
+
+echo "✅ htpasswd file found"
 
 # Start nginx
 echo "🌐 Starting nginx..."

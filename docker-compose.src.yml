@@ -12,6 +12,7 @@ services:
       - ./data/conf/nginx/sites-available/mirror.intra.conf:/etc/nginx/sites-available/mirror.intra.conf
       - ./data/conf/nginx/sites-available/admin.mirror.intra.conf:/etc/nginx/sites-available/admin.mirror.intra.conf
       - ./data/conf/nginx/sites-available/files.mirror.intra.conf:/etc/nginx/sites-available/files.mirror.intra.conf
+      - ./data/conf/nginx/.htpasswd:/etc/nginx/.htpasswd
       - ./data/logs/nginx:/var/log/nginx
       - ./data/data/files:/var/www/files.mirror.intra
     environment:

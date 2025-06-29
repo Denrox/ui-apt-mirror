@@ -101,11 +101,12 @@ The following directories are automatically created and mounted:
 | Directory | Container Path | Purpose |
 |-----------|----------------|---------|
 | `./data/data/apt-mirror` | `/var/spool/apt-mirror` | APT mirror data |
+| `./data/data/files` | `/var/www/files.mirror.intra` | File hosting data |
 | `./data/logs/apt-mirror` | `/var/log` | Application logs |
+| `./data/logs/nginx` | `/var/log/nginx` | Nginx logs |
 | `./data/conf/apt-mirror` | `/etc/apt` | APT mirror configuration |
 | `./data/conf/nginx/sites-available/` | `/etc/nginx/sites-available/` | Nginx configurations |
-| `./data/logs/nginx` | `/var/log/nginx` | Nginx logs |
-| `./data/data/files` | `/var/www/files.mirror.intra` | File hosting data |
+| `./data/conf/nginx/.htpasswd` | `/etc/nginx/.htpasswd` | Nginx authentication file |
 
 ### APT Mirror Configuration
 

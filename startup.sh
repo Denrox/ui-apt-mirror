@@ -140,6 +140,22 @@ EOF
     print_success "Configuration saved to $CONFIG_FILE"
 }
 
+# Function to generate nginx htpasswd file
+generate_htpasswd() {
+    local admin_pass=$1
+    
+    print_status "Generating nginx htpasswd file..."
+    
+    # Create nginx conf directory if it doesn't exist
+    mkdir -p data/conf/nginx
+    
+    # Generate password hash and create htpasswd file
+    local pass_hash=$(openssl passwd -apr1 "$admin_pass")
+    echo "admin:$pass_hash" > data/conf/nginx/.htpasswd
+    
+    print_success "htpasswd file generated successfully."
+}
+
 # Function to generate docker-compose.yml from template
 generate_docker_compose() {
     local domain=$1
@@ -376,6 +392,14 @@ main() {
     
     # Get user configuration
     get_user_config
+    
+    # Generate nginx htpasswd file
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+        generate_htpasswd "$ADMIN_PASSWORD"
+    else
+        generate_htpasswd "admin"
+    fi
     
     if [ "$config_only" = true ]; then
         print_success "Configuration completed. Run without --config-only to start the container."
