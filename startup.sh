@@ -160,7 +160,6 @@ generate_htpasswd() {
 generate_docker_compose() {
     local domain=$1
     local sync_freq=$2
-    local admin_pass=$3
     
     print_status "Generating docker-compose.yml from template..."
     
@@ -178,7 +177,6 @@ generate_docker_compose() {
     sed -i "s/\${MIRROR_DOMAIN:-mirror.intra}/$domain/g" docker-compose.yml
     sed -i "s/\${ADMIN_DOMAIN:-admin.mirror.intra}/admin.$domain/g" docker-compose.yml
     sed -i "s/\${FILES_DOMAIN:-files.mirror.intra}/files.$domain/g" docker-compose.yml
-    sed -i "s/\${ADMIN_PASSWORD:-admin}/$admin_pass/g" docker-compose.yml
     
     print_success "docker-compose.yml generated successfully."
 }
@@ -313,14 +311,13 @@ show_status() {
         local mirror_domain=$(grep "MIRROR_DOMAIN" docker-compose.yml | sed 's/.*MIRROR_DOMAIN: //')
         local admin_domain=$(grep "ADMIN_DOMAIN" docker-compose.yml | sed 's/.*ADMIN_DOMAIN: //')
         local files_domain=$(grep "FILES_DOMAIN" docker-compose.yml | sed 's/.*FILES_DOMAIN: //')
-        local admin_pass=$(grep "ADMIN_PASSWORD" docker-compose.yml | sed 's/.*ADMIN_PASSWORD: //')
         
         echo "  Main Repository: http://$mirror_domain"
-        echo "  Admin Panel: http://$admin_domain (admin/$admin_pass)"
+        echo "  Admin Panel: http://$admin_domain (admin/[password])"
         echo "  File Repository: http://$files_domain"
     else
         echo "  Main Repository: http://mirror.intra"
-        echo "  Admin Panel: http://admin.mirror.intra (admin/admin)"
+        echo "  Admin Panel: http://admin.mirror.intra (admin/[password])"
         echo "  File Repository: http://files.mirror.intra"
     fi
     
@@ -428,9 +425,9 @@ main() {
     # Generate docker-compose.yml
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"
-        generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY" "$ADMIN_PASSWORD"
+        generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY"
     else
-        generate_docker_compose "mirror.intra" "14400" "admin"
+        generate_docker_compose "mirror.intra" "14400"
     fi
     
     # Start container

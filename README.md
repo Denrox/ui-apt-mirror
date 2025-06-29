@@ -87,7 +87,6 @@ The following variables are configured during startup:
 | `ADMIN_DOMAIN` | `admin.mirror.intra` | Admin panel domain |
 | `FILES_DOMAIN` | `files.mirror.intra` | File hosting domain |
 | `SYNC_FREQUENCY` | `14400` | Sync frequency in seconds (Every 4 hours) |
-| `ADMIN_PASSWORD` | `admin` | Admin panel password |
 
 **Sync Frequency Options:**
 - Every 4 hours (14400 seconds) - Default
