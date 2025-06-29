@@ -318,6 +318,30 @@ show_usage() {
     echo "  - openssl for password hashing"
 }
 
+# Function to update nginx configuration files with custom domain
+update_nginx_configs() {
+    local domain=$1
+    
+    print_status "Updating nginx configuration files with domain: $domain..."
+    
+    # Create nginx sites-available directory if it doesn't exist
+    mkdir -p data/conf/nginx/sites-available
+    
+    # Replace domain in all nginx config files
+    for config_file in data/conf/nginx/sites-available/*.conf; do
+        if [ -f "$config_file" ]; then
+            # Replace mirror.intra with custom domain
+            sed -i "s/mirror\.intra/$domain/g" "$config_file"
+            # Replace admin.mirror.intra with admin.customdomain
+            sed -i "s/admin\.mirror\.intra/admin.$domain/g" "$config_file"
+            # Replace files.mirror.intra with files.customdomain
+            sed -i "s/files\.mirror\.intra/files.$domain/g" "$config_file"
+        fi
+    done
+    
+    print_success "Nginx configuration files updated with domain: $domain"
+}
+
 # Main execution
 main() {
     local config_only=false
@@ -379,6 +403,9 @@ main() {
     
     # Generate docker-compose.yml
     generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY"
+    
+    # Update nginx configuration files with custom domain
+    update_nginx_configs "$MIRROR_DOMAIN"
     
     # Start container using start.sh
     print_status "Starting container..."
