@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import fs from "fs/promises";
 import path from "path";
+import type { Route } from "./+types/file-manager";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
@@ -12,6 +13,33 @@ export function meta() {
     { title: "File Manager" },
     { name: "description", content: "File Manager for apt-mirror" },
   ];
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const intent = formData.get('intent') as string;
+  
+  if (intent === 'createFolder') {
+    const folderName = formData.get('folderName') as string;
+    const currentPath = formData.get('currentPath') as string;
+    
+    // Validate folder name
+    const validationError = getValidationError(folderName);
+    if (validationError) {
+      return { success: false, error: validationError };
+    }
+    
+    const newPath = path.join(currentPath, folderName);
+    const success = await createDirectory(newPath);
+    
+    if (success) {
+      return { success: true };
+    } else {
+      return { success: false, error: "Failed to create folder" };
+    }
+  }
+  
+  return { success: false, error: "Invalid action" };
 }
 
 interface FileItem {
@@ -129,26 +157,6 @@ async function uploadFile(filePath: string, file: File): Promise<boolean> {
   }
 }
 
-async function createFolderAction(formData: FormData): Promise<{ success: boolean; error?: string }> {
-  const folderName = formData.get('folderName') as string;
-  const currentPath = formData.get('currentPath') as string;
-  
-  // Validate folder name
-  const validationError = getValidationError(folderName);
-  if (validationError) {
-    return { success: false, error: validationError };
-  }
-  
-  const newPath = path.join(currentPath, folderName);
-  const success = await createDirectory(newPath);
-  
-  if (success) {
-    return { success: true };
-  } else {
-    return { success: false, error: "Failed to create folder" };
-  }
-}
-
 export default function FileManager() {
   const [fileTree, setFileTree] = useState<FileTreeNode[]>([]);
   const [currentPath, setCurrentPath] = useState("/var/www/files.mirror.intra");
@@ -183,16 +191,26 @@ export default function FileManager() {
     setError(null);
     
     const formData = new FormData();
+    formData.append('intent', 'createFolder');
     formData.append('folderName', newFolderName);
     formData.append('currentPath', currentPath);
     
-    const result = await createFolderAction(formData);
-    
-    if (result.success) {
-      setNewFolderName("");
-      loadFiles();
-    } else {
-      setError(result.error || "Failed to create folder");
+    try {
+      const response = await fetch('', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setNewFolderName("");
+        loadFiles();
+      } else {
+        setError(result.error || "Failed to create folder");
+      }
+    } catch (error) {
+      setError("Failed to create folder");
     }
   };
 
