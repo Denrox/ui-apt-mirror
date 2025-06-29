@@ -15,9 +15,9 @@ export function meta({}: Route.MetaArgs) {
 
 const getHostAddress = (host: string) => {
   if (typeof window !== "undefined") {
-    return `https://${host}`.replace("domain", window.location.hostname.replace('admin.', ''));
+    return `http://${host}`.replace("domain", window.location.hostname.replace('admin.', ''));
   }
-  return `https://${host}`;
+  return `http://${host}`;
 }
 
 export default function Home() {
