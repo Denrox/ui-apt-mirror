@@ -2,17 +2,11 @@ import type { Route } from "./+types/file-manager";
 import path from "path";
 import fs from "fs/promises";
 
+// Disk-based chunk storage using destination directory
+const chunkStorage = new Map<string, { tempDir: string; totalChunks: number; fileName: string }>();
+
 function isValidFileName(name: string): boolean {
   const forbiddenPatterns = [
-    /^\/$/,        // "/"
-    /^\./,         // "."
-    /^\.\/$/,      // "./"
-    /^\.\.\/$/,    // "../"
-    /^\.\.$/,      // ".."
-    /^\.$/,        // "."
-    /\/\.\.\//,    // "/../"
-    /\/\.\//,      // "/./"
-    /\.\./,        // ".." anywhere in the name
     /^\.\/$/,      // "./"
     /^\.\.\/$/,    // "../"
     /^\.\.$/,      // ".."
@@ -49,7 +43,6 @@ async function createDirectory(dirPath: string): Promise<boolean> {
     await fs.mkdir(dirPath, { recursive: true });
     return true;
   } catch (error) {
-    console.error("Error creating directory:", error);
     return false;
   }
 }
@@ -64,43 +57,27 @@ async function deleteFile(filePath: string): Promise<boolean> {
     }
     return true;
   } catch (error) {
-    console.error("Error deleting file:", error);
     return false;
   }
 }
 
 async function uploadFile(filePath: string, file: any): Promise<boolean> {
   try {
-    // Debug: Log the file object to see what we're working with
-    console.log('File object type:', typeof file);
-    console.log('File object:', file);
-    console.log('File object keys:', Object.keys(file || {}));
-    console.log('File object prototype:', Object.getPrototypeOf(file));
-    
     const destPath = path.join(filePath, file.name);
-    console.log('Destination path:', destPath);
-    console.log('File path:', filePath);
-    console.log('File name:', file.name);
 
     // Ensure the destination directory exists
     const destDir = path.dirname(destPath);
-    console.log('Destination directory:', destDir);
     await fs.mkdir(destDir, { recursive: true });
-    console.log('Directory created/verified:', destDir);
 
     // In Node.js/Remix, the file from formData is a different type
     // We need to handle it as a stream or buffer
     if (file && typeof file.arrayBuffer === 'function') {
       // Browser File object (shouldn't happen in Node.js)
-      console.log('Using arrayBuffer method');
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      console.log('Buffer size:', buffer.length);
       await fs.writeFile(destPath, buffer);
-      console.log('File written successfully to:', destPath);
     } else if (file && file.stream) {
       // Node.js file object with stream
-      console.log('Using stream method');
       const stream = file.stream();
       const chunks: Buffer[] = [];
       for await (const chunk of stream) {
@@ -108,22 +85,96 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
       }
       const buffer = Buffer.concat(chunks);
       await fs.writeFile(destPath, buffer);
-      console.log('File written successfully to:', destPath);
     } else if (file && file.buffer) {
       // Node.js file object with buffer
-      console.log('Using buffer property');
       await fs.writeFile(destPath, file.buffer);
-      console.log('File written successfully to:', destPath);
     } else {
-      console.log('File object does not match any expected type');
       throw new Error('Unsupported file type');
     }
     
-    console.log('uploaded file', destPath);
     return true;
   } catch (error) {
-    console.error("Error uploading file:", error);
     return false;
+  }
+}
+
+async function handleChunkUpload(formData: FormData): Promise<{ success: boolean; error?: string }> {
+  try {
+    const filePath = formData.get('filePath') as string;
+    const chunk = formData.get('chunk') as any;
+    const chunkIndex = parseInt(formData.get('chunkIndex') as string);
+    const totalChunks = parseInt(formData.get('totalChunks') as string);
+    const fileName = formData.get('fileName') as string;
+    const fileId = formData.get('fileId') as string;
+
+    if (!chunk || !fileName || !fileId) {
+      return { success: false, error: "Missing required chunk data" };
+    }
+
+    // Validate file name
+    const validationError = getValidationError(fileName);
+    if (validationError) {
+      return { success: false, error: validationError };
+    }
+
+    // Convert chunk to buffer
+    let chunkBuffer: Buffer;
+    try {
+      if (chunk && typeof chunk.arrayBuffer === 'function') {
+        const arrayBuffer = await chunk.arrayBuffer();
+        chunkBuffer = Buffer.from(arrayBuffer);
+      } else if (chunk && chunk.buffer) {
+        chunkBuffer = chunk.buffer;
+      } else {
+        return { success: false, error: "Invalid chunk format" };
+      }
+    } catch (bufferError) {
+      return { success: false, error: "Failed to process chunk data" };
+    }
+
+    // Initialize or get chunk storage info
+    if (!chunkStorage.has(fileId)) {
+      // Create temporary directory in the destination directory
+      const tempDirName = `.tmp-${fileId}`;
+      const tempDir = path.join(filePath, tempDirName);
+      await fs.mkdir(tempDir, { recursive: true });
+      chunkStorage.set(fileId, { tempDir, totalChunks, fileName });
+    }
+
+    const fileInfo = chunkStorage.get(fileId)!;
+    const tempFilePath = path.join(fileInfo.tempDir, `${fileName}.temp`);
+
+    // Append chunk to the assembling file
+    if (chunkIndex === 0) {
+      // First chunk - create the file
+      await fs.writeFile(tempFilePath, chunkBuffer);
+    } else {
+      // Subsequent chunks - append to the file
+      await fs.appendFile(tempFilePath, chunkBuffer);
+    }
+
+    // Check if this is the final chunk
+    if (chunkIndex === totalChunks - 1) {
+      // Move the assembled file to its final location
+      const destPath = path.join(filePath, fileName);
+      await fs.rename(tempFilePath, destPath);
+
+      // Clean up temporary directory and chunk files
+      try {
+        await fs.rm(fileInfo.tempDir, { recursive: true, force: true });
+      } catch (cleanupError) {
+        // Ignore cleanup errors
+      }
+
+      // Remove from chunk storage
+      chunkStorage.delete(fileId);
+
+      return { success: true };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: "Failed to process chunk" };
   }
 }
 
@@ -131,7 +182,10 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     const formData = await request.formData();
     const intent = formData.get('intent') as string;
-    if (intent === 'createFolder') {
+    
+    if (intent === 'test') {
+      return { success: true, message: 'Server is working' };
+    } else if (intent === 'createFolder') {
       const folderName = formData.get('folderName') as string;
       const currentPath = formData.get('currentPath') as string;
       
@@ -161,11 +215,13 @@ export async function action({ request }: Route.ActionArgs) {
       }
       const success = await uploadFile(filePath, file);
       return { success };
+    } else if (intent === 'uploadChunk') {
+      const res = await handleChunkUpload(formData);
+      return res;
     }
 
     return { success: false, error: "Invalid action" };
   } catch (error) {
-    console.error("Error in action:", error);
     return { success: false, error: "An unexpected error occurred" };
   }
 }

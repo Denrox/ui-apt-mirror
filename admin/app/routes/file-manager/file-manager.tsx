@@ -8,8 +8,9 @@ import FormInput from "~/components/shared/form/form-input";
 import { useActionData, useLoaderData, useSubmit, type SubmitTarget } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
-import { action, getValidationError } from "./action";
+import { action } from "./action";
 import classNames from "classnames";
+import ChunkedUpload from "~/components/shared/form/chunked-upload";
 
 export { action, loader };
 
@@ -21,7 +22,7 @@ export function meta() {
 }
 
 function isChildPath(path: string, parentPath: string): boolean {
-  return path.startsWith(parentPath) && path !== parentPath && path.split('/').length === parentPath.split('/').length + 1;
+  return path.startsWith(parentPath) && path !== parentPath;
 }
 
 export default function FileManager() {
@@ -29,8 +30,6 @@ export default function FileManager() {
   const [currentPath, setCurrentPath] = useState(appConfig.filesDir);
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState("");
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = useSubmit()
 
@@ -63,50 +62,6 @@ export default function FileManager() {
     }
   }, [actionData]);
 
-  const handleUpload = async () => {
-    if (!selectedFile) return;
-    
-    // Clear previous error
-    setError(null);
-
-    setIsLoading(true);
-    try {
-      const formData = new FormData();
-      formData.append('intent', 'uploadFile');
-      formData.append('filePath', currentPath);
-      formData.append('file', selectedFile);
-      
-      await submit(formData, {
-        method: 'post',
-        action: '',
-        encType: 'multipart/form-data',
-      });
-    } catch (error) {
-      setError("Failed to upload file");
-    } finally {
-      setIsLoading(false);
-      setSelectedFile(null);
-    }
-  }
-
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // Clear previous error
-      setError(null);
-      
-      // Validate file name
-      const validationError = getValidationError(file.name);
-      if (validationError) {
-        setError(validationError);
-        event.target.value = ""; // Clear the file input
-        return;
-      }
-      
-      setSelectedFile(file);
-    }
-  };
-
   const handleCreateFolder = async () => {
     setError(null);
         
@@ -119,6 +74,10 @@ export default function FileManager() {
     } catch (error) {
       setError("Failed to create folder");
     }
+  };
+
+  const handleChunkedUploadError = (error: string) => {
+    setError(error);
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -137,8 +96,6 @@ export default function FileManager() {
     return currentPath.split('/').slice(0, -1).join('/');
   }, [currentPath]);
 
-  console.log(actionData);
-
   return (
     <PageLayoutFull>
       <Title title="File Manager" />
@@ -150,7 +107,7 @@ export default function FileManager() {
             <span className="font-mono text-sm">{currentPath}</span>
           </div>
 
-          {error && !isLoading && (
+          {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-md">
               <div className="flex items-center gap-2">
                 <span className="text-red-700 text-sm">{error}</span>
@@ -164,17 +121,7 @@ export default function FileManager() {
               </div>
             </div>
           )}
-          {isLoading && (
-            <div className="p-3 absolute z-10 top-0 left-0 w-full h-full bg-gray-50 border border-gray-200 rounded-md">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-500">⏳</span>
-                <span className="text-gray-500 text-sm">Loading...</span>
-              </div>
-            </div>
-          )}
-          <div className={classNames("flex flex-wrap gap-4 p-4 bg-gray-50 rounded-md", {
-            "opacity-50": isLoading,
-          })}>
+          <div className={classNames("flex flex-wrap gap-4 p-4 bg-gray-50 rounded-md")}>
             {!isRootPath && parentDirName && (
               <div className="flex items-center gap-2">
                 <FormButton onClick={() => setCurrentPath(parentDirName)}>
@@ -192,28 +139,10 @@ export default function FileManager() {
                 Create Folder
               </FormButton>
             </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="file"
-                onChange={handleFileSelect}
-                className="hidden"
-                id="file-upload"
-              />
-              <label htmlFor="file-upload">
-                <FormButton type="secondary" onClick={() => document.getElementById('file-upload')?.click()}>
-                  Select File
-                </FormButton>
-              </label>
-              {selectedFile && (
-                <>
-                  <span className="text-sm">{selectedFile.name}</span>
-                  <FormButton onClick={handleUpload}>
-                    Upload
-                  </FormButton>
-                </>
-              )}
-            </div>
+            <ChunkedUpload
+              onError={handleChunkedUploadError}
+              currentPath={currentPath}
+            />
           </div>
           <div className="border border-gray-200 rounded-md">
             {currentPathFiles.length === 0 ? (
