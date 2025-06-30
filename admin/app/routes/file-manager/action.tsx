@@ -7,14 +7,8 @@ const chunkStorage = new Map<string, { tempDir: string; totalChunks: number; fil
 
 function isValidFileName(name: string): boolean {
   const forbiddenPatterns = [
-    /^\.\/$/,      // "./"
-    /^\.\.\/$/,    // "../"
-    /^\.\.$/,      // ".."
-    /^\.$/,        // "."
-    /\/\.\.\//,    // "/../"
-    /\/\.\//,      // "/./"
-    /\.\./,        // ".." anywhere in the name
-    /\/\//,        // "//" (double slash)
+    /^\./,        // "." files starting with a dot
+    /\//,        // "/" files which contain "/"
   ];
   
   return !forbiddenPatterns.some(pattern => pattern.test(name));
@@ -159,7 +153,6 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
       const destPath = path.join(filePath, fileName);
       await fs.rename(tempFilePath, destPath);
 
-      // Clean up temporary directory and chunk files
       try {
         await fs.rm(fileInfo.tempDir, { recursive: true, force: true });
       } catch (cleanupError) {
