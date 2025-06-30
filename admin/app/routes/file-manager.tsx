@@ -7,6 +7,7 @@ import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
+import { useSubmit } from "react-router";
 
 export function meta() {
   return [
@@ -190,25 +191,15 @@ export default function FileManager() {
     // Clear previous error
     setError(null);
     
-    const formData = new FormData();
-    formData.append('intent', 'createFolder');
-    formData.append('folderName', newFolderName);
-    formData.append('currentPath', currentPath);
+    const submit = useSubmit()
     
     try {
-      const response = await fetch('', {
-        method: 'POST',
-        body: formData
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        setNewFolderName("");
-        loadFiles();
-      } else {
-        setError(result.error || "Failed to create folder");
-      }
+      await submit(
+        { intent: 'createFolder', folderName: newFolderName, currentPath: currentPath },
+        { action: '', method: 'post' },
+      )
+      setNewFolderName("");
+      loadFiles();
     } catch (error) {
       setError("Failed to create folder");
     }
