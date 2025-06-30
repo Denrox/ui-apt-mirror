@@ -100,7 +100,7 @@ The following directories are automatically created and mounted:
 | Directory | Container Path | Purpose |
 |-----------|----------------|---------|
 | `./data/data/apt-mirror` | `/var/spool/apt-mirror` | APT mirror data |
-| `./data/data/files` | `/var/www/files.mirror.intra` | File hosting data |
+| `./data/data/files` | `/var/www/files` | File hosting data |
 | `./data/logs/apt-mirror` | `/var/log` | Application logs |
 | `./data/logs/nginx` | `/var/log/nginx` | Nginx logs |
 | `./data/conf/apt-mirror` | `/etc/apt` | APT mirror configuration |

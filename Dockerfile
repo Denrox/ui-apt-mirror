@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /var/spool/apt-mirror \
     && mkdir -p /var/www/mirror.intra \
     && mkdir -p /var/www/admin.mirror.intra \
-    && mkdir -p /var/www/files.mirror.intra \
+    && mkdir -p /var/www/files \
     && mkdir -p /etc/nginx/sites-available \
     && mkdir -p /etc/nginx/sites-enabled \
     && mkdir -p /var/log/apt-mirror
