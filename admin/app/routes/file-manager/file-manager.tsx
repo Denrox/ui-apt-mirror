@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import fs from "fs/promises";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
-import { useLoaderData, useSubmit } from "react-router";
+import { useActionData, useLoaderData, useSubmit, type SubmitTarget } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
 import { action, getValidationError } from "./action";
+import classNames from "classnames";
 
 export { action, loader };
 
@@ -19,28 +20,27 @@ export function meta() {
   ];
 }
 
-async function uploadFile(filePath: string, file: File): Promise<boolean> {
-  try {
-    const buffer = await file.arrayBuffer();
-    await fs.writeFile(filePath, Buffer.from(buffer));
-    return true;
-  } catch (error) {
-    console.error("Error uploading file:", error);
-    return false;
-  }
+function isChildPath(path: string, parentPath: string): boolean {
+  return path.startsWith(parentPath) && path !== parentPath && path.split('/').length === parentPath.split('/').length + 1;
 }
 
 export default function FileManager() {
-  const { fileTree } = useLoaderData<typeof loader>();
+  const { files } = useLoaderData<typeof loader>();
   const [currentPath, setCurrentPath] = useState(appConfig.filesDir);
+  const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = useSubmit()
 
-  const loadFiles = async (dirPath: string = currentPath) => {
-    console.log('loading');
-  };
+  const currentPathFiles = useMemo(() => {
+    return files.filter((file) => isChildPath(file.path, currentPath));
+  }, [files, currentPath]);
+
+  const isRootPath = useMemo(() => {
+    return currentPath === appConfig.filesDir;
+  }, [currentPath]);
 
   const handleDelete = async (filePath: string) => {
     if (!confirm("Are you sure you want to delete this item?")) return;
@@ -55,31 +55,39 @@ export default function FileManager() {
     }
   };
 
-  /**
+  useEffect(() => {
+    if (actionData?.success) {
+      setError(null);
+    } else if (actionData?.error) {
+      setError(actionData.error);
+    }
+  }, [actionData]);
+
   const handleUpload = async () => {
     if (!selectedFile) return;
     
     // Clear previous error
     setError(null);
-    
-    // Validate file name
-    const validationError = getValidationError(selectedFile.name);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    
-    const uploadPath = path.join(currentPath, selectedFile.name);
-    const success = await uploadFile(uploadPath, selectedFile);
-    
-    if (success) {
-      setSelectedFile(null);
-      loadFiles();
-    } else {
+
+    setIsLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('intent', 'uploadFile');
+      formData.append('filePath', currentPath);
+      formData.append('file', selectedFile);
+      
+      await submit(formData, {
+        method: 'post',
+        action: '',
+        encType: 'multipart/form-data',
+      });
+    } catch (error) {
       setError("Failed to upload file");
+    } finally {
+      setIsLoading(false);
+      setSelectedFile(null);
     }
-  };
-  */
+  }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -108,7 +116,6 @@ export default function FileManager() {
         { action: '', method: 'post' },
       )
       setNewFolderName('');
-      loadFiles();
     } catch (error) {
       setError("Failed to create folder");
     }
@@ -126,23 +133,26 @@ export default function FileManager() {
     return date.toLocaleDateString() + " " + date.toLocaleTimeString();
   };
 
+  const parentDirName = useMemo(() => {
+    return currentPath.split('/').slice(0, -1).join('/');
+  }, [currentPath]);
+
+  console.log(actionData);
+
   return (
     <PageLayoutFull>
       <Title title="File Manager" />
       
       <ContentBlock>
         <div className="flex flex-col gap-4">
-          {/* Current Path */}
           <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-md">
             <span className="font-semibold">Current Path:</span>
             <span className="font-mono text-sm">{currentPath}</span>
           </div>
 
-          {/* Error Display */}
-          {error && (
+          {error && !isLoading && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-md">
               <div className="flex items-center gap-2">
-                <span className="text-red-600">⚠️</span>
                 <span className="text-red-700 text-sm">{error}</span>
                 <FormButton
                   type="secondary"
@@ -154,10 +164,24 @@ export default function FileManager() {
               </div>
             </div>
           )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-4 p-4 bg-gray-50 rounded-md">
-            {/* Create Folder */}
+          {isLoading && (
+            <div className="p-3 absolute z-10 top-0 left-0 w-full h-full bg-gray-50 border border-gray-200 rounded-md">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500">⏳</span>
+                <span className="text-gray-500 text-sm">Loading...</span>
+              </div>
+            </div>
+          )}
+          <div className={classNames("flex flex-wrap gap-4 p-4 bg-gray-50 rounded-md", {
+            "opacity-50": isLoading,
+          })}>
+            {!isRootPath && parentDirName && (
+              <div className="flex items-center gap-2">
+                <FormButton onClick={() => setCurrentPath(parentDirName)}>
+                ↑
+                </FormButton>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <FormInput
                 value={newFolderName}
@@ -169,7 +193,6 @@ export default function FileManager() {
               </FormButton>
             </div>
 
-            {/* Upload File */}
             <div className="flex items-center gap-2">
               <input
                 type="file"
@@ -185,28 +208,24 @@ export default function FileManager() {
               {selectedFile && (
                 <>
                   <span className="text-sm">{selectedFile.name}</span>
-                  {/* <FormButton onClick={handleUpload}>
+                  <FormButton onClick={handleUpload}>
                     Upload
-                  </FormButton> */}
+                  </FormButton>
                 </>
               )}
             </div>
-
-            {/* Refresh */}
-            <FormButton type="secondary" onClick={() => loadFiles()}>
-              Refresh
-            </FormButton>
           </div>
-
-          {/* File List */}
           <div className="border border-gray-200 rounded-md">
-            {fileTree.length === 0 ? (
+            {currentPathFiles.length === 0 ? (
               <div className="p-4 text-center text-gray-500">No files found</div>
             ) : (
               <div className="divide-y divide-gray-200">
-                {fileTree.map((item, index) => (
+                {currentPathFiles.map((item, index) => (
                   <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50">
-                    <div onClick={() => item.isDirectory && setCurrentPath(item.path)} className="flex items-center gap-2">
+                    <div onClick={() => item.isDirectory && setCurrentPath(item.path)} className={classNames("flex items-center gap-2", {
+                      "cursor-pointer": item.isDirectory,
+                      "cursor-default": !item.isDirectory,
+                    })}>
                       <span className="text-lg">
                         {item.isDirectory ? "📁" : "📄"}
                       </span>

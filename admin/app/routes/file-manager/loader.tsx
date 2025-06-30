@@ -18,16 +18,22 @@ async function getFileList(dirPath: string = appConfig.filesDir): Promise<FileIt
     for (const item of items) {
       const fullPath = path.join(dirPath, item.name);
       const stats = await fs.stat(fullPath);
+      const isDirectory = item.isDirectory();
       
       fileList.push({
         name: item.name,
         path: fullPath,
-        isDirectory: item.isDirectory(),
+        isDirectory: isDirectory,
         size: stats.size,
         modified: stats.mtime
       });
+
+      if (isDirectory) {
+        const subFiles = await getFileList(fullPath);
+        fileList.push(...subFiles);
+      }
     }
-    return fileList.sort((a, b) => {
+    return fileList.filter((file) => file.name !== '.' && file.name !== '..' && !file.name.startsWith('.')).sort((a, b) => {
       // Directories first, then files
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
@@ -40,6 +46,6 @@ async function getFileList(dirPath: string = appConfig.filesDir): Promise<FileIt
 }
 
 export async function loader() {
-  const fileTree = await getFileList();
-  return { fileTree };
+  const files = await getFileList();
+  return { files };
 }

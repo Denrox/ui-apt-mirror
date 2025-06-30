@@ -23,6 +23,7 @@ RUN mkdir -p /var/spool/apt-mirror \
     && mkdir -p /var/log/apt-mirror
 
 COPY admin/ /var/admin
+COPY admin/app/config/config.build.json /var/admin/app/config/config.json
 RUN cd /var/admin && npm install && npm run build
 
 # Copy scripts
