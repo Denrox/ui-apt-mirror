@@ -1,150 +1,22 @@
 import { useState, useEffect } from "react";
 import fs from "fs/promises";
-import path from "path";
-import type { Route } from "./+types/file-manager";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
-import { useSubmit } from "react-router";
+import { useLoaderData, useSubmit } from "react-router";
+import appConfig from "~/config/config.json";
+import { loader } from "./loader";
+import { action, getValidationError } from "./action";
+
+export { action, loader };
 
 export function meta() {
   return [
     { title: "File Manager" },
     { name: "description", content: "File Manager for apt-mirror" },
   ];
-}
-
-export async function action({ request }: Route.ActionArgs) {
-  const formData = await request.formData();
-  const intent = formData.get('intent') as string;
-  
-  if (intent === 'createFolder') {
-    const folderName = formData.get('folderName') as string;
-    const currentPath = formData.get('currentPath') as string;
-    
-    // Validate folder name
-    const validationError = getValidationError(folderName);
-    if (validationError) {
-      return { success: false, error: validationError };
-    }
-    
-    const newPath = path.join(currentPath, folderName);
-    const success = await createDirectory(newPath);
-    
-    if (success) {
-      return { success: true };
-    } else {
-      return { success: false, error: "Failed to create folder" };
-    }
-  }
-  
-  return { success: false, error: "Invalid action" };
-}
-
-interface FileItem {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  size?: number;
-  modified?: Date;
-}
-
-interface FileTreeNode extends FileItem {
-  children?: FileTreeNode[];
-  expanded?: boolean;
-}
-
-// Validation functions
-function isValidFileName(name: string): boolean {
-  // Check for forbidden patterns
-  const forbiddenPatterns = [
-    /^\.\/$/,      // "./"
-    /^\.\.\/$/,    // "../"
-    /^\.\.$/,      // ".."
-    /^\.$/,        // "."
-    /\/\.\.\//,    // "/../"
-    /\/\.\//,      // "/./"
-    /\.\./,        // ".." anywhere in the name
-    /\/\//,        // "//" (double slash)
-  ];
-  
-  return !forbiddenPatterns.some(pattern => pattern.test(name));
-}
-
-function getValidationError(name: string): string | null {
-  if (!name.trim()) {
-    return "Name cannot be empty";
-  }
-  
-  if (!isValidFileName(name)) {
-    return "Name cannot contain './', '../', or other path traversal characters";
-  }
-  
-  // Check for other invalid characters
-  const invalidChars = /[<>:"|?*\x00-\x1f]/;
-  if (invalidChars.test(name)) {
-    return "Name contains invalid characters";
-  }
-  
-  return null;
-}
-
-// Server Actions
-async function getFileList(dirPath: string = "/var/www/files.mirror.intra"): Promise<FileItem[]> {
-  try {
-    const items = await fs.readdir(dirPath, { withFileTypes: true });
-    const fileList: FileItem[] = [];
-    
-    for (const item of items) {
-      const fullPath = path.join(dirPath, item.name);
-      const stats = await fs.stat(fullPath);
-      
-      fileList.push({
-        name: item.name,
-        path: fullPath,
-        isDirectory: item.isDirectory(),
-        size: stats.size,
-        modified: stats.mtime
-      });
-    }
-    
-    return fileList.sort((a, b) => {
-      // Directories first, then files
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name);
-    });
-  } catch (error) {
-    console.error("Error reading directory:", error);
-    return [];
-  }
-}
-
-async function createDirectory(dirPath: string): Promise<boolean> {
-  try {
-    await fs.mkdir(dirPath, { recursive: true });
-    return true;
-  } catch (error) {
-    console.error("Error creating directory:", error);
-    return false;
-  }
-}
-
-async function deleteFile(filePath: string): Promise<boolean> {
-  try {
-    const stats = await fs.stat(filePath);
-    if (stats.isDirectory()) {
-      await fs.rmdir(filePath, { recursive: true });
-    } else {
-      await fs.unlink(filePath);
-    }
-    return true;
-  } catch (error) {
-    console.error("Error deleting file:", error);
-    return false;
-  }
 }
 
 async function uploadFile(filePath: string, file: File): Promise<boolean> {
@@ -159,63 +31,31 @@ async function uploadFile(filePath: string, file: File): Promise<boolean> {
 }
 
 export default function FileManager() {
-  const [fileTree, setFileTree] = useState<FileTreeNode[]>([]);
-  const [currentPath, setCurrentPath] = useState("/var/www/files.mirror.intra");
+  const { fileTree } = useLoaderData<typeof loader>();
+  const [currentPath, setCurrentPath] = useState(appConfig.filesDir);
   const [newFolderName, setNewFolderName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submit = useSubmit()
 
   const loadFiles = async (dirPath: string = currentPath) => {
-    setLoading(true);
-    try {
-      const files = await getFileList(dirPath);
-      const treeNodes: FileTreeNode[] = files.map(file => ({
-        ...file,
-        expanded: false,
-        children: []
-      }));
-      setFileTree(treeNodes);
-    } catch (error) {
-      console.error("Error loading files:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadFiles();
-  }, []);
-
-  const handleCreateFolder = async () => {
-    // Clear previous error
-    setError(null);
-    
-    const submit = useSubmit()
-    
-    try {
-      await submit(
-        { intent: 'createFolder', folderName: newFolderName, currentPath: currentPath },
-        { action: '', method: 'post' },
-      )
-      setNewFolderName("");
-      loadFiles();
-    } catch (error) {
-      setError("Failed to create folder");
-    }
+    console.log('loading');
   };
 
   const handleDelete = async (filePath: string) => {
     if (!confirm("Are you sure you want to delete this item?")) return;
-    
-    const success = await deleteFile(filePath);
-    if (success) {
-      loadFiles();
-    } else {
+
+    try {
+      await submit(
+        { intent: 'deleteFile', filePath: filePath },
+        { action: '', method: 'post' },
+      );
+    } catch (error) {
       setError("Failed to delete item");
     }
   };
 
+  /**
   const handleUpload = async () => {
     if (!selectedFile) return;
     
@@ -239,6 +79,7 @@ export default function FileManager() {
       setError("Failed to upload file");
     }
   };
+  */
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -255,6 +96,21 @@ export default function FileManager() {
       }
       
       setSelectedFile(file);
+    }
+  };
+
+  const handleCreateFolder = async () => {
+    setError(null);
+        
+    try {
+      await submit(
+        { intent: 'createFolder', folderName: newFolderName, currentPath: currentPath },
+        { action: '', method: 'post' },
+      )
+      setNewFolderName('');
+      loadFiles();
+    } catch (error) {
+      setError("Failed to create folder");
     }
   };
 
@@ -329,9 +185,9 @@ export default function FileManager() {
               {selectedFile && (
                 <>
                   <span className="text-sm">{selectedFile.name}</span>
-                  <FormButton onClick={handleUpload}>
+                  {/* <FormButton onClick={handleUpload}>
                     Upload
-                  </FormButton>
+                  </FormButton> */}
                 </>
               )}
             </div>
@@ -344,15 +200,13 @@ export default function FileManager() {
 
           {/* File List */}
           <div className="border border-gray-200 rounded-md">
-            {loading ? (
-              <div className="p-4 text-center text-gray-500">Loading...</div>
-            ) : fileTree.length === 0 ? (
+            {fileTree.length === 0 ? (
               <div className="p-4 text-center text-gray-500">No files found</div>
             ) : (
               <div className="divide-y divide-gray-200">
                 {fileTree.map((item, index) => (
                   <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50">
-                    <div className="flex items-center gap-2">
+                    <div onClick={() => item.isDirectory && setCurrentPath(item.path)} className="flex items-center gap-2">
                       <span className="text-lg">
                         {item.isDirectory ? "📁" : "📄"}
                       </span>

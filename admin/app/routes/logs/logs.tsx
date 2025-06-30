@@ -8,6 +8,9 @@ import classNames from "classnames";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutNav from "~/components/shared/layout/page-layout-nav";
 import NavLink from "~/components/shared/nav/nav-link";
+import { loader } from "./loader";
+
+export { loader };
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -20,46 +23,6 @@ const sections = [
   { id: "mirror", linkName: "Mirror", title: "Mirror Logs" },
   { id: "nginx", linkName: "Nginx", title: "Nginx Logs" }
 ];
-
-export async function loader({ params }: Route.LoaderArgs) {
-  const log = (params as { log: string; }).log;
-
-  let logs: string[] = [];
-  let logsDir: string = "";
-
-  if (log === "mirror") {
-    logsDir = appConfig.mirrorLogsDir;
-  } else if (log === "nginx") {
-    logsDir = appConfig.nginxLogsDir;
-  }
-
-  try {
-    logs = await fs.readdir(logsDir);
-  } catch (error) {
-    console.error(`Error reading logs directory ${logsDir}:`, error);
-    logs = [];
-  }
-
-  const logsContent = await Promise.all(logs.filter((log) => log.endsWith(".log") || log.match(/\.log.+$/)).map(async (log) => {
-    try {
-      const logContent = await fs.readFile(`${logsDir}/${log}`, "utf-8");
-      return {
-        name: log,
-        content: logContent
-      };
-    } catch (error) {
-      console.error(`Error reading log file ${log}:`, error);
-      return {
-        name: log,
-        content: `Error reading log file ${log}: ${error}`
-      };
-    }
-  }));
-
-  return {
-    logs: logsContent
-  }
-}
 
 export default function Downloader() {
   const { logs } = useLoaderData<typeof loader>();

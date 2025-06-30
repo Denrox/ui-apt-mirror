@@ -41,7 +41,7 @@ export default function Home() {
     if (timer) {
       clearInterval(timer);
     }
-    const interval = setInterval(checkPagesAvalability, 1000);
+    const interval = setInterval(checkPagesAvalability, 10000);
     setTimer(interval);
   }, []);
 
