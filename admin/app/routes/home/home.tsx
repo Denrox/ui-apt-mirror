@@ -4,20 +4,13 @@ import type { Route } from "./+types/home";
 import appConfig from "~/config/config.json";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import { useEffect, useMemo, useState } from "react";
-
+import { getHostAddress } from "~/utils/url";
 
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Apt Mirror Main Page" },
     { name: "description", content: "Apt Mirror Main Page" },
   ];
-}
-
-const getHostAddress = (host: string) => {
-  if (typeof window !== "undefined") {
-    return `http://${host}`.replace("domain", window.location.hostname.replace('admin.', ''));
-  }
-  return `http://${host}`;
 }
 
 export default function Home() {
@@ -43,6 +36,12 @@ export default function Home() {
     }
     const interval = setInterval(checkPagesAvalability, 10000);
     setTimer(interval);
+
+    return () => {
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
   }, []);
 
   return (

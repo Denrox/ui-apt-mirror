@@ -12,6 +12,7 @@ import { action } from "./action";
 import classNames from "classnames";
 import ChunkedUpload from "~/components/shared/form/chunked-upload";
 import DownloadFile from "~/components/shared/form/download-file";
+import { getHostAddress } from "~/utils/url";
 
 export { action, loader };
 
@@ -206,6 +207,23 @@ export default function FileManager() {
                       <div className="text-sm text-gray-500">
                         {item.modified && formatDate(item.modified)}
                       </div>
+                      {!item.isDirectory && (
+                        <FormButton
+                          type="secondary"
+                          size="small"
+                          onClick={() => {
+                            const link = document.createElement('a');
+                            link.href = `${getHostAddress(appConfig.hosts.find(host => host.id === 'files')?.address || '')}${item.path.replace(appConfig.filesDir, '')}`;
+                            link.target = '_blank';
+                            link.rel = 'noopener noreferrer';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                          }}
+                        >
+                          ↓
+                        </FormButton>
+                      )}
                       <FormButton
                         type="danger"
                         size="small"
