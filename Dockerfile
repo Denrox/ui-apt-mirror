@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     nodejs \
     npm \
     xz-utils \
+    net-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Create necessary directories

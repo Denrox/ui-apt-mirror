@@ -18,12 +18,12 @@ check_nginx() {
     if [ -f "$NGINX_PID_FILE" ]; then
         local pid=$(cat "$NGINX_PID_FILE")
         if kill -0 "$pid" 2>/dev/null; then
-            # Check if nginx is responding
-            if curl -f -s http://localhost/ > /dev/null 2>&1; then
+            # Check if nginx is listening on port 80
+            if netstat -tlnp 2>/dev/null | grep -q ":80.*nginx" || ss -tlnp 2>/dev/null | grep -q ":80.*nginx"; then
                 echo "nginx:running:$pid"
                 return 0
             else
-                echo "nginx:not_responding:$pid"
+                echo "nginx:not_listening:$pid"
                 return 1
             fi
         else
