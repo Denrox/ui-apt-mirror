@@ -138,7 +138,6 @@ export default function ChunkedUpload({ onError, currentPath, onChunkUploaded }:
       />
       <label htmlFor="chunked-file-upload">
         <FormButton 
-          type="secondary" 
           onClick={() => document.getElementById('chunked-file-upload')?.click()}
           disabled={uploading}
         >

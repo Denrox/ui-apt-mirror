@@ -1,6 +1,10 @@
 import type { Route } from "./+types/file-manager";
 import path from "path";
 import fs from "fs/promises";
+import fsSync from "fs";
+import https from "https";
+import http from "http";
+import { URL } from "url";
 
 // Disk-based chunk storage using destination directory
 const chunkStorage = new Map<string, { tempDir: string; totalChunks: number; fileName: string }>();
@@ -52,6 +56,45 @@ async function deleteFile(filePath: string): Promise<boolean> {
   } catch (error) {
     return false;
   }
+}
+
+async function downloadFile(url: string, destPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const urlObj = new URL(url);
+      const protocol = urlObj.protocol === 'https:' ? https : http;
+      
+      const request = protocol.get(url, (response) => {
+        if (response.statusCode !== 200) {
+          resolve(false);
+          return;
+        }
+
+        const fileStream = fsSync.createWriteStream(destPath);
+        response.pipe(fileStream);
+
+        fileStream.on('finish', () => {
+          fileStream.close();
+          resolve(true);
+        });
+
+        fileStream.on('error', () => {
+          resolve(false);
+        });
+      });
+
+      request.on('error', () => {
+        resolve(false);
+      });
+
+      request.setTimeout(30000, () => {
+        request.destroy();
+        resolve(false);
+      });
+    } catch (error) {
+      resolve(false);
+    }
+  });
 }
 
 async function uploadFile(filePath: string, file: any): Promise<boolean> {
@@ -193,6 +236,28 @@ export async function action({ request }: Route.ActionArgs) {
     } else if (intent === 'uploadChunk') {
       const res = await handleChunkUpload(formData);
       return res;
+    } else if (intent === 'downloadFile') {
+      const url = formData.get('url') as string;
+      const fileName = formData.get('fileName') as string;
+      const currentPath = formData.get('currentPath') as string;
+      
+      if (!url || !fileName) {
+        return { success: false, error: "URL and filename are required" };
+      }
+      
+      const validationError = getValidationError(fileName);
+      if (validationError) {
+        return { success: false, error: validationError };
+      }
+      
+      const destPath = path.join(currentPath, fileName);
+      const success = await downloadFile(url, destPath);
+      
+      if (success) {
+        return { success: true };
+      } else {
+        return { success: false, error: "Failed to download file" };
+      }
     }
 
     return { success: false, error: "Invalid action" };

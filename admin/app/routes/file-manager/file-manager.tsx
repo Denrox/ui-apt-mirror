@@ -11,6 +11,7 @@ import { loader } from "./loader";
 import { action } from "./action";
 import classNames from "classnames";
 import ChunkedUpload from "~/components/shared/form/chunked-upload";
+import DownloadFile from "~/components/shared/form/download-file";
 
 export { action, loader };
 
@@ -78,10 +79,11 @@ export default function FileManager() {
   useEffect(() => {
     if (actionData?.success) {
       setError(null);
+      revalidator.revalidate();
     } else if (actionData && 'error' in actionData && actionData.error) {
       setError(actionData.error);
     }
-  }, [actionData]);
+  }, [actionData, revalidator]);
 
   const handleCreateFolder = async () => {
     setError(null);
@@ -102,10 +104,14 @@ export default function FileManager() {
   }, []);
 
   const handleChunkUploaded = useCallback((chunkIndex: number, totalChunks: number) => {
-    if (chunkIndex === totalChunks - 1) {
+    if (chunkIndex === 0 || chunkIndex === totalChunks - 1) {
       revalidator.revalidate();
     }
   }, [revalidator]);
+
+  const handleDownloadError = useCallback((error: string) => {
+    setError(error);
+  }, []);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -170,6 +176,10 @@ export default function FileManager() {
               onError={handleChunkedUploadError}
               currentPath={currentPath}
               onChunkUploaded={handleChunkUploaded}
+            />
+            <DownloadFile
+              onError={handleDownloadError}
+              currentPath={currentPath}
             />
           </div>
           <div className="border border-gray-200 rounded-md">
