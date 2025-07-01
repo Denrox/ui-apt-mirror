@@ -1,10 +1,11 @@
-import { useState, useCallback } from "react";
-import { useSubmit } from "react-router";
+import { useState, useCallback, useRef } from "react";
+import { useFetcher } from "react-router";
 import FormButton from "~/components/shared/form/form-button";
 
 interface ChunkedUploadProps {
   onError: (error: string) => void;
   currentPath: string;
+  onChunkUploaded?: (chunkIndex: number, totalChunks: number) => void;
 }
 
 interface UploadChunk {
@@ -17,11 +18,13 @@ interface UploadChunk {
 
 const CHUNK_SIZE = 10240 * 1024; // 10MB chunks
 
-export default function ChunkedUpload({ onError, currentPath }: ChunkedUploadProps) {
+export default function ChunkedUpload({ onError, currentPath, onChunkUploaded }: ChunkedUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const submit = useSubmit();
+  const fetcher = useFetcher();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const generateFileId = () => {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
   };
@@ -48,7 +51,7 @@ export default function ChunkedUpload({ onError, currentPath }: ChunkedUploadPro
     return chunks;
   };
 
-  const uploadChunk = async (chunkData: UploadChunk, retries = 3): Promise<boolean> => {
+  const uploadChunk = useCallback(async (chunkData: UploadChunk, retries = 3): Promise<boolean> => {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const formData = new FormData();
@@ -60,36 +63,30 @@ export default function ChunkedUpload({ onError, currentPath }: ChunkedUploadPro
         formData.append('fileName', chunkData.fileName);
         formData.append('fileId', chunkData.fileId);
 
-        // Create AbortController for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-        await submit(formData, {
+        await fetcher.submit(formData, {
           method: 'POST',
           action: '',
           encType: 'multipart/form-data',
         });
 
-        clearTimeout(timeoutId);
         return true;
       } catch (error) {
         console.error(`Chunk upload attempt ${attempt} failed:`, error);
         if (attempt === retries) {
           return false;
         }
-        // Wait before retry (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
     }
     return false;
-  };
+  }, [currentPath, fetcher]);
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
     }
-  };
+  }, []);
 
   const handleUpload = useCallback(async () => {
     if (!selectedFile) return;
@@ -108,13 +105,18 @@ export default function ChunkedUpload({ onError, currentPath }: ChunkedUploadPro
           throw new Error(`Failed to upload chunk ${i + 1} of ${chunks.length} after retries`);
         }
 
-        // Update progress
+        onChunkUploaded?.(chunk.index, chunk.total);
+
         const newProgress = Math.round(((i + 1) / chunks.length) * 100);
         setProgress(newProgress);
       }
 
       setSelectedFile(null);
       setProgress(0);
+      
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
 
     } catch (error) {
       console.error('Upload failed:', error);
@@ -122,11 +124,12 @@ export default function ChunkedUpload({ onError, currentPath }: ChunkedUploadPro
     } finally {
       setUploading(false);
     }
-  }, [selectedFile, currentPath, onError]);
+  }, [selectedFile, currentPath, onError, uploadChunk, onChunkUploaded]);
 
   return (
     <div className="flex items-center gap-2">
       <input
+        ref={fileInputRef}
         type="file"
         onChange={handleFileSelect}
         className="hidden"

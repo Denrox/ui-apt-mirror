@@ -7,8 +7,8 @@ const chunkStorage = new Map<string, { tempDir: string; totalChunks: number; fil
 
 function isValidFileName(name: string): boolean {
   const forbiddenPatterns = [
-    /^\./,        // "." files starting with a dot
-    /\//,        // "/" files which contain "/"
+    /^\./,        // Files starting with a dot
+    /\//,         // Files containing "/"
   ];
   
   return !forbiddenPatterns.some(pattern => pattern.test(name));
@@ -23,7 +23,6 @@ export function getValidationError(name: string): string | null {
     return "Name cannot contain './', '../', or other path traversal characters";
   }
   
-  // Check for other invalid characters
   const invalidChars = /[<>:"|?*\x00-\x1f]/;
   if (invalidChars.test(name)) {
     return "Name contains invalid characters";
@@ -59,19 +58,14 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
   try {
     const destPath = path.join(filePath, file.name);
 
-    // Ensure the destination directory exists
     const destDir = path.dirname(destPath);
     await fs.mkdir(destDir, { recursive: true });
 
-    // In Node.js/Remix, the file from formData is a different type
-    // We need to handle it as a stream or buffer
     if (file && typeof file.arrayBuffer === 'function') {
-      // Browser File object (shouldn't happen in Node.js)
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       await fs.writeFile(destPath, buffer);
     } else if (file && file.stream) {
-      // Node.js file object with stream
       const stream = file.stream();
       const chunks: Buffer[] = [];
       for await (const chunk of stream) {
@@ -80,7 +74,6 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
       const buffer = Buffer.concat(chunks);
       await fs.writeFile(destPath, buffer);
     } else if (file && file.buffer) {
-      // Node.js file object with buffer
       await fs.writeFile(destPath, file.buffer);
     } else {
       throw new Error('Unsupported file type');
@@ -105,13 +98,11 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
       return { success: false, error: "Missing required chunk data" };
     }
 
-    // Validate file name
     const validationError = getValidationError(fileName);
     if (validationError) {
       return { success: false, error: validationError };
     }
 
-    // Convert chunk to buffer
     let chunkBuffer: Buffer;
     try {
       if (chunk && typeof chunk.arrayBuffer === 'function') {
@@ -126,9 +117,7 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
       return { success: false, error: "Failed to process chunk data" };
     }
 
-    // Initialize or get chunk storage info
     if (!chunkStorage.has(fileId)) {
-      // Create temporary directory in the destination directory
       const tempDirName = `.tmp-${fileId}`;
       const tempDir = path.join(filePath, tempDirName);
       await fs.mkdir(tempDir, { recursive: true });
@@ -138,18 +127,13 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
     const fileInfo = chunkStorage.get(fileId)!;
     const tempFilePath = path.join(fileInfo.tempDir, `${fileName}.temp`);
 
-    // Append chunk to the assembling file
     if (chunkIndex === 0) {
-      // First chunk - create the file
       await fs.writeFile(tempFilePath, chunkBuffer);
     } else {
-      // Subsequent chunks - append to the file
       await fs.appendFile(tempFilePath, chunkBuffer);
     }
 
-    // Check if this is the final chunk
     if (chunkIndex === totalChunks - 1) {
-      // Move the assembled file to its final location
       const destPath = path.join(filePath, fileName);
       await fs.rename(tempFilePath, destPath);
 
@@ -159,7 +143,6 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
         // Ignore cleanup errors
       }
 
-      // Remove from chunk storage
       chunkStorage.delete(fileId);
 
       return { success: true };
@@ -182,7 +165,6 @@ export async function action({ request }: Route.ActionArgs) {
       const folderName = formData.get('folderName') as string;
       const currentPath = formData.get('currentPath') as string;
       
-      // Validate folder name
       const validationError = getValidationError(folderName);
       if (validationError) {
         return { success: false, error: validationError };

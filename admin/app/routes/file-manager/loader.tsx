@@ -34,7 +34,6 @@ async function getFileList(dirPath: string = appConfig.filesDir): Promise<FileIt
       }
     }
     return fileList.filter((file) => file.name !== '.' && file.name !== '..' && !file.name.startsWith('.')).sort((a, b) => {
-      // Directories first, then files
       if (a.isDirectory && !b.isDirectory) return -1;
       if (!a.isDirectory && b.isDirectory) return 1;
       return a.name.localeCompare(b.name);

@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import fs from "fs/promises";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
-import { useActionData, useLoaderData, useSubmit, type SubmitTarget } from "react-router";
+import { useActionData, useLoaderData, useSubmit, useRevalidator, type SubmitTarget } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
 import { action } from "./action";
@@ -13,6 +13,26 @@ import classNames from "classnames";
 import ChunkedUpload from "~/components/shared/form/chunked-upload";
 
 export { action, loader };
+
+export function shouldRevalidate({ 
+  currentParams, 
+  nextParams, 
+  formData, 
+  actionResult, 
+  defaultShouldRevalidate 
+}: {
+  currentParams: any;
+  nextParams: any;
+  formData: FormData | null;
+  actionResult: any;
+  defaultShouldRevalidate: boolean;
+}) {
+  if (formData?.get('intent') === 'uploadChunk') {
+    return false;
+  }
+  
+  return defaultShouldRevalidate;
+}
 
 export function meta() {
   return [
@@ -31,7 +51,8 @@ export default function FileManager() {
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const submit = useSubmit()
+  const submit = useSubmit();
+  const revalidator = useRevalidator();
 
   const currentPathFiles = useMemo(() => {
     return files.filter((file) => isChildPath(file.path, currentPath));
@@ -57,7 +78,7 @@ export default function FileManager() {
   useEffect(() => {
     if (actionData?.success) {
       setError(null);
-    } else if (actionData?.error) {
+    } else if (actionData && 'error' in actionData && actionData.error) {
       setError(actionData.error);
     }
   }, [actionData]);
@@ -76,9 +97,15 @@ export default function FileManager() {
     }
   };
 
-  const handleChunkedUploadError = (error: string) => {
+  const handleChunkedUploadError = useCallback((error: string) => {
     setError(error);
-  };
+  }, []);
+
+  const handleChunkUploaded = useCallback((chunkIndex: number, totalChunks: number) => {
+    if (chunkIndex === totalChunks - 1) {
+      revalidator.revalidate();
+    }
+  }, [revalidator]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -142,6 +169,7 @@ export default function FileManager() {
             <ChunkedUpload
               onError={handleChunkedUploadError}
               currentPath={currentPath}
+              onChunkUploaded={handleChunkUploaded}
             />
           </div>
           <div className="border border-gray-200 rounded-md">
