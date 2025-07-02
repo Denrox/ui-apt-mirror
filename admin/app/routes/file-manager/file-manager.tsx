@@ -46,7 +46,7 @@ export function meta() {
 function isChildPath(path: string, parentPath: string): boolean {
   const parentPathChunks = parentPath.split('/');
   const pathChunks = path.split('/');
-  return path.startsWith(parentPath) && path !== parentPath && pathChunks.length > parentPathChunks.length - 1;
+  return path.startsWith(parentPath) && path !== parentPath && pathChunks.length - 1 === parentPathChunks.length;
 }
 
 export default function FileManager() {
