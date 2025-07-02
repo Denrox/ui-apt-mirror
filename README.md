@@ -268,58 +268,6 @@ ui-apt-mirror/
     └── conf/nginx/         # Nginx configurations
 ```
 
-## 🔍 Troubleshooting
-
-### Common Issues
-
-1. **Port 80 already in use**
-   ```bash
-   # Check what's using port 80
-   sudo netstat -tlnp | grep :80
-   
-   # Stop conflicting service or change port in docker-compose.yml
-   ```
-
-2. **Permission denied errors**
-   ```bash
-   # Fix data directory permissions
-   sudo chown -R $USER:$USER data/
-   ```
-
-3. **Container won't start**
-   ```bash
-   # Check container logs
-   docker logs ui-apt-mirror
-   
-   # Check if image was loaded correctly
-   docker images | grep ui-apt-mirror
-   ```
-
-4. **Sync not working**
-   ```bash
-   # Check apt-mirror logs
-   docker exec ui-apt-mirror cat /var/log/apt-mirror.log
-   
-   # Check configuration
-   docker exec ui-apt-mirror cat /etc/apt/mirror.list
-   ```
-
-### Health Checks
-
-The container includes built-in health checks. Check the status:
-
-```bash
-docker inspect ui-apt-mirror | grep -A 10 "Health"
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -329,14 +277,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [apt-mirror](https://github.com/apt-mirror/apt-mirror) - The APT mirroring tool
 - [nginx](https://nginx.org/) - Web server
 - [Docker](https://docker.com/) - Containerization platform
-
-## 📞 Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Review the logs
-3. Open an issue on GitHub
-
----
-
-**Note**: This is a development tool. For production use, ensure proper security measures are in place, including HTTPS, firewall rules, and regular security updates. 
