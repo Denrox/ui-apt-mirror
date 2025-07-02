@@ -57,7 +57,8 @@ export default function FileManager() {
   const [error, setError] = useState<string | null>(null);
   const submit = useSubmit();
   const revalidator = useRevalidator();
-
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const currentPathFiles = useMemo(() => {
     return files.filter((file) => isChildPath(file.path, currentPath));
   }, [files, currentPath]);
@@ -132,6 +133,10 @@ export default function FileManager() {
     return currentPath.split('/').slice(0, -1).join('/');
   }, [currentPath]);
 
+  const isOperationInProgress = useMemo(() => {
+    return isUploading || isDownloading;
+  }, [isUploading, isDownloading]);
+
   return (
     <PageLayoutFull>
       <Title title="File Manager" />
@@ -171,19 +176,25 @@ export default function FileManager() {
                 onChange={setNewFolderName}
                 placeholder="New folder name"
               />
-              <FormButton onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
+              <FormButton onClick={handleCreateFolder} disabled={!newFolderName.trim() || isOperationInProgress}>
                 Create Folder
               </FormButton>
             </div>
-            <ChunkedUpload
-              onError={handleChunkedUploadError}
-              currentPath={currentPath}
-              onChunkUploaded={handleChunkUploaded}
-            />
-            <DownloadFile
-              onError={handleDownloadError}
-              currentPath={currentPath}
-            />
+            {!isDownloading && (
+              <ChunkedUpload
+                onError={handleChunkedUploadError}
+                onSelectedFile={setIsUploading}
+                currentPath={currentPath}
+                onChunkUploaded={handleChunkUploaded}
+              />
+            )}
+            {!isUploading && (
+              <DownloadFile
+                onError={handleDownloadError}
+                onDownloadInput={setIsDownloading}
+                currentPath={currentPath}
+              />
+            )}
           </div>
           <div className="border border-gray-200 rounded-md">
             {currentPathFiles.length === 0 ? (
@@ -192,7 +203,7 @@ export default function FileManager() {
               <div className="divide-y divide-gray-200">
                 {currentPathFiles.map((item, index) => (
                   <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50">
-                    <div onClick={() => item.isDirectory && setCurrentPath(item.path)} className={classNames("flex items-center gap-2", {
+                    <div onClick={() => item.isDirectory && !isOperationInProgress && setCurrentPath(item.path)} className={classNames("flex items-center gap-2", {
                       "cursor-pointer": item.isDirectory,
                       "cursor-default": !item.isDirectory,
                     })}>
@@ -229,6 +240,7 @@ export default function FileManager() {
                       <FormButton
                         type="danger"
                         size="small"
+                        disabled={isOperationInProgress}
                         onClick={() => handleDelete(item.path)}
                       >
                         Delete

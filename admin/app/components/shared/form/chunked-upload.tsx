@@ -1,10 +1,11 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useFetcher } from "react-router";
 import FormButton from "~/components/shared/form/form-button";
 
 interface ChunkedUploadProps {
   onError: (error: string) => void;
   currentPath: string;
+  onSelectedFile: (isSelected: boolean) => void;
   onChunkUploaded?: (chunkIndex: number, totalChunks: number) => void;
 }
 
@@ -18,7 +19,7 @@ interface UploadChunk {
 
 const CHUNK_SIZE = 10240 * 1024; // 10MB chunks
 
-export default function ChunkedUpload({ onError, currentPath, onChunkUploaded }: ChunkedUploadProps) {
+export default function ChunkedUpload({ onError, currentPath, onChunkUploaded, onSelectedFile }: ChunkedUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -81,6 +82,10 @@ export default function ChunkedUpload({ onError, currentPath, onChunkUploaded }:
     return false;
   }, [currentPath, fetcher]);
 
+  useEffect(() => {
+    onSelectedFile(!!selectedFile);
+  }, [selectedFile, onSelectedFile]);
+
   const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -136,15 +141,16 @@ export default function ChunkedUpload({ onError, currentPath, onChunkUploaded }:
         id="chunked-file-upload"
         disabled={uploading}
       />
-      <label htmlFor="chunked-file-upload">
-        <FormButton 
-          onClick={() => document.getElementById('chunked-file-upload')?.click()}
-          disabled={uploading}
-        >
-          Select File
-        </FormButton>
-      </label>
-      
+      {!selectedFile && (
+        <label htmlFor="chunked-file-upload">
+          <FormButton 
+            onClick={() => document.getElementById('chunked-file-upload')?.click()}
+            disabled={uploading}
+          >
+            Upload File
+          </FormButton>
+        </label>
+      )}
       {selectedFile && (
         <>
           <span className="text-sm">{selectedFile.name}</span>
@@ -153,6 +159,13 @@ export default function ChunkedUpload({ onError, currentPath, onChunkUploaded }:
             disabled={uploading}
           >
             Upload
+          </FormButton>
+          <FormButton
+            type="secondary"
+            onClick={() => setSelectedFile(null)}
+            disabled={uploading}
+          >
+            Cancel
           </FormButton>
         </>
       )}

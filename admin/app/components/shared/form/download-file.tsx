@@ -5,10 +5,11 @@ import FormInput from "~/components/shared/form/form-input";
 
 interface DownloadFileProps {
   onError: (error: string) => void;
+  onDownloadInput: (isDownloading: boolean) => void;
   currentPath: string;
 }
 
-export default function DownloadFile({ onError, currentPath }: DownloadFileProps) {
+export default function DownloadFile({ onError, currentPath, onDownloadInput }: DownloadFileProps) {
   const [url, setUrl] = useState("");
   const [fileName, setFileName] = useState("");
   const [downloading, setDownloading] = useState(false);
@@ -35,6 +36,10 @@ export default function DownloadFile({ onError, currentPath }: DownloadFileProps
   const handleDownloadClick = useCallback(() => {
     setShowUrlInput(true);
   }, []);
+
+  useEffect(() => {
+    onDownloadInput(showUrlInput);
+  }, [showUrlInput, onDownloadInput]);
 
   const handleDownload = useCallback(async () => {
     if (!url.trim()) {
