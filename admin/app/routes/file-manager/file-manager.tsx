@@ -44,7 +44,9 @@ export function meta() {
 }
 
 function isChildPath(path: string, parentPath: string): boolean {
-  return path.startsWith(parentPath) && path !== parentPath;
+  const parentPathChunks = parentPath.split('/');
+  const pathChunks = path.split('/');
+  return path.startsWith(parentPath) && path !== parentPath && pathChunks.length > parentPathChunks.length - 1;
 }
 
 export default function FileManager() {
