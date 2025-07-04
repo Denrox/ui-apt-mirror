@@ -56,13 +56,34 @@ export default function Home() {
             Ubuntu
           </div>
           <div className="text-[12px] text-gray-500">
-            Main: deb {mirrorAddress}/archive.ubuntu.com/ jammy main restricted universe multiverse
+            Types: deb
           </div>
           <div className="text-[12px] text-gray-500">
-            Security: deb {mirrorAddress}/archive.ubuntu.com/ jammy-security main restricted universe multiverse
+            URIs: {mirrorAddress}/archive.ubuntu.com/ubuntu
           </div>
           <div className="text-[12px] text-gray-500">
-            Updates: deb {mirrorAddress}/archive.ubuntu.com/ jammy-updates main restricted universe multiverse
+            Suites: noble noble-updates noble-backports
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Components: main restricted universe multiverse
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          </div>
+          <div className="text-[12px] text-gray-500 mt-[8px]">
+            Types: deb
+          </div>
+          <div className="text-[12px] text-gray-500">
+            URIs: {mirrorAddress}/archive.ubuntu.com/ubuntu
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Suites: noble-security
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Components: main restricted universe multiverse
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           </div>
         </div>
 

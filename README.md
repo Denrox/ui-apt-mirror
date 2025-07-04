@@ -168,9 +168,17 @@ To use the local repository on your Ubuntu systems, add the following to `/etc/a
 ```bash
 # Replace mirror.intra with your custom domain
 # For Ubuntu 24.04 (Noble)
-deb http://mirror.intra/archive.ubuntu.com/ noble main restricted universe multiverse
-deb http://mirror.intra/archive.ubuntu.com/ noble-updates main restricted universe multiverse
-deb http://mirror.intra/archive.ubuntu.com/ noble-security main restricted universe multiverse
+Types: deb
+URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
+Suites: noble noble-updates noble-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
+Suites: noble-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 # For Debian 12 (Bookworm)
 deb http://mirror.intra/deb.debian.org/ bookworm main contrib non-free non-free-firmware
