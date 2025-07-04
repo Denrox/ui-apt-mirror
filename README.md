@@ -168,14 +168,14 @@ To use the local repository on your Ubuntu systems, add the following to `/etc/a
 ```bash
 # Replace mirror.intra with your custom domain
 # For Ubuntu 24.04 (Noble)
-deb http://mirror.intra/ubuntu/ noble main restricted universe multiverse
-deb http://mirror.intra/ubuntu/ noble-updates main restricted universe multiverse
-deb http://mirror.intra/ubuntu/ noble-security main restricted universe multiverse
+deb http://mirror.intra/archive.ubuntu.com/ noble main restricted universe multiverse
+deb http://mirror.intra/archive.ubuntu.com/ noble-updates main restricted universe multiverse
+deb http://mirror.intra/archive.ubuntu.com/ noble-security main restricted universe multiverse
 
 # For Debian 12 (Bookworm)
-deb http://mirror.intra/debian/ bookworm main contrib non-free non-free-firmware
-deb http://mirror.intra/debian/ bookworm-updates main contrib non-free non-free-firmware
-deb http://mirror.intra/debian-security bookworm-security main contrib non-free non-free-firmware
+deb http://mirror.intra/deb.debian.org/ bookworm main contrib non-free non-free-firmware
+deb http://mirror.intra/deb.debian.org/ bookworm-updates main contrib non-free non-free-firmware
+deb http://mirror.intra/security.debian.org/ bookworm-security main contrib non-free non-free-firmware
 ```
 
 Then update your package lists:

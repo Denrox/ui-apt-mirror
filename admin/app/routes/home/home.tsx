@@ -44,8 +44,45 @@ export default function Home() {
     };
   }, []);
 
+  const mirrorAddress = getHostAddress(appConfig.hosts.find((host) => host.id === 'mirror')?.address || '');
+
   return (
     <PageLayoutFull>
+      <Title title="Repository Configuration" />
+      <div className="flex flex-row items-center gap-[32px] flex-wrap px-[16px] lg:px-0">
+        {/* Ubuntu Section */}
+        <div className="w-[calc(50%-18px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
+          <div className="block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
+            Ubuntu
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Main: deb {mirrorAddress}/archive.ubuntu.com/ jammy main restricted universe multiverse
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Security: deb {mirrorAddress}/archive.ubuntu.com/ jammy-security main restricted universe multiverse
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Updates: deb {mirrorAddress}/archive.ubuntu.com/ jammy-updates main restricted universe multiverse
+          </div>
+        </div>
+
+        {/* Debian Section */}
+        <div className="w-[calc(50%-18px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
+          <div className="block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
+            Debian
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Main: deb {mirrorAddress}/deb.debian.org/ bookworm main contrib non-free non-free-firmware
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Security: deb {mirrorAddress}/security.debian.org/ bookworm-security main contrib non-free non-free-firmware
+          </div>
+          <div className="text-[12px] text-gray-500">
+            Updates: deb {mirrorAddress}/deb.debian.org/ bookworm-updates main contrib non-free non-free-firmware
+          </div>
+        </div>
+      </div>
+
       <Title title="Services Status" />
       <div className="flex flex-row items-center gap-[32px] flex-wrap px-[16px] lg:px-0">
         {appConfig.hosts.map((page) => (
