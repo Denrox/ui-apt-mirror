@@ -26,7 +26,7 @@ set postmirror_script $var_path/postmirror.sh
 set run_postmirror 0
 
 # Set nthreads to the number of threads to use
-set nthreads     20
+set nthreads     2
 
 # Set _tilde to 1 to download tilde files
 set _tilde 0
