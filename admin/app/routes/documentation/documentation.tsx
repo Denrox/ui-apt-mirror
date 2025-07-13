@@ -37,7 +37,7 @@ export default function Documentation() {
 {`data/
 ├── conf/
 │   ├── apt-mirror/
-│   │   └── mirror.list          # apt-mirror configuration
+│   │   └── mirror.list          # apt-mirror2 configuration
 │   └── nginx/
 │       ├── .htpasswd            # Admin authentication file
 │       └── sites-available/     # Nginx site configurations
@@ -45,14 +45,14 @@ export default function Documentation() {
 │           ├── admin.mirror.intra.conf
 │           └── files.mirror.intra.conf
 ├── data/
-│   ├── apt-mirror/              # apt-mirror working directory
+│   ├── apt-mirror/              # apt-mirror2 working directory
 │   │   ├── mirror/              # Downloaded package mirrors
 │   │   ├── skel/                # Skeleton files
 │   │   └── var/                 # Variable data
 │   └── files/                   # Custom file repository
 └── logs/
-    ├── apt-mirror/              # apt-mirror logs
-    │   └── apt-mirror.log       # Main apt-mirror log file
+    ├── apt-mirror/              # apt-mirror2 logs
+    │   └── apt-mirror.log       # Main apt-mirror2 log file
     └── nginx/                   # Nginx access and error logs`}
           </pre>
         </div>

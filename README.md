@@ -4,7 +4,7 @@ A comprehensive APT mirror solution with a modern web interface, built with Dock
 
 ## 🚀 Features
 
-- **APT Mirror**: Local Ubuntu package repository with automatic synchronization
+- **APT Mirror**: Local Ubuntu package repository with automatic synchronization using apt-mirror2 (Python/asyncio version) from PyPI
 - **Web Interface**: web UI for all services
 - **Multi-Host Setup**: Three distinct web services:
   - `mirror.intra` - DEB packages repository
@@ -28,8 +28,9 @@ A comprehensive APT mirror solution with a modern web interface, built with Dock
 │                    UI APT Mirror Container                  │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │   nginx     │  │ apt-mirror  │  │ health-check│        │
+│  │   nginx     │  │ apt-mirror2 │  │ health-check│        │
 │  │   (web)     │  │   (sync)    │  │  (monitor)  │        │
+│  │             │  │  (Python)   │  │             │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 ├─────────────────────────────────────────────────────────────┤
 │  mirror.intra  │  admin.mirror.intra  │  files.mirror.intra │
@@ -109,7 +110,7 @@ The following directories are automatically created and mounted:
 
 ### APT Mirror Configuration
 
-The apt-mirror configuration is automatically generated and includes:
+The apt-mirror2 configuration is automatically generated and includes:
 - Ubuntu 24.04 (Noble Numbat) repositories
 - Debian 12 (Bookworm) repositories
 - Main, restricted, universe, and multiverse components
@@ -282,6 +283,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-- [apt-mirror](https://github.com/apt-mirror/apt-mirror) - The APT mirroring tool
+- [apt-mirror2](https://gitlab.com/apt-mirror2/apt-mirror2) - The Python/asyncio APT mirroring tool from PyPI
 - [nginx](https://nginx.org/) - Web server
 - [Docker](https://docker.com/) - Containerization platform

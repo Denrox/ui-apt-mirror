@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Health check script for apt-mirror container
-# This script monitors the health of nginx and apt-mirror services
+# Health check script for apt-mirror2 container
+# This script monitors the health of nginx and apt-mirror2 services
 
 HEALTH_LOG="/var/log/health-check.log"
 NGINX_PID_FILE="/var/run/nginx.pid"
@@ -36,7 +36,7 @@ check_nginx() {
     fi
 }
 
-# Function to check apt-mirror status
+# Function to check apt-mirror2 status
 check_mirror() {
     if [ -f "$MIRROR_LOCK_FILE" ]; then
         local pid=$(cat "$MIRROR_LOCK_FILE")

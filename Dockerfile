@@ -1,9 +1,10 @@
 # Multi-stage build for apt-mirror with nginx
-FROM ubuntu:24.04 as base
+FROM ubuntu:24.04 AS base
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    apt-mirror \
+    python3 \
+    python3-pip \
     nginx \
     openssl \
     curl \
@@ -13,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     xz-utils \
     net-tools \
     && rm -rf /var/lib/apt/lists/*
+
+# Install apt-mirror from PyPI (using --break-system-packages for Ubuntu 24.04)
+RUN pip3 install --break-system-packages apt-mirror
 
 # Create necessary directories
 RUN mkdir -p /var/spool/apt-mirror \

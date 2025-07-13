@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# apt-mirror sync script
-# This script handles the synchronization of apt repositories
+# apt-mirror2 sync script
+# This script handles the synchronization of apt repositories using the Python version (apt-mirror2)
 
 MIRROR_CONFIG="/etc/apt/mirror.list"
 MIRROR_LOG="/var/log/apt-mirror/apt-mirror.log"
@@ -42,7 +42,7 @@ remove_lock() {
 
 # Function to perform sync
 do_sync() {
-    log "Starting apt-mirror sync..."
+    log "Starting apt-mirror2 sync..."
     
     if [ ! -f "$MIRROR_CONFIG" ]; then
         log "ERROR: Mirror configuration not found at $MIRROR_CONFIG"
@@ -52,7 +52,7 @@ do_sync() {
     # Create lock file
     create_lock
     
-    # Run apt-mirror
+    # Run apt-mirror2 using Python version
     if apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
         log "Sync completed successfully"
         

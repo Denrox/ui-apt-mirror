@@ -77,14 +77,14 @@ fi
 
 echo "✅ nginx started successfully (PID: $NGINX_PID)"
 
-# Start apt-mirror sync in background if configuration exists
+# Start apt-mirror2 sync in background if configuration exists
 if [ -f /etc/apt/mirror.list ]; then
-    echo "🔄 Starting apt-mirror sync..."
+    echo "🔄 Starting apt-mirror2 sync..."
     /usr/local/bin/mirror-sync.sh &
     MIRROR_PID=$!
-    echo "✅ apt-mirror sync started (PID: $MIRROR_PID)"
+    echo "✅ apt-mirror2 sync started (PID: $MIRROR_PID)"
 else
-    echo "⚠️  No apt-mirror configuration found. Skipping sync."
+    echo "⚠️  No apt-mirror2 configuration found. Skipping sync."
 fi
 
 # Start health check service
@@ -96,7 +96,7 @@ echo "🎉 All services started successfully!"
 echo "📊 Services running:"
 echo "   - nginx (PID: $NGINX_PID)"
 if [ -n "$MIRROR_PID" ]; then
-    echo "   - apt-mirror sync (PID: $MIRROR_PID)"
+    echo "   - apt-mirror2 sync (PID: $MIRROR_PID)"
 fi
 echo "   - health check (PID: $HEALTH_PID)"
 

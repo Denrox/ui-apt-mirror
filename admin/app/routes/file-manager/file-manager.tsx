@@ -36,10 +36,10 @@ export function shouldRevalidate({
   return defaultShouldRevalidate;
 }
 
-export function meta() {
+export function meta({}: any) {
   return [
     { title: "File Manager" },
-    { name: "description", content: "File Manager for apt-mirror" },
+    { name: "description", content: "File Manager for apt-mirror2" },
   ];
 }
 

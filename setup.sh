@@ -206,14 +206,14 @@ create_data_dirs() {
     print_success "Data directories created."
 }
 
-# Function to generate apt-mirror configuration
+# Function to generate apt-mirror2 configuration
 generate_mirror_config() {
     local domain=$1
     
-    print_status "Generating apt-mirror configuration..."
+    print_status "Generating apt-mirror2 configuration..."
     
     cat > data/conf/apt-mirror/mirror.list << EOF
-# apt-mirror configuration for $domain
+# apt-mirror2 configuration for $domain
 # Generated on $(date)
 
 # Set base_path to the directory where you want to store the mirror
@@ -264,7 +264,7 @@ clean http://deb.debian.org/debian
 clean http://security.debian.org/debian-security
 EOF
     
-    print_success "apt-mirror configuration generated."
+    print_success "apt-mirror2 configuration generated."
 }
 
 # Function to show status
