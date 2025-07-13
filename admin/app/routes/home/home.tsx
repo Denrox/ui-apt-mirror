@@ -51,7 +51,7 @@ export default function Home() {
       <Title title="Repository Configuration" />
       <div className="flex flex-row items-center gap-[32px] flex-wrap px-[16px] lg:px-0">
         {/* Ubuntu Section */}
-        <div className="w-[calc(50%-18px)] max-h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
+        <div className="w-[calc(50%-18px)] h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
           <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
             Ubuntu
           </div>
@@ -88,7 +88,7 @@ export default function Home() {
         </div>
 
         {/* Debian Section */}
-        <div className="w-[calc(50%-18px)] max-h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
+        <div className="w-[calc(50%-18px)] h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
           <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
             Debian
           </div>
