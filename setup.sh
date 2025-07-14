@@ -241,7 +241,7 @@ set postmirror_script \$var_path/postmirror.sh
 set run_postmirror 0
 
 # Set nthreads to the number of threads to use
-set nthreads     10
+set nthreads     2
 
 # Set _tilde to 1 to download tilde files
 set _tilde 0
@@ -261,6 +261,8 @@ set _user_agent "apt-mirror2/14"
 # Set number of connections per host
 set _max_connections 10
 
+set release_files_retries 15
+
 # Ubuntu 24.04 (Noble Numbat) repositories - AMD64 architecture
 deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
@@ -272,12 +274,6 @@ deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmwar
 deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
 deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
-
-# Debian ARM64 repositories (additional packages)
-deb-arm64 http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
-deb-arm64 http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
-deb-arm64 http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-deb-arm64 http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
 
 # Clean up old packages
 clean http://archive.ubuntu.com/ubuntu
