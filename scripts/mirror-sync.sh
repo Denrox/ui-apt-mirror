@@ -52,8 +52,12 @@ do_sync() {
     # Create lock file
     create_lock
     
-    # Run apt-mirror2 using Python version
-    if apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
+    # Set environment variables for better performance
+    export PYTHONUNBUFFERED=1
+    export PYTHONIOENCODING=utf-8
+    
+    # Run apt-mirror2 using Python version with timeout
+    if timeout 7200 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
         log "Sync completed successfully"
         
         # Update symlink to ensure web server sees latest data
@@ -64,8 +68,20 @@ do_sync() {
         
         # Update last sync timestamp
         date > /var/spool/apt-mirror/last-sync.txt
+        
+        # Log sync completion statistics
+        log "Sync completed at $(date)"
+        if [ -d "/var/spool/apt-mirror/mirror" ]; then
+            local total_size=$(du -sh /var/spool/apt-mirror/mirror 2>/dev/null | cut -f1)
+            log "Total mirror size: $total_size"
+        fi
     else
-        log "ERROR: Sync failed"
+        local exit_code=$?
+        if [ $exit_code -eq 124 ]; then
+            log "ERROR: Sync timed out after 2 hours"
+        else
+            log "ERROR: Sync failed with exit code $exit_code"
+        fi
         remove_lock
         return 1
     fi

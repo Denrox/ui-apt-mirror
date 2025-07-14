@@ -13,10 +13,14 @@ RUN apt-get update && apt-get install -y \
     npm \
     xz-utils \
     net-tools \
+    bzip2 \
+    gzip \
+    unzip \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install apt-mirror from PyPI (using --break-system-packages for Ubuntu 24.04)
-RUN pip3 install --break-system-packages apt-mirror
+RUN pip3 install --break-system-packages apt-mirror uvloop
 
 # Create necessary directories
 RUN mkdir -p /var/spool/apt-mirror \
