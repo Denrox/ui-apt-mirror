@@ -171,13 +171,7 @@ To use the local repository on your Ubuntu systems, add the following to `/etc/a
 # For Ubuntu 24.04 (Noble)
 Types: deb
 URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
-Suites: noble noble-updates noble-backports
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-
-Types: deb
-URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
-Suites: noble-security
+Suites: noble noble-updates noble-security noble-backports
 Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 

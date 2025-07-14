@@ -62,22 +62,7 @@ export default function Home() {
             URIs: {mirrorAddress}/archive.ubuntu.com/ubuntu
           </div>
           <div className="text-[12px] text-gray-500">
-            Suites: noble noble-updates noble-backports
-          </div>
-          <div className="text-[12px] text-gray-500">
-            Components: main restricted universe multiverse
-          </div>
-          <div className="text-[12px] text-gray-500">
-            Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          </div>
-          <div className="text-[12px] text-gray-500 mt-[8px]">
-            Types: deb
-          </div>
-          <div className="text-[12px] text-gray-500">
-            URIs: {mirrorAddress}/archive.ubuntu.com/ubuntu
-          </div>
-          <div className="text-[12px] text-gray-500">
-            Suites: noble-security
+            Suites: noble noble-updates noble-security noble-backports
           </div>
           <div className="text-[12px] text-gray-500">
             Components: main restricted universe multiverse
