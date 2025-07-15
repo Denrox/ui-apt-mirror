@@ -121,12 +121,19 @@ get_user_config() {
     echo ""
     admin_pass=${admin_pass:-$default_admin_pass}
     
+    # Detect host timezone
+    local host_timezone=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "UTC")
+    echo ""
+    read -p "Enter timezone (default: $host_timezone): " custom_timezone
+    custom_timezone=${custom_timezone:-$host_timezone}
+    
     # Set global variables for use in other functions
     MIRROR_DOMAIN="$custom_domain"
     ADMIN_DOMAIN="admin.$custom_domain"
     FILES_DOMAIN="files.$custom_domain"
     SYNC_FREQUENCY="$sync_freq"
     ADMIN_PASSWORD="$admin_pass"
+    HOST_TIMEZONE="$custom_timezone"
     
     print_success "Configuration completed."
 }
@@ -151,6 +158,7 @@ generate_htpasswd() {
 generate_docker_compose() {
     local domain=$1
     local sync_freq=$2
+    local timezone=$3
     
     print_status "Generating docker-compose.yml from template..."
     
@@ -168,6 +176,7 @@ generate_docker_compose() {
     sed -i "s/\${MIRROR_DOMAIN:-mirror.intra}/$domain/g" docker-compose.yml
     sed -i "s/\${ADMIN_DOMAIN:-admin.mirror.intra}/admin.$domain/g" docker-compose.yml
     sed -i "s/\${FILES_DOMAIN:-files.mirror.intra}/files.$domain/g" docker-compose.yml
+    sed -i "s/\${TZ:-UTC}/$timezone/g" docker-compose.yml
     
     print_success "docker-compose.yml generated successfully."
 }
@@ -419,7 +428,7 @@ main() {
     generate_mirror_config "$MIRROR_DOMAIN"
     
     # Generate docker-compose.yml
-    generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY"
+    generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY" "$HOST_TIMEZONE"
     
     # Update nginx configuration files with custom domain
     update_nginx_configs "$MIRROR_DOMAIN"

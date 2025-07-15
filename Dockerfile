@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     gzip \
     unzip \
     ca-certificates \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Install apt-mirror from PyPI (using --break-system-packages for Ubuntu 24.04)

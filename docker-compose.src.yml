@@ -20,6 +20,7 @@ services:
       - MIRROR_DOMAIN=${MIRROR_DOMAIN:-mirror.intra}
       - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.mirror.intra}
       - FILES_DOMAIN=${FILES_DOMAIN:-files.mirror.intra}
+      - TZ=${TZ:-UTC}
     networks:
       - mirror_network
     healthcheck:
