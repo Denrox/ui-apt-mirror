@@ -57,7 +57,7 @@ do_sync() {
     export PYTHONIOENCODING=utf-8
     
     # Run apt-mirror2 using Python version with timeout
-    if timeout 7200 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
+    if timeout 18000 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
         log "Sync completed successfully"
         
         # Update symlink to ensure web server sees latest data
