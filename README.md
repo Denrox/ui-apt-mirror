@@ -1,6 +1,6 @@
 # UI APT Mirror
 
-A comprehensive APT mirror solution with a modern web interface, built with Docker. This project provides a complete local Ubuntu package repository with an intuitive admin panel and file hosting capabilities.
+A containerized APT mirror solution with a web interface. This project provides a complete local Ubuntu / Debian package repository with an admin panel and file hosting capabilities.
 
 ## 🚀 Features
 
@@ -68,76 +68,14 @@ The script will:
 - Load the appropriate Docker image
 - Start the container
 
-## 🎛️ Configuration
-
-### Configuration Process
-
-The setup script uses a template-based approach:
-
-1. **Template File**: `docker-compose.src.yml` contains the base configuration with environment variable placeholders
-2. **Generation**: The setup script copies the template to `docker-compose.yml` and replaces placeholders with actual values
-3. **Customization**: You can modify the generated `docker-compose.yml` file directly if needed
-
-### Configuration Variables
-
-The following variables are configured during startup:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MIRROR_DOMAIN` | `mirror.intra` | Main repository domain |
-| `ADMIN_DOMAIN` | `admin.mirror.intra` | Admin panel domain |
-| `FILES_DOMAIN` | `files.mirror.intra` | File hosting domain |
-| `SYNC_FREQUENCY` | `14400` | Sync frequency in seconds (Every 4 hours) |
-
-**Sync Frequency Options:**
-- Every 4 hours (14400 seconds) - Default
-- Every 12 hours (43200 seconds)
-- Every 24 hours (86400 seconds)
-
-### Data Directories
-
-The following directories are automatically created and mounted:
-
-| Directory | Container Path | Purpose |
-|-----------|----------------|---------|
-| `./data/data/apt-mirror` | `/var/spool/apt-mirror` | APT mirror data |
-| `./data/data/files` | `/var/www/files` | File hosting data |
-| `./data/logs/apt-mirror` | `/var/log` | Application logs |
-| `./data/logs/nginx` | `/var/log/nginx` | Nginx logs |
-| `./data/conf/apt-mirror` | `/etc/apt` | APT mirror configuration |
-| `./data/conf/nginx/sites-available/` | `/etc/nginx/sites-available/` | Nginx configurations |
-| `./data/conf/nginx/.htpasswd` | `/etc/nginx/.htpasswd` | Nginx authentication file |
-
-### APT Mirror Configuration
-
-The apt-mirror2 configuration is automatically generated and includes:
-- Ubuntu 24.04 (Noble Numbat) repositories
-- Debian 12 (Bookworm) repositories
-- Main, restricted, universe, and multiverse components
-- Security and updates repositories
-- Automatic cleanup of old packages
-
-### Nginx Configuration
-
-Nginx configurations are mounted as volumes from `./data/conf/nginx/` and include:
-- `nginx.conf` - Main nginx configuration
-- `mirror.intra.conf` - Main repository virtual host
-- `admin.mirror.intra.conf` - Admin panel virtual host with authentication
-- `files.mirror.intra.conf` - File hosting virtual host
-
-You can modify these configurations without rebuilding the container. Changes take effect after restarting the container.
-
 ## 🌐 Web Interfaces
 
 ### Main Repository (mirror.intra)
 
 - **URL**: `http://mirror.intra`
-- **Purpose**: Browse and download Ubuntu packages
+- **Purpose**: Browse and download mirrored packages
 - **Features**:
   - Package browsing with directory listing
-  - Download statistics
-  - Usage instructions
-  - Quick links to other services
 
 ### Admin Panel (admin.mirror.intra)
 
@@ -145,20 +83,14 @@ You can modify these configurations without rebuilding the container. Changes ta
 - **Authentication**: Basic auth (admin/password)
 - **Features**:
   - Mirror status monitoring
-  - Sync controls (start/stop)
-  - Statistics and metrics
   - Log viewing
-  - Configuration management
+  - Documentation
+  - Files management
 
 ### File Repository (files.mirror.intra)
 
 - **URL**: `http://files.mirror.intra`
 - **Purpose**: File hosting and sharing
-- **Features**:
-  - Drag-and-drop file upload
-  - File browsing with icons
-  - Download statistics
-  - Disk usage monitoring
 
 ## 📊 Usage
 
@@ -191,32 +123,15 @@ sudo apt update
 
 Access the admin panel at `http://admin.mirror.intra` to:
 - Monitor sync status
-- Start/stop synchronization
 - View logs and statistics
-- Manage configuration
 
 ### File Hosting
 
 Use the file repository at `http://files.mirror.intra` to:
 - Upload files via web interface
 - Browse uploaded files
-- Download files
-- Monitor disk usage
 
 ## 🔧 Management
-
-### Viewing Logs
-
-```bash
-# Container logs
-docker logs ui-apt-mirror
-
-# Docker Compose logs
-docker compose -f docker-compose.yml logs
-
-# Specific service logs
-docker compose -f docker-compose.yml logs ui-apt-mirror
-```
 
 ### Stopping the Container
 
@@ -229,18 +144,6 @@ docker compose -f docker-compose.yml down
 ```bash
 docker compose -f docker-compose.yml restart
 ```
-
-### Updating Configuration
-
-To update the configuration:
-
-1. **Automatic Method**: Run `./setup.sh` again to regenerate configuration
-2. **Manual Method**: 
-   - Stop the container: `docker compose -f docker-compose.yml down`
-   - Edit the generated `docker-compose.yml` file directly
-   - Restart the container: `docker compose -f docker-compose.yml up -d`
-
-**Note**: The `.env` file is used internally by the setup script. For manual changes, edit `docker-compose.yml` directly.
 
 ## 📁 Directory Structure
 
@@ -279,4 +182,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [apt-mirror2](https://gitlab.com/apt-mirror2/apt-mirror2) - The Python/asyncio APT mirroring tool from PyPI
 - [nginx](https://nginx.org/) - Web server
-- [Docker](https://docker.com/) - Containerization platform
