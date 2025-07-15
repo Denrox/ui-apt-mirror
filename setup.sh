@@ -176,7 +176,10 @@ generate_docker_compose() {
     sed -i "s/\${MIRROR_DOMAIN:-mirror.intra}/$domain/g" docker-compose.yml
     sed -i "s/\${ADMIN_DOMAIN:-admin.mirror.intra}/admin.$domain/g" docker-compose.yml
     sed -i "s/\${FILES_DOMAIN:-files.mirror.intra}/files.$domain/g" docker-compose.yml
-    sed -i "s/\${TZ:-UTC}/$timezone/g" docker-compose.yml
+    
+    # Escape timezone for sed (replace / with \/)
+    local escaped_timezone=$(echo "$timezone" | sed 's/\//\\\//g')
+    sed -i "s/\${TZ:-UTC}/$escaped_timezone/g" docker-compose.yml
     
     print_success "docker-compose.yml generated successfully."
 }
