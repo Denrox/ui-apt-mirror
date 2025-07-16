@@ -297,6 +297,7 @@ export default function FileManager() {
                         <FormButton
                           type="secondary"
                           size="small"
+                          disabled={isOperationInProgress || !!fileToCut}
                           onClick={() => {
                             const link = document.createElement('a');
                             link.href = `${getHostAddress(appConfig.hosts.find(host => host.id === 'files')?.address || '')}${item.path.replace(appConfig.filesDir, '')}`;
@@ -310,20 +311,18 @@ export default function FileManager() {
                           ↓
                         </FormButton>
                       )}
-                      {!fileToCut && (
-                        <FormButton
-                          type="secondary"
-                          size="small"
-                          disabled={isOperationInProgress}
-                          onClick={() => handleCutClick({ path: item.path, name: item.name })}
-                        >
-                          Cut
-                        </FormButton>
-                      )}
                       <FormButton
                         type="secondary"
                         size="small"
-                        disabled={isOperationInProgress}
+                        disabled={isOperationInProgress || !!fileToCut}
+                        onClick={() => handleCutClick({ path: item.path, name: item.name })}
+                      >
+                        Cut
+                      </FormButton>
+                      <FormButton
+                        type="secondary"
+                        size="small"
+                        disabled={isOperationInProgress || !!fileToCut}
                         onClick={() => handleRenameClick({ path: item.path, name: item.name })}
                       >
                         Rename
@@ -331,7 +330,7 @@ export default function FileManager() {
                       <FormButton
                         type="danger"
                         size="small"
-                        disabled={isOperationInProgress}
+                        disabled={isOperationInProgress || !!fileToCut}
                         onClick={() => handleDelete(item.path)}
                       >
                         Delete
