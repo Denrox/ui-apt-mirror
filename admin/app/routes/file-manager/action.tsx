@@ -62,7 +62,8 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
   try {
     const dirPath = path.dirname(oldPath);
     const newPath = path.join(dirPath, newName);
-
+    
+    // Check if the new name already exists
     try {
       await fs.access(newPath);
       return false; // File/directory already exists
@@ -71,6 +72,36 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
     }
     
     await fs.rename(oldPath, newPath);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function moveFile(sourcePath: string, destinationPath: string): Promise<boolean> {
+  try {
+    const fileName = path.basename(sourcePath);
+    const newPath = path.join(destinationPath, fileName);
+    
+    // Check if trying to move into itself
+    if (sourcePath === newPath) {
+      return false;
+    }
+    
+    // Check if destination is a subdirectory of source
+    if (newPath.startsWith(sourcePath + path.sep)) {
+      return false;
+    }
+    
+    // Check if the new name already exists in destination
+    try {
+      await fs.access(newPath);
+      return false; // File/directory already exists
+    } catch (error) {
+      // File doesn't exist, we can proceed
+    }
+    
+    await fs.rename(sourcePath, newPath);
     return true;
   } catch (error) {
     return false;
@@ -263,6 +294,21 @@ export async function action({ request }: Route.ActionArgs) {
         return { success: true };
       } else {
         return { success: false, error: "Failed to rename file or file with that name already exists" };
+      }
+    } else if (intent === 'moveFile') {
+      const sourcePath = formData.get('sourcePath') as string;
+      const destinationPath = formData.get('destinationPath') as string;
+      
+      if (!sourcePath || !destinationPath) {
+        return { success: false, error: "Source path and destination path are required" };
+      }
+      
+      const success = await moveFile(sourcePath, destinationPath);
+      
+      if (success) {
+        return { success: true };
+      } else {
+        return { success: false, error: "Failed to move file or file with that name already exists in destination" };
       }
     } else if (intent === 'uploadFile') {
       const filePath = formData.get('filePath') as string;

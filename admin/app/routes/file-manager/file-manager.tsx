@@ -65,6 +65,9 @@ export default function FileManager() {
   // Rename state
   const [itemToRename, setItemToRename] = useState<{ path: string; name: string } | null>(null);
   
+  // Cut state
+  const [fileToCut, setFileToCut] = useState<{ path: string; name: string } | null>(null);
+  
   const currentPathFiles = useMemo(() => {
     return files.filter((file) => isChildPath(file.path, currentPath));
   }, [files, currentPath]);
@@ -124,6 +127,30 @@ export default function FileManager() {
 
   const handleRenameError = (error: string) => {
     setError(error);
+  };
+
+  const handleCutClick = (item: { path: string; name: string }) => {
+    setFileToCut(item);
+  };
+
+  const handlePasteClick = async () => {
+    if (!fileToCut) return;
+
+    setError(null);
+    
+    try {
+      await submit(
+        { intent: 'moveFile', sourcePath: fileToCut.path, destinationPath: currentPath },
+        { action: '', method: 'post' },
+      );
+      setFileToCut(null);
+    } catch (error) {
+      setError("Failed to move item");
+    }
+  };
+
+  const handleCutCancel = () => {
+    setFileToCut(null);
   };
 
   const handleChunkedUploadError = useCallback((error: string) => {
@@ -203,20 +230,43 @@ export default function FileManager() {
                 Create Folder
               </FormButton>
             </div>
-            {!isDownloading && (
-              <ChunkedUpload
-                onError={handleChunkedUploadError}
-                onSelectedFile={setIsUploading}
-                currentPath={currentPath}
-                onChunkUploaded={handleChunkUploaded}
-              />
-            )}
-            {!isUploading && (
-              <DownloadFile
-                onError={handleDownloadError}
-                onDownloadInput={setIsDownloading}
-                currentPath={currentPath}
-              />
+            {fileToCut ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">
+                  Moving: <span className="font-medium">{fileToCut.name}</span>
+                </span>
+                <FormButton
+                  onClick={handlePasteClick}
+                  disabled={isOperationInProgress}
+                >
+                  Paste
+                </FormButton>
+                <FormButton
+                  type="secondary"
+                  onClick={handleCutCancel}
+                  disabled={isOperationInProgress}
+                >
+                  Cancel
+                </FormButton>
+              </div>
+            ) : (
+              <>
+                {!isDownloading && (
+                  <ChunkedUpload
+                    onError={handleChunkedUploadError}
+                    onSelectedFile={setIsUploading}
+                    currentPath={currentPath}
+                    onChunkUploaded={handleChunkUploaded}
+                  />
+                )}
+                {!isUploading && (
+                  <DownloadFile
+                    onError={handleDownloadError}
+                    onDownloadInput={setIsDownloading}
+                    currentPath={currentPath}
+                  />
+                )}
+              </>
             )}
           </div>
           <div className="border border-gray-200 rounded-md">
@@ -258,6 +308,16 @@ export default function FileManager() {
                           }}
                         >
                           ↓
+                        </FormButton>
+                      )}
+                      {!fileToCut && (
+                        <FormButton
+                          type="secondary"
+                          size="small"
+                          disabled={isOperationInProgress}
+                          onClick={() => handleCutClick({ path: item.path, name: item.name })}
+                        >
+                          Cut
                         </FormButton>
                       )}
                       <FormButton
