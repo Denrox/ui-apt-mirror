@@ -108,9 +108,9 @@ Components: main restricted universe multiverse
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 # For Debian 12 (Bookworm)
-deb http://mirror.intra/deb.debian.org/ bookworm main contrib non-free non-free-firmware
-deb http://mirror.intra/deb.debian.org/ bookworm-updates main contrib non-free non-free-firmware
-deb http://mirror.intra/security.debian.org/ bookworm-security main contrib non-free non-free-firmware
+deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
+deb http://mirror.intra/security.debian.org/debian-security bookworm-security main non-free-firmware
+deb http://mirror.intra/deb.debian.org/debian bookworm-updates main non-free-firmware
 ```
 
 Then update your package lists:

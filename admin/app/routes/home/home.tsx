@@ -78,13 +78,13 @@ export default function Home() {
             Debian
           </div>
           <div className="text-[12px] text-gray-500">
-            Main: deb {mirrorAddress}/deb.debian.org/ bookworm main contrib non-free non-free-firmware
+            deb {mirrorAddress}/deb.debian.org/debian bookworm main non-free-firmware
           </div>
           <div className="text-[12px] text-gray-500">
-            Security: deb {mirrorAddress}/security.debian.org/ bookworm-security main contrib non-free non-free-firmware
+            deb {mirrorAddress}/security.debian.org/debian-security bookworm-security main non-free-firmware
           </div>
           <div className="text-[12px] text-gray-500">
-            Updates: deb {mirrorAddress}/deb.debian.org/ bookworm-updates main contrib non-free non-free-firmware
+            deb {mirrorAddress}/deb.debian.org/debian bookworm-updates main non-free-firmware
           </div>
         </div>
       </div>
