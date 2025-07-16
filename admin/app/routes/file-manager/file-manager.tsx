@@ -5,6 +5,8 @@ import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
+import Modal from "~/components/shared/modal/modal";
+import RenameForm from "~/components/file-manager/rename-form";
 import { useActionData, useLoaderData, useSubmit, useRevalidator, type SubmitTarget } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
@@ -59,6 +61,10 @@ export default function FileManager() {
   const revalidator = useRevalidator();
   const [isUploading, setIsUploading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  
+  // Rename state
+  const [itemToRename, setItemToRename] = useState<{ path: string; name: string } | null>(null);
+  
   const currentPathFiles = useMemo(() => {
     return files.filter((file) => isChildPath(file.path, currentPath));
   }, [files, currentPath]);
@@ -101,6 +107,23 @@ export default function FileManager() {
     } catch (error) {
       setError("Failed to create folder");
     }
+  };
+
+  const handleRenameClick = (item: { path: string; name: string }) => {
+    setItemToRename(item);
+  };
+
+  const handleRenameSuccess = () => {
+    setItemToRename(null);
+    revalidator.revalidate();
+  };
+
+  const handleRenameCancel = () => {
+    setItemToRename(null);
+  };
+
+  const handleRenameError = (error: string) => {
+    setError(error);
   };
 
   const handleChunkedUploadError = useCallback((error: string) => {
@@ -238,6 +261,14 @@ export default function FileManager() {
                         </FormButton>
                       )}
                       <FormButton
+                        type="secondary"
+                        size="small"
+                        disabled={isOperationInProgress}
+                        onClick={() => handleRenameClick({ path: item.path, name: item.name })}
+                      >
+                        Rename
+                      </FormButton>
+                      <FormButton
                         type="danger"
                         size="small"
                         disabled={isOperationInProgress}
@@ -253,6 +284,22 @@ export default function FileManager() {
           </div>
         </div>
       </ContentBlock>
+      
+      {/* Rename Modal */}
+      {itemToRename && (
+        <Modal
+          isOpen={!!itemToRename}
+          onClose={handleRenameCancel}
+          title="Rename Item"
+        >
+          <RenameForm
+            item={itemToRename}
+            onSuccess={handleRenameSuccess}
+            onCancel={handleRenameCancel}
+            onError={handleRenameError}
+          />
+        </Modal>
+      )}
     </PageLayoutFull>
   );
 } 

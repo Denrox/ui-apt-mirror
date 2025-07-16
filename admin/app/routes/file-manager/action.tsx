@@ -58,6 +58,25 @@ async function deleteFile(filePath: string): Promise<boolean> {
   }
 }
 
+async function renameFile(oldPath: string, newName: string): Promise<boolean> {
+  try {
+    const dirPath = path.dirname(oldPath);
+    const newPath = path.join(dirPath, newName);
+
+    try {
+      await fs.access(newPath);
+      return false; // File/directory already exists
+    } catch (error) {
+      // File doesn't exist, we can proceed
+    }
+    
+    await fs.rename(oldPath, newPath);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function downloadFile(url: string, destPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     try {
@@ -225,6 +244,26 @@ export async function action({ request }: Route.ActionArgs) {
       const filePath = formData.get('filePath') as string;
       const success = await deleteFile(filePath);
       return { success };
+    } else if (intent === 'renameFile') {
+      const filePath = formData.get('filePath') as string;
+      const newName = formData.get('newName') as string;
+      
+      if (!filePath || !newName) {
+        return { success: false, error: "File path and new name are required" };
+      }
+      
+      const validationError = getValidationError(newName);
+      if (validationError) {
+        return { success: false, error: validationError };
+      }
+      
+      const success = await renameFile(filePath, newName);
+      
+      if (success) {
+        return { success: true };
+      } else {
+        return { success: false, error: "Failed to rename file or file with that name already exists" };
+      }
     } else if (intent === 'uploadFile') {
       const filePath = formData.get('filePath') as string;
       const file = formData.get('file');
