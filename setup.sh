@@ -287,6 +287,12 @@ deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free
 deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
 
+deb-src http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
+
+
 # Clean up old packages
 clean http://archive.ubuntu.com/ubuntu
 clean http://deb.debian.org/debian
