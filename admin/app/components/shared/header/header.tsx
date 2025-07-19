@@ -27,7 +27,7 @@ export default function Header() {
   return (
     <div className="flex size-full bg-gradient-to-r from-blue-400 to-blue-600 border-b border-gray-100 shadow-sm justify-center items-center h-[72px]">
       <div className="container gap-[2px] h-full mx-auto text-white flex flex-row items-center justify-between relative">
-        <div className="text-[16px] font-semibold">Apt Mirror Admin Utility</div>
+        <div className="text-[16px] font-semibold px-[8px]">Apt Mirror Admin Utility</div>
         {/* Desktop Navigation - Hidden on screens below 1024px */}
         <div className="hidden h-full lg:flex flex-row items-center justify-center">
           {navItems.map((item) => (

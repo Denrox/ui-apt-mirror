@@ -62,10 +62,8 @@ export default function FileManager() {
   const [isUploading, setIsUploading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   
-  // Rename state
   const [itemToRename, setItemToRename] = useState<{ path: string; name: string } | null>(null);
   
-  // Cut state
   const [fileToCut, setFileToCut] = useState<{ path: string; name: string } | null>(null);
   
   const currentPathFiles = useMemo(() => {
@@ -176,7 +174,11 @@ export default function FileManager() {
   };
 
   const formatDate = (date: Date): string => {
-    return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+    return date.toLocaleDateString() + " " + date.toLocaleTimeString('en-GB', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false 
+    });
   };
 
   const parentDirName = useMemo(() => {
@@ -193,7 +195,7 @@ export default function FileManager() {
       
       <ContentBlock>
         <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-md">
+          <div className="flex items-center gap-2 px-0 bg-gray-50 rounded-md">
             <span className="font-semibold">Current Path:</span>
             <span className="font-mono text-sm">{currentPath}</span>
           </div>
@@ -212,7 +214,7 @@ export default function FileManager() {
               </div>
             </div>
           )}
-          <div className={classNames("flex flex-wrap gap-4 p-4 bg-gray-50 rounded-md")}>
+          <div className={classNames("flex flex-wrap gap-4 px-0 bg-gray-50 rounded-md")}>
             {!isRootPath && parentDirName && (
               <div className="flex items-center gap-2">
                 <FormButton onClick={() => setCurrentPath(parentDirName)}>
@@ -273,9 +275,9 @@ export default function FileManager() {
             {currentPathFiles.length === 0 ? (
               <div className="p-4 text-center text-gray-500">No files found</div>
             ) : (
-              <div className="divide-y divide-gray-200">
+              <div className="divide-y divide-gray-200 w-full overflow-x-auto">
                 {currentPathFiles.map((item, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 hover:bg-gray-50">
+                  <div key={index} className="flex w-auto items-center justify-between p-3 hover:bg-gray-50">
                     <div onClick={() => item.isDirectory && !isOperationInProgress && setCurrentPath(item.path)} className={classNames("flex items-center gap-2", {
                       "cursor-pointer": item.isDirectory,
                       "cursor-default": !item.isDirectory,
@@ -283,58 +285,59 @@ export default function FileManager() {
                       <span className="text-lg">
                         {item.isDirectory ? "📁" : "📄"}
                       </span>
-                      <span className="font-medium">{item.name}</span>
+                      <span className="inline-block w-[180px] flex-shrink-0 lg:w-auto font-medium whitespace-nowrap overflow-hidden text-ellipsis">{item.name}</span>
                     </div>
-                    
                     <div className="flex items-center gap-4">
-                      <div className="text-sm text-gray-500">
-                        {item.isDirectory ? "Directory" : formatFileSize(item.size || 0)}
+                      <div className="text-sm text-gray-500 text-right w-[120px] flex-shrink-0">
+                        {item.isDirectory ? '' : formatFileSize(item.size || 0)}
                       </div>
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm text-gray-500 w-[120px] flex-shrink-0">
                         {item.modified && formatDate(item.modified)}
                       </div>
-                      {!item.isDirectory && (
+                      <div className="flex items-center justify-end gap-2 w-[176px] flex-shrink-0">
+                        {!item.isDirectory && (
+                          <FormButton
+                            type="secondary"
+                            size="small"
+                            disabled={isOperationInProgress || !!fileToCut}
+                            onClick={() => {
+                              const link = document.createElement('a');
+                              link.href = `${getHostAddress(appConfig.hosts.find(host => host.id === 'files')?.address || '')}${item.path.replace(appConfig.filesDir, '')}`;
+                              link.target = '_blank';
+                              link.rel = 'noopener noreferrer';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                          >
+                            ↓
+                          </FormButton>
+                        )}
                         <FormButton
                           type="secondary"
                           size="small"
                           disabled={isOperationInProgress || !!fileToCut}
-                          onClick={() => {
-                            const link = document.createElement('a');
-                            link.href = `${getHostAddress(appConfig.hosts.find(host => host.id === 'files')?.address || '')}${item.path.replace(appConfig.filesDir, '')}`;
-                            link.target = '_blank';
-                            link.rel = 'noopener noreferrer';
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                          }}
+                          onClick={() => handleCutClick({ path: item.path, name: item.name })}
                         >
-                          ↓
+                          ✂️
                         </FormButton>
-                      )}
-                      <FormButton
-                        type="secondary"
-                        size="small"
-                        disabled={isOperationInProgress || !!fileToCut}
-                        onClick={() => handleCutClick({ path: item.path, name: item.name })}
-                      >
-                        Cut
-                      </FormButton>
-                      <FormButton
-                        type="secondary"
-                        size="small"
-                        disabled={isOperationInProgress || !!fileToCut}
-                        onClick={() => handleRenameClick({ path: item.path, name: item.name })}
-                      >
-                        Rename
-                      </FormButton>
-                      <FormButton
-                        type="danger"
-                        size="small"
-                        disabled={isOperationInProgress || !!fileToCut}
-                        onClick={() => handleDelete(item.path)}
-                      >
-                        Delete
-                      </FormButton>
+                        <FormButton
+                          type="secondary"
+                          size="small"
+                          disabled={isOperationInProgress || !!fileToCut}
+                          onClick={() => handleRenameClick({ path: item.path, name: item.name })}
+                        >
+                          ✏️
+                        </FormButton>
+                        <FormButton
+                          type="secondary"
+                          size="small"
+                          disabled={isOperationInProgress || !!fileToCut}
+                          onClick={() => handleDelete(item.path)}
+                        >
+                          🗑️
+                        </FormButton>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -344,7 +347,6 @@ export default function FileManager() {
         </div>
       </ContentBlock>
       
-      {/* Rename Modal */}
       {itemToRename && (
         <Modal
           isOpen={!!itemToRename}

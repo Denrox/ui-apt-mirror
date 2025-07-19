@@ -49,9 +49,9 @@ export default function Home() {
   return (
     <PageLayoutFull>
       <Title title="Repository Configuration" />
-      <div className="flex flex-row items-center gap-[32px] flex-wrap px-[16px] lg:px-0">
+      <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
         {/* Ubuntu Section */}
-        <div className="w-[calc(50%-18px)] h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
+        <div className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
           <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
             Ubuntu
           </div>
@@ -73,7 +73,7 @@ export default function Home() {
         </div>
 
         {/* Debian Section */}
-        <div className="w-[calc(50%-18px)] h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
+        <div className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
           <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
             Debian
           </div>
@@ -90,9 +90,9 @@ export default function Home() {
       </div>
 
       <Title title="Services Status" />
-      <div className="flex flex-row items-center gap-[32px] flex-wrap px-[16px] lg:px-0">
+      <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
         {appConfig.hosts.map((page) => (
-          <div key={page.address} className={classNames("h-[120px] w-[calc(50%-18px)] lg:w-[calc(33%-17px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]", {
+          <div key={page.address} className={classNames("h-[120px] md:w-[calc(50%-18px)] w-full lg:w-[calc(33%-17px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]", {
           })}>
             <a href={getHostAddress(page.address)} target="_blank" rel="noopener noreferrer" className={classNames("block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold", {
             })}>{`${page.name} (${getHostAddress(page.address)})`}</a>
