@@ -285,10 +285,10 @@ export default function FileManager() {
                       <span className="text-lg">
                         {item.isDirectory ? "📁" : "📄"}
                       </span>
-                      <span className="inline-block w-[180px] flex-shrink-0 lg:w-auto font-medium whitespace-nowrap overflow-hidden text-ellipsis">{item.name}</span>
+                      <span className="inline-block w-[180px] md:w-[240px] flex-shrink-0 lg:w-auto font-medium whitespace-nowrap overflow-hidden text-ellipsis">{item.name}</span>
                     </div>
                     <div className="flex items-center gap-4">
-                      <div className="text-sm text-gray-500 text-right w-[120px] flex-shrink-0">
+                      <div className="text-sm text-gray-500 text-right w-[96px] flex-shrink-0">
                         {item.isDirectory ? '' : formatFileSize(item.size || 0)}
                       </div>
                       <div className="text-sm text-gray-500 w-[120px] flex-shrink-0">
