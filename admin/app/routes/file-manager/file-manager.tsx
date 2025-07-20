@@ -7,6 +7,7 @@ import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
 import Modal from "~/components/shared/modal/modal";
 import RenameForm from "~/components/file-manager/rename-form";
+import Ellipsis from "~/components/shared/ellipsis/ellipsis";
 import { useActionData, useLoaderData, useSubmit, useRevalidator, type SubmitTarget } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
@@ -285,7 +286,11 @@ export default function FileManager() {
                       <span className="text-lg">
                         {item.isDirectory ? "📁" : "📄"}
                       </span>
-                      <span className="inline-block w-[180px] md:w-[240px] flex-shrink-0 lg:w-auto font-medium whitespace-nowrap overflow-hidden text-ellipsis">{item.name}</span>
+                      <div className="flex align-center w-[180px] md:w-[240px] max-w-[auto] lg:max-w-[360px] flex-shrink-0 lg:w-auto font-medium">
+                        <Ellipsis>
+                          {item.name}
+                        </Ellipsis>
+                      </div>
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-sm text-gray-500 text-right w-[96px] flex-shrink-0">
