@@ -10,6 +10,7 @@ A containerized APT mirror solution with a web interface. This project provides 
   - `mirror.intra` - DEB packages repository
   - `admin.mirror.intra` - Admin panel with authentication
   - `files.mirror.intra` - File hosting service
+- **Advanced File Manager**: File upload/download, directory management, and container image downloads from Docker Hub and GCR
 - **Multi-Architecture Support**: Builds for both AMD64 and ARM64
 - **Easy Deployment**: Simple scripts for building and deployment
 - **Configurable**: Custom domains, sync frequency, and admin passwords
@@ -182,3 +183,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [apt-mirror2](https://gitlab.com/apt-mirror2/apt-mirror2) - The Python/asyncio APT mirroring tool from PyPI
 - [nginx](https://nginx.org/) - Web server
+- [skopeo](https://github.com/containers/skopeo) - For container image management

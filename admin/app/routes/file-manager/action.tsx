@@ -5,6 +5,11 @@ import fsSync from "fs";
 import https from "https";
 import http from "http";
 import { URL } from "url";
+import { exec } from "child_process";
+import { promisify } from "util";
+import zlib from "zlib";
+
+const execAsync = promisify(exec);
 
 // Disk-based chunk storage using destination directory
 const chunkStorage = new Map<string, { tempDir: string; totalChunks: number; fileName: string }>();
@@ -247,6 +252,83 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
   }
 }
 
+async function downloadImage(imageUrl: string, imageTag: string, destPath: string): Promise<boolean> {
+  try {
+    // Ensure destination directory exists
+    await fs.mkdir(destPath, { recursive: true });
+    
+    // Create filename from image URL and tag
+    const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const fileName = `${imageName}_${imageTag}.tar`;
+    const fullPath = path.join(destPath, fileName);
+    
+    // Parse registry and image details
+    const registryInfo = parseImageUrl(imageUrl);
+    if (!registryInfo) {
+      throw new Error('Invalid image URL format. Please use format: project/image or gcr.io/project/image');
+    }
+    
+    // Use skopeo to copy image to tar format
+    const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
+    const skopeoCommand = `skopeo copy docker://${sourceImage} docker-archive:${fullPath}`;
+    
+    await execAsync(skopeoCommand);
+    
+    return true;
+  } catch (error) {
+    console.error('Failed to download image:', error);
+    return false;
+  }
+}
+
+interface RegistryInfo {
+  registry: string;
+  repository: string;
+}
+
+function parseImageUrl(imageUrl: string): RegistryInfo | null {
+  // Handle Google Container Registry
+  if (imageUrl.startsWith('gcr.io/')) {
+    return {
+      registry: 'gcr.io',
+      repository: imageUrl.substring(8) // Remove 'gcr.io/'
+    };
+  }
+  
+  // Handle regional GCR formats (us.gcr.io, eu.gcr.io, etc.)
+  if (imageUrl.includes('.gcr.io/')) {
+    const parts = imageUrl.split('/');
+    if (parts.length >= 2) {
+      return {
+        registry: parts[0],
+        repository: parts.slice(1).join('/')
+      };
+    }
+  }
+  
+  // Handle Docker Hub registry
+  if (imageUrl.startsWith('docker.io/')) {
+    return {
+      registry: 'docker.io',
+      repository: imageUrl.substring(11) // Remove 'docker.io/'
+    };
+  }
+  
+  // Handle single-word image names (e.g., "nginx" -> "library/nginx")
+  if (!imageUrl.includes('/')) {
+    return {
+      registry: 'docker.io',
+      repository: `library/${imageUrl}`
+    };
+  }
+  
+  // Auto-prepend docker.io for images without explicit registry
+  return {
+    registry: 'docker.io',
+    repository: imageUrl
+  };
+}
+
 export async function action({ request }: Route.ActionArgs) {
   try {
     const formData = await request.formData();
@@ -342,6 +424,26 @@ export async function action({ request }: Route.ActionArgs) {
         return { success: true };
       } else {
         return { success: false, error: "Failed to download file" };
+      }
+    } else if (intent === 'downloadImage') {
+      const imageUrl = formData.get('imageUrl') as string;
+      const imageTag = formData.get('imageTag') as string;
+      const currentPath = formData.get('currentPath') as string;
+      
+      if (!imageUrl || !imageUrl.trim()) {
+        return { success: false, error: "Image URL is required" };
+      }
+      
+      if (!imageTag || !imageTag.trim()) {
+        return { success: false, error: "Image tag is required" };
+      }
+      
+      const success = await downloadImage(imageUrl.trim(), imageTag.trim(), currentPath);
+      
+      if (success) {
+        return { success: true };
+      } else {
+        return { success: false, error: "Failed to download container image" };
       }
     }
 

@@ -20,6 +20,11 @@ RUN apt-get update && apt-get install -y \
     tzdata \
     && rm -rf /var/lib/apt/lists/*
 
+# Install skopeo for container image operations
+RUN apt-get update && apt-get install -y \
+    skopeo \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install apt-mirror from PyPI (using --break-system-packages for Ubuntu 24.04)
 RUN pip3 install --break-system-packages apt-mirror uvloop
 

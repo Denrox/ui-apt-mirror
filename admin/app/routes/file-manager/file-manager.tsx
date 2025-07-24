@@ -8,6 +8,9 @@ import FormInput from "~/components/shared/form/form-input";
 import Modal from "~/components/shared/modal/modal";
 import RenameForm from "~/components/file-manager/rename-form";
 import Ellipsis from "~/components/shared/ellipsis/ellipsis";
+import Dropdown from "~/components/shared/dropdown/dropdown";
+import DropdownItem from "~/components/shared/dropdown/dropdown-item";
+import DownloadImageModal from "~/components/file-manager/download-image-modal";
 import { useActionData, useLoaderData, useSubmit, useRevalidator, type SubmitTarget } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
@@ -62,6 +65,7 @@ export default function FileManager() {
   const revalidator = useRevalidator();
   const [isUploading, setIsUploading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadImageModalOpen, setIsDownloadImageModalOpen] = useState(false);
   
   const [itemToRename, setItemToRename] = useState<{ path: string; name: string } | null>(null);
   
@@ -269,6 +273,24 @@ export default function FileManager() {
                     currentPath={currentPath}
                   />
                 )}
+                {!isUploading && !isDownloading && (
+                  <Dropdown
+                    disabled={isOperationInProgress}
+                    trigger={
+                      <FormButton
+                        type="secondary"
+                        disabled={isOperationInProgress}
+                        onClick={() => {}} // Empty handler to satisfy FormButton requirements
+                      >
+                        ⋮
+                      </FormButton>
+                    }
+                  >
+                    <DropdownItem onClick={() => setIsDownloadImageModalOpen(true)}>
+                      Download Container Image
+                    </DropdownItem>
+                  </Dropdown>
+                )}
               </>
             )}
           </div>
@@ -366,6 +388,12 @@ export default function FileManager() {
           />
         </Modal>
       )}
+      
+      <DownloadImageModal
+        isOpen={isDownloadImageModalOpen}
+        onClose={() => setIsDownloadImageModalOpen(false)}
+        currentPath={currentPath}
+      />
     </PageLayoutFull>
   );
 } 
