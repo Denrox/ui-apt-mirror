@@ -20,8 +20,14 @@ check_lock() {
     if [ -f "$LOCK_FILE" ]; then
         local pid=$(cat "$LOCK_FILE" 2>/dev/null)
         if kill -0 "$pid" 2>/dev/null; then
-            log "Sync already running (PID: $pid)"
-            return 1
+            # Additional check: verify the process is actually apt-mirror
+            if ps -p "$pid" -o comm= 2>/dev/null | grep -q "apt-mirror\|python.*apt-mirror"; then
+                log "Sync already running (PID: $pid)"
+                return 1
+            else
+                log "Removing stale lock file (PID $pid is not apt-mirror process)"
+                rm -f "$LOCK_FILE"
+            fi
         else
             log "Removing stale lock file"
             rm -f "$LOCK_FILE"
