@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Modal from '~/components/shared/modal/modal';
 import FormInput from '~/components/shared/form/form-input';
 import FormButton from '~/components/shared/form/form-button';
+import FormSelect from '~/components/shared/form/form-select';
 import { useSubmit } from 'react-router';
 
 interface DownloadImageModalProps {
@@ -13,8 +14,14 @@ interface DownloadImageModalProps {
 export default function DownloadImageModal({ isOpen, onClose, currentPath }: DownloadImageModalProps) {
   const [imageUrl, setImageUrl] = useState('');
   const [imageTag, setImageTag] = useState('latest');
+  const [architecture, setArchitecture] = useState('amd64');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submit = useSubmit();
+
+  const architectureOptions = [
+    { value: 'amd64', label: 'AMD64 (x86_64)' },
+    { value: 'arm64', label: 'ARM64 (aarch64)' },
+  ];
 
   const handleSubmit = async () => {
     if (!imageUrl.trim()) return;
@@ -27,6 +34,7 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
           intent: 'downloadImage', 
           imageUrl: imageUrl.trim(), 
           imageTag: imageTag.trim() || 'latest',
+          architecture: architecture,
           currentPath: currentPath 
         },
         { action: '', method: 'post' }
@@ -35,6 +43,7 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
       // Reset form and close modal
       setImageUrl('');
       setImageTag('latest');
+      setArchitecture('amd64');
       onClose();
     } catch (error) {
       console.error('Failed to download image:', error);
@@ -46,6 +55,7 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
   const handleCancel = () => {
     setImageUrl('');
     setImageTag('latest');
+    setArchitecture('amd64');
     onClose();
   };
 
@@ -80,6 +90,14 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
             placeholder="latest"
           />
         </div>
+
+        <FormSelect
+          id="architecture-select"
+          label="Architecture"
+          value={architecture}
+          onChange={setArchitecture}
+          options={architectureOptions}
+        />
         
         <div className="flex justify-end gap-2 pt-4">
           <FormButton

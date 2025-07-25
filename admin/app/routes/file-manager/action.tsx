@@ -252,15 +252,22 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
   }
 }
 
-async function downloadImage(imageUrl: string, imageTag: string, destPath: string): Promise<boolean> {
+async function downloadImage(imageUrl: string, imageTag: string, destPath: string, architecture: string = 'amd64'): Promise<boolean> {
   try {
     // Ensure destination directory exists
     await fs.mkdir(destPath, { recursive: true });
     
     // Create filename from image URL and tag
     const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `${imageName}_${imageTag}.tar`;
+    const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
     const fullPath = path.join(destPath, fileName);
+    
+    // Remove existing file if it exists to prevent modification errors
+    try {
+      await fs.unlink(fullPath);
+    } catch (unlinkError) {
+      // File doesn't exist, which is fine
+    }
     
     // Parse registry and image details
     const registryInfo = parseImageUrl(imageUrl);
@@ -270,13 +277,65 @@ async function downloadImage(imageUrl: string, imageTag: string, destPath: strin
     
     // Use skopeo to copy image to tar format
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
-    const skopeoCommand = `skopeo copy docker://${sourceImage} docker-archive:${fullPath}`;
+    const archFlag = `--override-arch ${architecture}`;
+    const skopeoCommand = `skopeo copy ${archFlag} docker://${sourceImage} docker-archive:${fullPath}`;
     
-    await execAsync(skopeoCommand);
-    
-    return true;
+    try {
+      await execAsync(skopeoCommand);
+      return true;
+    } catch (dockerError) {
+      // If Docker Hub fails, try GCR as fallback (only for single-word images)
+      if (registryInfo.registry === 'docker.io' && !imageUrl.includes('/') && !imageUrl.startsWith('gcr.io/')) {
+        console.log('Docker Hub failed, trying GCR fallback...');
+        
+        // Try GCR with the same image name
+        const gcrImage = `gcr.io/google-containers/${imageUrl}:${imageTag}`;
+        const gcrCommand = `skopeo copy ${archFlag} docker://${gcrImage} docker-archive:${fullPath}`;
+        
+        try {
+          await execAsync(gcrCommand);
+          console.log('Successfully downloaded from GCR fallback');
+          return true;
+        } catch (gcrError) {
+          console.error('GCR fallback also failed:', gcrError);
+          // Re-throw the original Docker error for proper error handling
+          throw dockerError;
+        }
+      } else {
+        // Re-throw the original error for other cases
+        throw dockerError;
+      }
+    }
   } catch (error) {
     console.error('Failed to download image:', error);
+    
+    // Clean up any empty or partial file that might have been created
+    try {
+      const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
+      const fullPath = path.join(destPath, fileName);
+      
+      const stats = await fs.stat(fullPath);
+      if (stats.size === 0) {
+        await fs.unlink(fullPath);
+      }
+    } catch (cleanupError) {
+      // Ignore cleanup errors
+    }
+    
+    // Check for specific error messages and provide user-friendly responses
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage.includes('unauthorized') || errorMessage.includes('invalid username/password')) {
+      throw new Error('Authentication failed. This image may require Docker Hub login or is from a private repository.');
+    } else if (errorMessage.includes('not found')) {
+      throw new Error('Image not found. Please check the image URL and tag.');
+    } else if (errorMessage.includes('manifest')) {
+      throw new Error('Failed to retrieve image manifest. The image may not exist or be accessible.');
+    } else if (errorMessage.includes('timeout')) {
+      throw new Error('Download timed out. Please try again or check your network connection.');
+    }
+    
     return false;
   }
 }
@@ -429,6 +488,7 @@ export async function action({ request }: Route.ActionArgs) {
       const imageUrl = formData.get('imageUrl') as string;
       const imageTag = formData.get('imageTag') as string;
       const currentPath = formData.get('currentPath') as string;
+      const architecture = formData.get('architecture') as string || 'amd64';
       
       if (!imageUrl || !imageUrl.trim()) {
         return { success: false, error: "Image URL is required" };
@@ -438,12 +498,18 @@ export async function action({ request }: Route.ActionArgs) {
         return { success: false, error: "Image tag is required" };
       }
       
-      const success = await downloadImage(imageUrl.trim(), imageTag.trim(), currentPath);
-      
-      if (success) {
-        return { success: true };
-      } else {
-        return { success: false, error: "Failed to download container image" };
+      try {
+        const success = await downloadImage(imageUrl.trim(), imageTag.trim(), currentPath, architecture);
+        
+        if (success) {
+          return { success: true };
+        } else {
+          return { success: false, error: "Failed to download container image" };
+        }
+      } catch (error) {
+        // Handle specific error messages from downloadImage function
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return { success: false, error: errorMessage };
       }
     }
 
