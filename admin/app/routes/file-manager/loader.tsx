@@ -27,11 +27,6 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
         size: stats.size,
         modified: stats.mtime
       });
-
-      if (isDirectory) {
-        const subFiles = await getFileList(fullPath);
-        fileList.push(...subFiles);
-      }
     }
     return fileList.filter((file) => file.name !== '.' && file.name !== '..' && !file.name.startsWith('.')).sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1;
@@ -53,23 +48,45 @@ async function checkLockFile(): Promise<boolean> {
   }
 }
 
-export async function loader() {
-  // Load files from both user uploads and mirrored packages directories
+function isPathAllowed(requestedPath: string): boolean {
+  // Define root directories
   const userUploadsDir = appConfig.filesDir;
-  const mirroredPackagesDir = process.env.NODE_ENV === "production" 
-    ? "/var/spool/apt-mirror" 
-    : "../data/data/apt-mirror";
+  const mirroredPackagesDir = appConfig.mirroredPackagesDir;
   
-  const [userUploadsFiles, mirroredPackagesFiles, isLockFilePresent] = await Promise.all([
-    getFileList(userUploadsDir).catch(() => []),
-    getFileList(mirroredPackagesDir).catch(() => []),
+  // Normalize paths for comparison
+  const normalizedRequestedPath = path.resolve(requestedPath);
+  const normalizedUserUploadsDir = path.resolve(userUploadsDir);
+  const normalizedMirroredPackagesDir = path.resolve(mirroredPackagesDir);
+  
+  // Check if the requested path is within one of the allowed root directories
+  return normalizedRequestedPath.startsWith(normalizedUserUploadsDir) || 
+         normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir);
+}
+
+export async function loader({ request }: { request: Request }) {
+  const url = new URL(request.url);
+  const requestedPath = url.searchParams.get('path') || appConfig.filesDir;
+  
+  // Security check: ensure the requested path is within allowed directories
+  if (!isPathAllowed(requestedPath)) {
+    console.error("Security violation: Attempted to access unauthorized directory:", requestedPath);
+    return { 
+      files: [],
+      currentPath: appConfig.filesDir,
+      isLockFilePresent: false,
+      error: "Access denied: Directory not allowed"
+    };
+  }
+  
+  // Load files from the current directory only
+  const [files, isLockFilePresent] = await Promise.all([
+    getFileList(requestedPath).catch(() => []),
     checkLockFile()
   ]);
   
   return { 
-    files: [...userUploadsFiles, ...mirroredPackagesFiles],
-    userUploadsDir,
-    mirroredPackagesDir,
+    files,
+    currentPath: requestedPath,
     isLockFilePresent
   };
 }

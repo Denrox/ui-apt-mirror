@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import fs from "fs/promises";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
@@ -12,7 +12,7 @@ import Ellipsis from "~/components/shared/ellipsis/ellipsis";
 import Dropdown from "~/components/shared/dropdown/dropdown";
 import DropdownItem from "~/components/shared/dropdown/dropdown-item";
 import DownloadImageModal from "~/components/file-manager/download-image-modal";
-import { useActionData, useLoaderData, useSubmit, useRevalidator, type SubmitTarget } from "react-router";
+import { useActionData, useLoaderData, useSubmit, useRevalidator, useSearchParams, type SubmitTarget } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
 import { action } from "./action";
@@ -57,24 +57,35 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { files, userUploadsDir, mirroredPackagesDir, isLockFilePresent } = useLoaderData<typeof loader>();
+  const { files, currentPath: loaderCurrentPath, isLockFilePresent, error: loaderError } = useLoaderData<typeof loader>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<"user-uploads" | "mirrored-packages">("user-uploads");
+  const revalidator = useRevalidator();
+  const previousViewRef = useRef(view);
   
   // Determine root path based on view
   const rootPath = useMemo(() => {
     if (view === "mirrored-packages") {
-      return mirroredPackagesDir;
+      return appConfig.mirroredPackagesDir;
     } else {
-      return userUploadsDir;
+      return appConfig.filesDir;
     }
-  }, [view, userUploadsDir, mirroredPackagesDir]);
+  }, [view]);
   
-  const [currentPath, setCurrentPath] = useState(rootPath);
+  // Update current path when view changes
+  useEffect(() => {
+    if (previousViewRef.current !== view) {
+      setSearchParams({ path: rootPath });
+      previousViewRef.current = view;
+    }
+  }, [view, rootPath, setSearchParams]);
+  
+  const currentPath = searchParams.get('path') || rootPath;
+  
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const submit = useSubmit();
-  const revalidator = useRevalidator();
   const [isUploading, setIsUploading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloadImageModalOpen, setIsDownloadImageModalOpen] = useState(false);
@@ -83,15 +94,6 @@ export default function FileManager() {
   
   const [fileToCut, setFileToCut] = useState<{ path: string; name: string } | null>(null);
   
-  // Update current path when view changes
-  useEffect(() => {
-    setCurrentPath(rootPath);
-  }, [rootPath]);
-  
-  const currentPathFiles = useMemo(() => {
-    return files.filter((file) => isChildPath(file.path, currentPath));
-  }, [files, currentPath]);
-
   const isRootPath = useMemo(() => {
     return currentPath === rootPath;
   }, [currentPath, rootPath]);
@@ -100,6 +102,22 @@ export default function FileManager() {
   const shouldShowSyncPlaceholder = useMemo(() => {
     return view === "mirrored-packages" && isLockFilePresent;
   }, [view, isLockFilePresent]);
+  
+  // Check if loading
+  const isLoading = revalidator.state === "loading";
+  
+  // Show loader error if present
+  useEffect(() => {
+    if (loaderError) {
+      setError(loaderError);
+      // Reset to root path if access was denied
+      setSearchParams({ path: rootPath });
+    }
+  }, [loaderError, rootPath, setSearchParams]);
+
+  const currentPathFiles = useMemo(() => {
+    return files.filter((file) => isChildPath(file.path, currentPath));
+  }, [files, currentPath]);
 
   const handleDelete = async (filePath: string) => {
     if (!confirm("Are you sure you want to delete this item?")) return;
@@ -231,7 +249,7 @@ export default function FileManager() {
               { value: "user-uploads", label: "User Uploads" },
               { value: "mirrored-packages", label: "Mirrored Packages" }
             ]}
-            disabled={isUploading || isDownloading || !!itemToRename || !!fileToCut || !!newFolderName.trim()}
+            disabled={isUploading || isDownloading || !!itemToRename || !!fileToCut || !!newFolderName.trim() || isLoading}
           />
         </div>
       </div>
@@ -270,7 +288,7 @@ export default function FileManager() {
               <>
                 {!isRootPath && parentDirName && (
                   <div className="flex items-center gap-2">
-                    <FormButton onClick={() => setCurrentPath(parentDirName)}>
+                    <FormButton onClick={() => setSearchParams({ path: parentDirName })} disabled={isLoading}>
                     ↑
                     </FormButton>
                   </div>
@@ -280,8 +298,9 @@ export default function FileManager() {
                     value={newFolderName}
                     onChange={setNewFolderName}
                     placeholder="New folder name"
+                    disabled={isLoading}
                   />
-                  <FormButton onClick={handleCreateFolder} disabled={!newFolderName.trim() || isOperationInProgress}>
+                  <FormButton onClick={handleCreateFolder} disabled={!newFolderName.trim() || isOperationInProgress || isLoading}>
                     Create Folder
                   </FormButton>
                 </div>
@@ -292,14 +311,14 @@ export default function FileManager() {
                     </span>
                     <FormButton
                       onClick={handlePasteClick}
-                      disabled={isOperationInProgress}
+                      disabled={isOperationInProgress || isLoading}
                     >
                       Paste
                     </FormButton>
                     <FormButton
                       type="secondary"
                       onClick={handleCutCancel}
-                      disabled={isOperationInProgress}
+                      disabled={isOperationInProgress || isLoading}
                     >
                       Cancel
                     </FormButton>
@@ -323,11 +342,11 @@ export default function FileManager() {
                     )}
                     {!isUploading && !isDownloading && view === "user-uploads" && (
                       <Dropdown
-                        disabled={isOperationInProgress}
+                        disabled={isOperationInProgress || isLoading}
                         trigger={
                           <FormButton
                             type="secondary"
-                            disabled={isOperationInProgress}
+                            disabled={isOperationInProgress || isLoading}
                             onClick={() => {}} // Empty handler to satisfy FormButton requirements
                           >
                             ⋮
@@ -357,9 +376,9 @@ export default function FileManager() {
               <div className="divide-y divide-gray-200 w-full overflow-x-auto">
                 {currentPathFiles.map((item, index) => (
                   <div key={index} className="flex w-auto items-center justify-between p-3 hover:bg-gray-50">
-                    <div onClick={() => item.isDirectory && !isOperationInProgress && setCurrentPath(item.path)} className={classNames("flex items-center gap-2", {
-                      "cursor-pointer": item.isDirectory,
-                      "cursor-default": !item.isDirectory,
+                    <div onClick={() => item.isDirectory && !isOperationInProgress && !isLoading && setSearchParams({ path: item.path })} className={classNames("flex items-center gap-2", {
+                      "cursor-pointer": item.isDirectory && !isLoading,
+                      "cursor-default": !item.isDirectory || isLoading,
                     })}>
                       <span className="text-lg">
                         {item.isDirectory ? "📁" : "📄"}
@@ -382,11 +401,11 @@ export default function FileManager() {
                           <FormButton
                             type="secondary"
                             size="small"
-                            disabled={isOperationInProgress || !!fileToCut}
+                            disabled={isOperationInProgress || !!fileToCut || isLoading}
                             onClick={() => {
                               const link = document.createElement('a');
                               // Determine the base path to replace based on the current view
-                              const basePath = view === "mirrored-packages" ? mirroredPackagesDir : userUploadsDir;
+                              const basePath = view === "mirrored-packages" ? rootPath : appConfig.filesDir;
                               link.href = `${getHostAddress(appConfig.hosts.find(host => host.id === 'files')?.address || '')}${item.path.replace(basePath, '')}`;
                               link.target = '_blank';
                               link.rel = 'noopener noreferrer';
@@ -401,7 +420,7 @@ export default function FileManager() {
                         <FormButton
                           type="secondary"
                           size="small"
-                          disabled={isOperationInProgress || !!fileToCut}
+                          disabled={isOperationInProgress || !!fileToCut || isLoading}
                           onClick={() => handleCutClick({ path: item.path, name: item.name })}
                         >
                           ✂️
@@ -409,7 +428,7 @@ export default function FileManager() {
                         <FormButton
                           type="secondary"
                           size="small"
-                          disabled={isOperationInProgress || !!fileToCut}
+                          disabled={isOperationInProgress || !!fileToCut || isLoading}
                           onClick={() => handleRenameClick({ path: item.path, name: item.name })}
                         >
                           ✏️
@@ -417,7 +436,7 @@ export default function FileManager() {
                         <FormButton
                           type="secondary"
                           size="small"
-                          disabled={isOperationInProgress || !!fileToCut}
+                          disabled={isOperationInProgress || !!fileToCut || isLoading}
                           onClick={() => handleDelete(item.path)}
                         >
                           🗑️
