@@ -44,6 +44,15 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
   }
 }
 
+async function checkLockFile(): Promise<boolean> {
+  try {
+    await fs.access("/var/run/apt-mirror.lock");
+    return true; // Lock file exists
+  } catch (error) {
+    return false; // Lock file doesn't exist
+  }
+}
+
 export async function loader() {
   // Load files from both user uploads and mirrored packages directories
   const userUploadsDir = appConfig.filesDir;
@@ -51,14 +60,16 @@ export async function loader() {
     ? "/var/spool/apt-mirror" 
     : "../data/data/apt-mirror";
   
-  const [userUploadsFiles, mirroredPackagesFiles] = await Promise.all([
+  const [userUploadsFiles, mirroredPackagesFiles, isLockFilePresent] = await Promise.all([
     getFileList(userUploadsDir).catch(() => []),
-    getFileList(mirroredPackagesDir).catch(() => [])
+    getFileList(mirroredPackagesDir).catch(() => []),
+    checkLockFile()
   ]);
   
   return { 
     files: [...userUploadsFiles, ...mirroredPackagesFiles],
     userUploadsDir,
-    mirroredPackagesDir
+    mirroredPackagesDir,
+    isLockFilePresent
   };
 }

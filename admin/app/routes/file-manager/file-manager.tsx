@@ -57,7 +57,7 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { files, userUploadsDir, mirroredPackagesDir } = useLoaderData<typeof loader>();
+  const { files, userUploadsDir, mirroredPackagesDir, isLockFilePresent } = useLoaderData<typeof loader>();
   const [view, setView] = useState<"user-uploads" | "mirrored-packages">("user-uploads");
   
   // Determine root path based on view
@@ -95,6 +95,11 @@ export default function FileManager() {
   const isRootPath = useMemo(() => {
     return currentPath === rootPath;
   }, [currentPath, rootPath]);
+  
+  // Check if we should show the sync placeholder
+  const shouldShowSyncPlaceholder = useMemo(() => {
+    return view === "mirrored-packages" && isLockFilePresent;
+  }, [view, isLockFilePresent]);
 
   const handleDelete = async (filePath: string) => {
     if (!confirm("Are you sure you want to delete this item?")) return;
@@ -261,82 +266,92 @@ export default function FileManager() {
             </div>
           )}
           <div className={classNames("flex flex-wrap gap-4 px-0 bg-gray-50 rounded-md")}>
-            {!isRootPath && parentDirName && (
-              <div className="flex items-center gap-2">
-                <FormButton onClick={() => setCurrentPath(parentDirName)}>
-                ↑
-                </FormButton>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <FormInput
-                value={newFolderName}
-                onChange={setNewFolderName}
-                placeholder="New folder name"
-              />
-              <FormButton onClick={handleCreateFolder} disabled={!newFolderName.trim() || isOperationInProgress}>
-                Create Folder
-              </FormButton>
-            </div>
-            {fileToCut ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">
-                  Moving: <span className="font-medium">{fileToCut.name}</span>
-                </span>
-                <FormButton
-                  onClick={handlePasteClick}
-                  disabled={isOperationInProgress}
-                >
-                  Paste
-                </FormButton>
-                <FormButton
-                  type="secondary"
-                  onClick={handleCutCancel}
-                  disabled={isOperationInProgress}
-                >
-                  Cancel
-                </FormButton>
-              </div>
-            ) : (
+            {!shouldShowSyncPlaceholder && (
               <>
-                {!isDownloading && (
-                  <ChunkedUpload
-                    onError={handleChunkedUploadError}
-                    onSelectedFile={setIsUploading}
-                    currentPath={currentPath}
-                    onChunkUploaded={handleChunkUploaded}
-                  />
+                {!isRootPath && parentDirName && (
+                  <div className="flex items-center gap-2">
+                    <FormButton onClick={() => setCurrentPath(parentDirName)}>
+                    ↑
+                    </FormButton>
+                  </div>
                 )}
-                {!isUploading && (
-                  <DownloadFile
-                    onError={handleDownloadError}
-                    onDownloadInput={setIsDownloading}
-                    currentPath={currentPath}
+                <div className="flex items-center gap-2">
+                  <FormInput
+                    value={newFolderName}
+                    onChange={setNewFolderName}
+                    placeholder="New folder name"
                   />
-                )}
-                {!isUploading && !isDownloading && view === "user-uploads" && (
-                  <Dropdown
-                    disabled={isOperationInProgress}
-                    trigger={
-                      <FormButton
-                        type="secondary"
+                  <FormButton onClick={handleCreateFolder} disabled={!newFolderName.trim() || isOperationInProgress}>
+                    Create Folder
+                  </FormButton>
+                </div>
+                {fileToCut ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">
+                      Moving: <span className="font-medium">{fileToCut.name}</span>
+                    </span>
+                    <FormButton
+                      onClick={handlePasteClick}
+                      disabled={isOperationInProgress}
+                    >
+                      Paste
+                    </FormButton>
+                    <FormButton
+                      type="secondary"
+                      onClick={handleCutCancel}
+                      disabled={isOperationInProgress}
+                    >
+                      Cancel
+                    </FormButton>
+                  </div>
+                ) : (
+                  <>
+                    {!isDownloading && (
+                      <ChunkedUpload
+                        onError={handleChunkedUploadError}
+                        onSelectedFile={setIsUploading}
+                        currentPath={currentPath}
+                        onChunkUploaded={handleChunkUploaded}
+                      />
+                    )}
+                    {!isUploading && (
+                      <DownloadFile
+                        onError={handleDownloadError}
+                        onDownloadInput={setIsDownloading}
+                        currentPath={currentPath}
+                      />
+                    )}
+                    {!isUploading && !isDownloading && view === "user-uploads" && (
+                      <Dropdown
                         disabled={isOperationInProgress}
-                        onClick={() => {}} // Empty handler to satisfy FormButton requirements
+                        trigger={
+                          <FormButton
+                            type="secondary"
+                            disabled={isOperationInProgress}
+                            onClick={() => {}} // Empty handler to satisfy FormButton requirements
+                          >
+                            ⋮
+                          </FormButton>
+                        }
                       >
-                        ⋮
-                      </FormButton>
-                    }
-                  >
-                    <DropdownItem onClick={() => setIsDownloadImageModalOpen(true)}>
-                      Download Container Image
-                    </DropdownItem>
-                  </Dropdown>
+                        <DropdownItem onClick={() => setIsDownloadImageModalOpen(true)}>
+                          Download Container Image
+                        </DropdownItem>
+                      </Dropdown>
+                    )}
+                  </>
                 )}
               </>
             )}
           </div>
           <div className="border border-gray-200 rounded-md">
-            {currentPathFiles.length === 0 ? (
+            {shouldShowSyncPlaceholder ? (
+              <div className="p-8 text-center">
+                <div className="text-gray-500 text-lg mb-2">🔄</div>
+                <div className="text-gray-700 font-medium mb-2">Automatic sync is performed</div>
+                <div className="text-gray-500 text-sm">Manual operations will be available after it's complete</div>
+              </div>
+            ) : currentPathFiles.length === 0 ? (
               <div className="p-4 text-center text-gray-500">No files found</div>
             ) : (
               <div className="divide-y divide-gray-200 w-full overflow-x-auto">
