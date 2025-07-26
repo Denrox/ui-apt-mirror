@@ -10,7 +10,7 @@ interface FileItem {
   modified?: Date;
 }
 
-async function getFileList(dirPath: string = appConfig.filesDir): Promise<FileItem[]> {
+async function getFileList(dirPath: string): Promise<FileItem[]> {
   try {
     const items = await fs.readdir(dirPath, { withFileTypes: true });
     const fileList: FileItem[] = [];
@@ -45,6 +45,20 @@ async function getFileList(dirPath: string = appConfig.filesDir): Promise<FileIt
 }
 
 export async function loader() {
-  const files = await getFileList();
-  return { files };
+  // Load files from both user uploads and mirrored packages directories
+  const userUploadsDir = appConfig.filesDir;
+  const mirroredPackagesDir = process.env.NODE_ENV === "production" 
+    ? "/var/spool/apt-mirror" 
+    : "../data/data/apt-mirror";
+  
+  const [userUploadsFiles, mirroredPackagesFiles] = await Promise.all([
+    getFileList(userUploadsDir).catch(() => []),
+    getFileList(mirroredPackagesDir).catch(() => [])
+  ]);
+  
+  return { 
+    files: [...userUploadsFiles, ...mirroredPackagesFiles],
+    userUploadsDir,
+    mirroredPackagesDir
+  };
 }

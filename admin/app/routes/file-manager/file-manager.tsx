@@ -5,6 +5,7 @@ import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
+import FormSelect from "~/components/shared/form/form-select";
 import Modal from "~/components/shared/modal/modal";
 import RenameForm from "~/components/file-manager/rename-form";
 import Ellipsis from "~/components/shared/ellipsis/ellipsis";
@@ -56,8 +57,19 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { files } = useLoaderData<typeof loader>();
-  const [currentPath, setCurrentPath] = useState(appConfig.filesDir);
+  const { files, userUploadsDir, mirroredPackagesDir } = useLoaderData<typeof loader>();
+  const [view, setView] = useState<"user-uploads" | "mirrored-packages">("user-uploads");
+  
+  // Determine root path based on view
+  const rootPath = useMemo(() => {
+    if (view === "mirrored-packages") {
+      return mirroredPackagesDir;
+    } else {
+      return userUploadsDir;
+    }
+  }, [view, userUploadsDir, mirroredPackagesDir]);
+  
+  const [currentPath, setCurrentPath] = useState(rootPath);
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -71,13 +83,18 @@ export default function FileManager() {
   
   const [fileToCut, setFileToCut] = useState<{ path: string; name: string } | null>(null);
   
+  // Update current path when view changes
+  useEffect(() => {
+    setCurrentPath(rootPath);
+  }, [rootPath]);
+  
   const currentPathFiles = useMemo(() => {
     return files.filter((file) => isChildPath(file.path, currentPath));
   }, [files, currentPath]);
 
   const isRootPath = useMemo(() => {
-    return currentPath === appConfig.filesDir;
-  }, [currentPath]);
+    return currentPath === rootPath;
+  }, [currentPath, rootPath]);
 
   const handleDelete = async (filePath: string) => {
     if (!confirm("Are you sure you want to delete this item?")) return;
@@ -196,10 +213,34 @@ export default function FileManager() {
 
   return (
     <PageLayoutFull>
-      <Title title="File Manager" />
+      <div className="flex items-center justify-between mb-4">
+        <Title title="File Manager" />
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-600">View:</span>
+          <FormSelect
+            id="view-selector"
+            label=""
+            value={view}
+            onChange={(value) => setView(value as "user-uploads" | "mirrored-packages")}
+            options={[
+              { value: "user-uploads", label: "User Uploads" },
+              { value: "mirrored-packages", label: "Mirrored Packages" }
+            ]}
+            disabled={isUploading || isDownloading || !!itemToRename || !!fileToCut || !!newFolderName.trim()}
+          />
+        </div>
+      </div>
       
       <ContentBlock>
         <div className="flex flex-col gap-4">
+          {view === "mirrored-packages" && (
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+              <div className="flex items-center gap-2">
+                <span className="text-yellow-700 text-sm">⚠️ Manual changes can break mirror functionality</span>
+              </div>
+            </div>
+          )}
+          
           <div className="flex items-center gap-2 px-0 bg-gray-50 rounded-md">
             <span className="font-semibold">Current Path:</span>
             <span className="font-mono text-sm">{currentPath}</span>
@@ -273,7 +314,7 @@ export default function FileManager() {
                     currentPath={currentPath}
                   />
                 )}
-                {!isUploading && !isDownloading && (
+                {!isUploading && !isDownloading && view === "user-uploads" && (
                   <Dropdown
                     disabled={isOperationInProgress}
                     trigger={
@@ -329,7 +370,9 @@ export default function FileManager() {
                             disabled={isOperationInProgress || !!fileToCut}
                             onClick={() => {
                               const link = document.createElement('a');
-                              link.href = `${getHostAddress(appConfig.hosts.find(host => host.id === 'files')?.address || '')}${item.path.replace(appConfig.filesDir, '')}`;
+                              // Determine the base path to replace based on the current view
+                              const basePath = view === "mirrored-packages" ? mirroredPackagesDir : userUploadsDir;
+                              link.href = `${getHostAddress(appConfig.hosts.find(host => host.id === 'files')?.address || '')}${item.path.replace(basePath, '')}`;
                               link.target = '_blank';
                               link.rel = 'noopener noreferrer';
                               document.body.appendChild(link);
