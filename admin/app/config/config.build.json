@@ -2,7 +2,7 @@
   "mirrorLogsDir": "/var/log/apt-mirror",
   "nginxLogsDir": "/var/log/nginx",
   "filesDir": "/var/www/files",
-  "mirroredPackagesDir": "/var/www/apt-mirror",
+  "mirroredPackagesDir": "/var/spool/apt-mirror",
   "hosts": [
     { "id": "mirror", "address": "domain", "name": "APT Mirror", "description": "APT Mirror" },
     { "id": "admin", "address": "admin.domain", "name": "Admin", "description": "Admin UI for the mirror" },
