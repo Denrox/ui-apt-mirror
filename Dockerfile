@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     unzip \
     ca-certificates \
     tzdata \
+    bc \
     && rm -rf /var/lib/apt/lists/*
 
 # Install skopeo for container image operations

@@ -5,6 +5,7 @@ import appConfig from "~/config/config.json";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import { useEffect, useMemo, useState } from "react";
 import { getHostAddress } from "~/utils/url";
+import ResourceMonitor from "~/components/shared/resource-monitor/resource-monitor";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -90,6 +91,9 @@ export default function Home() {
       </div>
 
       <Title title="Services Status" />
+      <div className="px-[12px] md:px-0">
+        <ResourceMonitor />
+      </div>
       <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
         {appConfig.hosts.map((page) => (
           <div key={page.address} className={classNames("h-[120px] md:w-[calc(50%-18px)] w-full lg:w-[calc(33%-17px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]", {

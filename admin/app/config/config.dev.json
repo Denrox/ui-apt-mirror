@@ -3,6 +3,7 @@
   "nginxLogsDir": "/var/log/nginx",
   "filesDir": "../data/data/files",
   "mirroredPackagesDir": "../data/data/apt-mirror",
+  "resourceMonitorScriptPath": "./scripts/resource-monitor.sh",
   "hosts": [
     { "id": "mirror", "address": "domain", "name": "APT Mirror", "description": "APT Mirror" },
     { "id": "admin", "address": "admin.domain", "name": "Admin", "description": "Admin UI for the mirror" },
