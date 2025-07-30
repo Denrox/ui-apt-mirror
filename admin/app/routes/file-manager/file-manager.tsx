@@ -236,10 +236,10 @@ export default function FileManager() {
 
   return (
     <PageLayoutFull>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 px-[12px]">
         <Title title="File Manager" />
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">View:</span>
+          <span className="text-sm text-gray-600 hidden md:block">View:</span>
           <FormSelect
             id="view-selector"
             label=""

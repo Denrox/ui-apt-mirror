@@ -53,6 +53,44 @@ detect_architecture() {
     esac
 }
 
+# Function to calculate optimal threads and connections based on RAM
+calculate_resource_limits() {
+    print_status "Calculating optimal resource limits based on available RAM..."
+    
+    # Get total RAM in MB
+    local total_ram_mb=$(free -m | awk 'NR==2{print $2}')
+    
+    print_status "Total RAM detected: ${total_ram_mb}MB"
+    
+    # Calculate threads: 1 thread per 600MB RAM
+    local calculated_threads=$((total_ram_mb / 600))
+    
+    # Ensure minimum of 1 thread and maximum of 8 threads
+    if [ $calculated_threads -lt 1 ]; then
+        calculated_threads=1
+    elif [ $calculated_threads -gt 8 ]; then
+        calculated_threads=8
+    fi
+    
+    # Calculate connections: 6 connections per 600MB RAM
+    local calculated_connections=$((6 * (total_ram_mb / 600)))
+    
+    # Ensure minimum of 6 connections and maximum of 48 connections
+    if [ $calculated_connections -lt 6 ]; then
+        calculated_connections=6
+    elif [ $calculated_connections -gt 48 ]; then
+        calculated_connections=48
+    fi
+    
+    print_success "Calculated optimal settings:"
+    print_success "  - Threads: $calculated_threads (1 per 600MB RAM)"
+    print_success "  - Connections: $calculated_connections (6 per 600MB RAM)"
+    
+    # Set global variables
+    OPTIMAL_THREADS=$calculated_threads
+    OPTIMAL_CONNECTIONS=$calculated_connections
+}
+
 # Function to validate dist directory
 validate_dist() {
     local arch=$1
@@ -252,8 +290,8 @@ set postmirror_script \$var_path/postmirror.sh
 # Set run_postmirror to 1 to run the postmirror script
 set run_postmirror 0
 
-# Set nthreads to the number of threads to use
-set nthreads     1
+# Set nthreads to the number of threads to use (calculated based on RAM)
+set nthreads     $OPTIMAL_THREADS
 
 # Set _tilde to 1 to download tilde files
 set _tilde 0
@@ -270,8 +308,8 @@ set _limit_rate 0
 # Set user agent for downloads
 set _user_agent "apt-mirror2/14"
 
-# Set number of connections per host
-set _max_connections 10
+# Set number of connections per host (calculated based on RAM)
+set _max_connections $OPTIMAL_CONNECTIONS
 
 set release_files_retries 15
 
@@ -299,13 +337,18 @@ clean http://deb.debian.org/debian
 clean http://security.debian.org/debian-security
 EOF
     
-    print_success "apt-mirror2 configuration generated."
+    print_success "apt-mirror2 configuration generated with $OPTIMAL_THREADS threads and $OPTIMAL_CONNECTIONS connections."
 }
 
 # Function to show status
 show_status() {
     print_status "Container status:"
     docker ps --filter "name=$CONTAINER_NAME" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    
+    echo ""
+    print_status "Resource Configuration:"
+    echo "  Threads: $OPTIMAL_THREADS (1 per 600MB RAM)"
+    echo "  Connections: $OPTIMAL_CONNECTIONS (6 per 600MB RAM)"
     
     echo ""
     print_status "Access URLs:"
@@ -341,11 +384,16 @@ show_usage() {
     echo ""
     echo "This script will:"
     echo "  1. Detect your system architecture"
-    echo "  2. Validate that required image files exist"
-    echo "  3. Get your custom configuration"
-    echo "  4. Clean up previous installation"
-    echo "  5. Create data directories and generate configurations"
-    echo "  6. Call start.sh to load image and start container"
+    echo "  2. Calculate optimal resource limits based on available RAM"
+    echo "  3. Validate that required image files exist"
+    echo "  4. Get your custom configuration"
+    echo "  5. Clean up previous installation"
+    echo "  6. Create data directories and generate configurations"
+    echo "  7. Call start.sh to load image and start container"
+    echo ""
+    echo "Resource Calculation:"
+    echo "  - Threads: 1 per 600MB RAM (min: 1, max: 8)"
+    echo "  - Connections: 6 per 600MB RAM (min: 6, max: 48)"
     echo ""
     echo "Prerequisites:"
     echo "  - Docker installed and running"
@@ -410,6 +458,9 @@ main() {
     # Detect architecture
     local arch=$(detect_architecture)
     print_success "Detected architecture: $arch"
+    
+    # Calculate optimal resource limits
+    calculate_resource_limits
     
     # Validate dist directory
     validate_dist "$arch"
