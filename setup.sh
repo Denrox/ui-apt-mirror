@@ -303,7 +303,7 @@ set _timeout 300
 set _retry 3
 
 # Set download speed limit (in bytes per second, 0 = unlimited)
-set _limit_rate 8388608
+set _limit_rate 4194304
 
 # Set user agent for downloads
 set _user_agent "apt-mirror2/14"
