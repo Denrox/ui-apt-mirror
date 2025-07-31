@@ -62,8 +62,8 @@ calculate_resource_limits() {
     
     print_status "Total RAM detected: ${total_ram_mb}MB"
     
-    # Calculate threads: 1 thread per 600MB RAM
-    local calculated_threads=$((total_ram_mb / 600))
+    # Calculate threads: 1 thread per 700MB RAM
+    local calculated_threads=$((total_ram_mb / 700))
     
     # Ensure minimum of 1 thread and maximum of 8 threads
     if [ $calculated_threads -lt 1 ]; then
@@ -72,8 +72,8 @@ calculate_resource_limits() {
         calculated_threads=8
     fi
     
-    # Calculate connections: 6 connections per 600MB RAM
-    local calculated_connections=$((6 * (total_ram_mb / 600)))
+    # Calculate connections: 6 connections per 700MB RAM
+    local calculated_connections=$((6 * (total_ram_mb / 700)))
     
     # Ensure minimum of 6 connections and maximum of 48 connections
     if [ $calculated_connections -lt 6 ]; then
@@ -83,8 +83,8 @@ calculate_resource_limits() {
     fi
     
     print_success "Calculated optimal settings:"
-    print_success "  - Threads: $calculated_threads (1 per 600MB RAM)"
-    print_success "  - Connections: $calculated_connections (6 per 600MB RAM)"
+    print_success "  - Threads: $calculated_threads (1 per 700MB RAM)"
+    print_success "  - Connections: $calculated_connections (6 per 700MB RAM)"
     
     # Set global variables
     OPTIMAL_THREADS=$calculated_threads
@@ -303,7 +303,7 @@ set _timeout 300
 set _retry 3
 
 # Set download speed limit (in bytes per second, 0 = unlimited)
-set _limit_rate 0
+set _limit_rate 4194304
 
 # Set user agent for downloads
 set _user_agent "apt-mirror2/14"
@@ -347,8 +347,8 @@ show_status() {
     
     echo ""
     print_status "Resource Configuration:"
-    echo "  Threads: $OPTIMAL_THREADS (1 per 600MB RAM)"
-    echo "  Connections: $OPTIMAL_CONNECTIONS (6 per 600MB RAM)"
+    echo "  Threads: $OPTIMAL_THREADS (1 per 700MB RAM)"
+    echo "  Connections: $OPTIMAL_CONNECTIONS (6 per 700MB RAM)"
     
     echo ""
     print_status "Access URLs:"
@@ -392,8 +392,8 @@ show_usage() {
     echo "  7. Call start.sh to load image and start container"
     echo ""
     echo "Resource Calculation:"
-    echo "  - Threads: 1 per 600MB RAM (min: 1, max: 8)"
-    echo "  - Connections: 6 per 600MB RAM (min: 6, max: 48)"
+    echo "  - Threads: 1 per 700MB RAM (min: 1, max: 8)"
+    echo "  - Connections: 6 per 700MB RAM (min: 6, max: 48)"
     echo ""
     echo "Prerequisites:"
     echo "  - Docker installed and running"
