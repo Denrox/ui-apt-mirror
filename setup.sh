@@ -57,8 +57,9 @@ detect_architecture() {
 calculate_resource_limits() {
     print_status "Calculating optimal resource limits based on available RAM..."
     
-    # Get total RAM in MB
-    local total_ram_mb=$(free -m | awk 'NR==2{print $2}')
+    # Get total RAM in KB and convert to MB (fix for ARM64/OpenWrt)
+    local total_ram_kb=$(free | awk 'NR==2{print $2}')
+    local total_ram_mb=$((total_ram_kb / 1024))
     
     print_status "Total RAM detected: ${total_ram_mb}MB"
     
