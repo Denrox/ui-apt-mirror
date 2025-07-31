@@ -113,8 +113,7 @@ get_process_info() {
     fi
     
     # Convert RAM percentage to MB (assuming total RAM is available)
-    local total_ram_kb=$(free | awk 'NR==2{print $2}')
-    local total_ram_mb=$((total_ram_kb / 1024))
+    local total_ram_mb=$(free -m | awk 'NR==2{print $2}')
     # Set locale to C to ensure decimal points instead of commas
     export LC_NUMERIC=C
     local ram_mb_calc=$(echo "$ram_percent * $total_ram_mb / 100" | bc -l 2>/dev/null | cut -d. -f1)
@@ -143,8 +142,7 @@ get_process_info() {
 
 # Function to get system total RAM
 get_system_ram() {
-    local total_ram_kb=$(free | awk 'NR==2{print $2}')
-    local total_ram_mb=$((total_ram_kb / 1024))
+    local total_ram_mb=$(free -m | awk 'NR==2{print $2}')
     echo "$total_ram_mb"
 }
 
