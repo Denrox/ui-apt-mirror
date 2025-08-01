@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 WEBSITE_URL="https://ui-apt-mirror.dbashkatov.com"
-TEMP_DIR="/tmp/ui-apt-mirror-upgrade"
+TEMP_DIR="./tmp"
 DIST_DIR="dist"
 
 # Function to print colored output
