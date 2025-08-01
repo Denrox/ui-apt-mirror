@@ -150,6 +150,35 @@ export default function Documentation() {
           </div>
         </div>
       </div>
+
+      <div>
+        <h3 className="text-lg font-semibold mb-4">Upgrading the Installation</h3>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="font-semibold text-blue-600 mb-2">./upgrade.sh</h4>
+          <p className="text-gray-700 mb-3">Downloads and installs the latest version from the official website.</p>
+          <div className="bg-white p-3 rounded border-l-4 border-purple-500">
+            <h5 className="font-semibold mb-2">Operations:</h5>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Checks connectivity to https://ui-apt-mirror.dbashkatov.com/</li>
+              <li>Prompts user to choose architecture (current or all)</li>
+              <li>Downloads latest version from official website</li>
+              <li>Extracts archive to temporary directory</li>
+              <li>Installs new image files to dist/ directory</li>
+              <li>Runs setup.sh to deploy the upgrade</li>
+              <li>Cleans up temporary files</li>
+            </ul>
+          </div>
+          <div className="bg-yellow-50 p-3 rounded border-l-4 border-yellow-500 mt-3">
+            <h5 className="font-semibold mb-2">Prerequisites:</h5>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Internet connection</li>
+              <li>curl for downloading</li>
+              <li>tar for extraction</li>
+              <li>setup.sh in current directory</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   );
 

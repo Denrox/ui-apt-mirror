@@ -134,17 +134,21 @@ Use the file repository at `http://files.mirror.intra` to:
 
 ## 🔧 Management
 
-### Stopping the Container
+### Upgrading the Installation
+
+To upgrade to the latest version:
 
 ```bash
-docker compose -f docker-compose.yml down
+./upgrade.sh
 ```
 
-### Restarting the Container
-
-```bash
-docker compose -f docker-compose.yml restart
-```
+The upgrade script will:
+- Check connectivity to the official website
+- Ask you to choose between current architecture or all architectures
+- Download the latest version
+- Extract and install new image files
+- Run setup.sh to deploy the upgrade
+- Clean up temporary files
 
 ## 📁 Directory Structure
 
@@ -152,6 +156,7 @@ docker compose -f docker-compose.yml restart
 ui-apt-mirror/
 ├── build.sh                 # Build script for Docker images
 ├── setup.sh               # Deployment and configuration script
+├── upgrade.sh             # Upgrade script for latest version
 ├── README.md               # This file
 ├── .env                    # Configuration file (generated)
 ├── docker-compose.src.yml  # Docker Compose template
