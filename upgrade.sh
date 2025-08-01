@@ -171,7 +171,6 @@ extract_and_install() {
         "start.sh"
         "docker-compose.src.yml"
         "README.md"
-        "entrypoint.sh"
     )
     
     # Copy individual files
@@ -184,19 +183,6 @@ extract_and_install() {
             print_warning "File $file not found in downloaded archive"
         fi
     done
-    
-    # Copy scripts directory
-    if [ -d "$TEMP_DIR/scripts" ]; then
-        print_status "Installing scripts directory..."
-        if [ -d "./scripts" ]; then
-            # Remove existing scripts directory
-            rm -rf "./scripts"
-        fi
-        cp -r "$TEMP_DIR/scripts" "./"
-        print_success "Installed scripts directory"
-    else
-        print_warning "Scripts directory not found in downloaded archive"
-    fi
     
     print_success "Additional project files installed successfully"
 }
