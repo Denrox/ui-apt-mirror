@@ -161,6 +161,44 @@ extract_and_install() {
     fi
     
     print_success "Image files installed successfully"
+    
+    # Copy additional project files
+    print_status "Installing additional project files..."
+    
+    # List of files to copy
+    local files_to_copy=(
+        "setup.sh"
+        "start.sh"
+        "docker-compose.src.yml"
+        "README.md"
+        "entrypoint.sh"
+    )
+    
+    # Copy individual files
+    for file in "${files_to_copy[@]}"; do
+        if [ -f "$TEMP_DIR/$file" ]; then
+            print_status "Installing $file..."
+            cp "$TEMP_DIR/$file" "./"
+            print_success "Installed $file"
+        else
+            print_warning "File $file not found in downloaded archive"
+        fi
+    done
+    
+    # Copy scripts directory
+    if [ -d "$TEMP_DIR/scripts" ]; then
+        print_status "Installing scripts directory..."
+        if [ -d "./scripts" ]; then
+            # Remove existing scripts directory
+            rm -rf "./scripts"
+        fi
+        cp -r "$TEMP_DIR/scripts" "./"
+        print_success "Installed scripts directory"
+    else
+        print_warning "Scripts directory not found in downloaded archive"
+    fi
+    
+    print_success "Additional project files installed successfully"
 }
 
 # Function to run setup
