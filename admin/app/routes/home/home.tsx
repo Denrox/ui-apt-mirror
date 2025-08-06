@@ -6,8 +6,13 @@ import PageLayoutFull from "~/components/shared/layout/page-layout-full";
 import { useEffect, useMemo, useState } from "react";
 import { getHostAddress } from "~/utils/url";
 import ResourceMonitor from "~/components/shared/resource-monitor/resource-monitor";
-import { useLoaderData } from "react-router";
-import { loader, type RepositoryConfig } from "./loader";
+import { useLoaderData, useActionData, useSubmit, useRevalidator } from "react-router";
+import { loader, type RepositoryConfig, type CommentedSection } from "./loader";
+import { action } from "./actions";
+import Modal from "~/components/shared/modal/modal";
+import FormButton from "~/components/shared/form/form-button";
+import Dropdown from "~/components/shared/dropdown/dropdown";
+import DropdownItem from "~/components/shared/dropdown/dropdown-item";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -16,12 +21,49 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export { loader };
+export { loader, action };
 
 export default function Home() {
   const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
   const [pagesAvalabilityState, setPagesAvalabilityState] = useState<{ [key: string]: boolean }>({});
-  const { repositoryConfigs } = useLoaderData<typeof loader>();
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string>("");
+  const { repositoryConfigs, commentedSections } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+  const submit = useSubmit();
+  const revalidator = useRevalidator();
+
+  useEffect(() => {
+    if (actionData?.success) {
+      revalidator.revalidate();
+      setShowDeleteModal(false);
+      setDeleteTarget("");
+    }
+  }, [actionData, revalidator]);
+
+  const handleDeleteClick = (sectionTitle: string) => {
+    setDeleteTarget(sectionTitle);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    const formData = new FormData();
+    formData.append("action", "deleteRepository");
+    formData.append("sectionTitle", deleteTarget);
+    submit(formData, { method: "post" });
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteModal(false);
+    setDeleteTarget("");
+  };
+
+  const handleRestoreClick = (sectionTitle: string) => {
+    const formData = new FormData();
+    formData.append("action", "restoreRepository");
+    formData.append("sectionTitle", sectionTitle);
+    submit(formData, { method: "post" });
+  };
 
   useEffect(() => {
     const checkPagesAvalability = async () => {
@@ -56,21 +98,79 @@ export default function Home() {
 
   return (
     <PageLayoutFull>
-      <Title title="Repository Configuration" />
-      <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
-        {repositoryConfigs.map((config: RepositoryConfig, index: number) => (
-          <div key={index} className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
-            <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
-              {config.title}
-            </div>
-            {config.content.map((line: string, lineIndex: number) => (
-              <div key={lineIndex} className="text-[12px] text-gray-500">
-                {line}
-              </div>
+      <div className="relative mb-4">
+        <Title title="Repository Configuration" action={
+          <Dropdown
+            trigger={
+              <FormButton onClick={() => {}} type="primary" size="small">
+                +
+              </FormButton>
+            }
+            disabled={commentedSections.length === 0}
+          >
+            {commentedSections.map((section: CommentedSection, index: number) => (
+              <DropdownItem
+                key={index}
+                onClick={() => handleRestoreClick(section.title)}
+              >
+                Restore: {section.title}
+              </DropdownItem>
             ))}
-          </div>
-        ))}
+          </Dropdown>
+        } />
       </div>
+      <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
+        {repositoryConfigs.length > 0 ? (
+          repositoryConfigs.map((config: RepositoryConfig, index: number) => (
+            <div key={index} className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]">
+              <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
+                {config.title}
+              </div>
+              {config.content.map((line: string, lineIndex: number) => (
+                <div key={lineIndex} className="text-[12px] text-gray-500">
+                  {line}
+                </div>
+              ))}
+              <button
+                onClick={() => handleDeleteClick(config.title)}
+                className="absolute top-[12px] right-[12px] text-red-500 hover:text-red-700 transition-colors cursor-pointer"
+                title="Delete repository configuration"
+              >
+                🗑️
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="w-full h-[148px] bg-gray-50 border-2 border-dashed border-gray-300 rounded-md flex flex-col items-center justify-center p-[12px]">
+            <div className="text-gray-400 text-[48px] mb-2">📦</div>
+            <div className="text-gray-500 text-[14px] font-medium text-center">
+              No repository configurations found
+            </div>
+            <div className="text-gray-400 text-[12px] text-center mt-1">
+              Use the + button to restore commented configurations
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={handleDeleteCancel}
+        title="Confirm Deletion"
+      >
+        <p className="text-gray-600 mb-6">
+          Are you sure you want to delete the repository configuration "{deleteTarget}"? This action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3">
+          <FormButton onClick={handleDeleteCancel} type="secondary">
+            Cancel
+          </FormButton>
+          <FormButton onClick={handleDeleteConfirm} type="danger">
+            Delete
+          </FormButton>
+        </div>
+      </Modal>
 
       <Title title="Services Status" />
       <div className="px-[12px] md:px-0">
