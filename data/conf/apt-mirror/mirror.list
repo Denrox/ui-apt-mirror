@@ -44,12 +44,22 @@ set _max_connections 10
 
 ignore_errors
 
+# ---start---Ubuntu Noble---
 # Ubuntu 24.04 (Noble Numbat) repositories - AMD64 architecture
 deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
 deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
+# Usage start
+#Types: deb
+#URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
+#Suites: noble noble-updates noble-security noble-backports
+#Components: main restricted universe multiverse
+#Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+# Usage end
+# ---end---Ubuntu Noble---
 
+# ---start---Debian Bookworm---
 # Debian 12 (Bookworm) repositories - AMD64 and ARM64 architectures
 deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
 deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
@@ -60,7 +70,12 @@ deb-src http://deb.debian.org/debian bookworm main contrib non-free non-free-fir
 deb-src http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
 deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 deb-src http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
-
+# Usage start
+deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
+#deb http://mirror.intra/security.debian.org/debian-security bookworm-security main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian bookworm-updates main non-free-firmware
+# Usage end
+# ---end---Debian Bookworm---
 
 # Clean up old packages
 clean http://archive.ubuntu.com/ubuntu
