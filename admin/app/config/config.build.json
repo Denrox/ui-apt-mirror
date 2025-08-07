@@ -4,7 +4,7 @@
   "filesDir": "/var/www/files",
   "mirroredPackagesDir": "/var/spool/apt-mirror",
   "resourceMonitorScriptPath": "/usr/local/bin/resource-monitor.sh",
-  "mirrorListPath": "/var/spool/apt-mirror/conf/mirror.list",
+  "mirrorListPath": "/etc/apt/mirror.list",
   "hosts": [
     { "id": "mirror", "address": "domain", "name": "APT Mirror", "description": "APT Mirror" },
     { "id": "admin", "address": "admin.domain", "name": "Admin", "description": "Admin UI for the mirror" },
