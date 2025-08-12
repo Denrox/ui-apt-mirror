@@ -331,21 +331,39 @@ deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe mu
 
 # ---start---Debian Bookworm---
 # Debian 12 (Bookworm) repositories - AMD64 and ARM64 architectures
-deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+#deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
 
-deb-src http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
-deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
+#deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
 # Usage start
-deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
 #deb http://mirror.intra/security.debian.org/debian-security bookworm-security main non-free-firmware
 #deb http://mirror.intra/deb.debian.org/debian bookworm-updates main non-free-firmware
 # Usage end
 # ---end---Debian Bookworm---
+
+# ---start---Debian Trixie---
+# Debian 13 (Trixie) repositories - AMD64 and ARM64 architectures
+deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+
+deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+# Usage start
+#deb http://mirror.intra/deb.debian.org/debian trixie main non-free-firmware
+#deb http://mirror.intra/security.debian.org/debian-security trixie-security main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie-updates main non-free-firmware
+# Usage end
+# ---end---Debian Trixie---
 
 # Clean up old packages
 clean http://archive.ubuntu.com/ubuntu
