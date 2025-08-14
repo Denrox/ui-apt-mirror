@@ -29,6 +29,7 @@ export default function Home() {
   const [pagesAvalabilityState, setPagesAvalabilityState] = useState<{ [key: string]: boolean }>({});
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string>("");
+  const [isActionInProgress, setIsActionInProgress] = useState(false);
   const { repositoryConfigs, commentedSections, isLockFilePresent } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
@@ -37,15 +38,22 @@ export default function Home() {
   useEffect(() => {
     if (actionData?.success) {
       revalidator.revalidate();
+    }
+  }, [actionData?.success, revalidator]);
+
+  useEffect(() => {
+    if (actionData?.success) {
       setShowDeleteModal(false);
       setDeleteTarget("");
+      setIsActionInProgress(false);
       if (actionData.message) {
         toast.success(actionData.message);
       }
-    } else if (actionData && 'error' in actionData) {
+    } else if (actionData?.error) {
+      setIsActionInProgress(false);
       toast.error(actionData.error);
     }
-  }, [actionData, revalidator]);
+  }, [actionData?.success, actionData?.error, actionData?.message]);
 
   const handleDeleteClick = (sectionTitle: string) => {
     setDeleteTarget(sectionTitle);
@@ -53,6 +61,9 @@ export default function Home() {
   };
 
   const handleDeleteConfirm = () => {
+    if (isActionInProgress) return;
+    
+    setIsActionInProgress(true);
     const formData = new FormData();
     formData.append("action", "deleteRepository");
     formData.append("sectionTitle", deleteTarget);
@@ -65,6 +76,9 @@ export default function Home() {
   };
 
   const handleRestoreClick = (sectionTitle: string) => {
+    if (isActionInProgress) return;
+    
+    setIsActionInProgress(true);
     const formData = new FormData();
     formData.append("action", "restoreRepository");
     formData.append("sectionTitle", sectionTitle);
@@ -72,6 +86,9 @@ export default function Home() {
   };
 
   const handleSyncToggle = () => {
+    if (isActionInProgress) return; // Prevent multiple clicks
+    
+    setIsActionInProgress(true);
     const formData = new FormData();
     formData.append("action", isLockFilePresent ? "stopSync" : "startSync");
     submit(formData, { method: "post" });
@@ -124,16 +141,23 @@ export default function Home() {
           <Title title="Repository Configuration" action={(
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2">
-                <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                  isLockFilePresent 
-                    ? 'bg-blue-100 text-blue-700 border border-blue-200' 
-                    : 'bg-gray-100 text-gray-600 border border-gray-200'
-                }`}>
-                  <span 
-                    className={`${isLockFilePresent ? 'animate-spin' : ''} cursor-pointer hover:opacity-80 transition-opacity`} 
-                    onClick={handleSyncToggle}
-                    title={isLockFilePresent ? "Click to stop sync" : "Click to start sync"}
-                  >
+                <div 
+                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-opacity ${
+                    isActionInProgress 
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'cursor-pointer hover:opacity-80'
+                  } ${
+                    isLockFilePresent 
+                      ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                      : 'bg-gray-100 text-gray-600 border border-gray-200'
+                  }`}
+                  onClick={isActionInProgress ? undefined : handleSyncToggle}
+                  title={isActionInProgress 
+                    ? "Action in progress..." 
+                    : (isLockFilePresent ? "Click to stop sync" : "Click to start sync")
+                  }
+                >
+                  <span className={isLockFilePresent ? 'animate-spin' : ''}>
                     {isLockFilePresent ? '🔄' : '⏸️'}
                   </span>
                   <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
@@ -145,7 +169,7 @@ export default function Home() {
                     +
                   </FormButton>
                 }
-                disabled={commentedSections.length === 0 || isLockFilePresent}
+                disabled={commentedSections.length === 0 || isLockFilePresent || isActionInProgress}
               >
                 {commentedSections.map((section: CommentedSection, index: number) => (
                   <DropdownItem
@@ -175,8 +199,11 @@ export default function Home() {
               <button
                 onClick={() => handleDeleteClick(config.title)}
                 className="absolute top-[12px] right-[12px] text-red-500 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                title={isLockFilePresent ? "Cannot delete while sync is running" : "Delete repository configuration"}
-                disabled={isLockFilePresent}
+                title={isActionInProgress 
+                  ? "Action in progress..." 
+                  : (isLockFilePresent ? "Cannot delete while sync is running" : "Delete repository configuration")
+                }
+                disabled={isLockFilePresent || isActionInProgress}
               >
                 🗑️
               </button>
@@ -205,10 +232,10 @@ export default function Home() {
           Are you sure you want to delete the repository configuration "{deleteTarget}"? This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <FormButton onClick={handleDeleteCancel} type="secondary">
+          <FormButton onClick={handleDeleteCancel} type="secondary" disabled={isActionInProgress}>
             Cancel
           </FormButton>
-          <FormButton onClick={handleDeleteConfirm} type="danger">
+          <FormButton onClick={handleDeleteConfirm} type="danger" disabled={isActionInProgress}>
             Delete
           </FormButton>
         </div>
