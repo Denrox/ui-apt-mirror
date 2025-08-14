@@ -514,7 +514,6 @@ export async function action({ request }: Route.ActionArgs) {
           return { success: false, error: "Failed to download container image" };
         }
       } catch (error) {
-        // Handle specific error messages from downloadImage function
         const errorMessage = error instanceof Error ? error.message : String(error);
         return { success: false, error: errorMessage };
       }

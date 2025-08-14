@@ -4,7 +4,6 @@ import FormButton from "~/components/shared/form/form-button";
 import { toast } from "react-toastify";
 
 interface ChunkedUploadProps {
-  onError: (error: string) => void;
   currentPath: string;
   onSelectedFile: (isSelected: boolean) => void;
   onChunkUploaded?: (chunkIndex: number, totalChunks: number) => void;
@@ -20,7 +19,7 @@ interface UploadChunk {
 
 const CHUNK_SIZE = 10240 * 1024; // 10MB chunks
 
-export default function ChunkedUpload({ onError, currentPath, onChunkUploaded, onSelectedFile }: ChunkedUploadProps) {
+export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelectedFile }: ChunkedUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -124,16 +123,12 @@ export default function ChunkedUpload({ onError, currentPath, onChunkUploaded, o
         fileInputRef.current.value = '';
       }
 
-      // Show success toast
-      toast.success("File uploaded successfully");
-
     } catch (error) {
       console.error('Upload failed:', error);
-      onError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
-  }, [selectedFile, currentPath, onError, uploadChunk, onChunkUploaded]);
+  }, [selectedFile, currentPath, uploadChunk, onChunkUploaded]);
 
   return (
     <div className="flex items-center gap-2">

@@ -57,7 +57,6 @@ export default function FileManager() {
   const revalidator = useRevalidator();
   const previousViewRef = useRef(view);
   
-  // Determine root path based on view
   const rootPath = useMemo(() => {
     if (view === "mirrored-packages") {
       return appConfig.mirroredPackagesDir;
@@ -66,7 +65,6 @@ export default function FileManager() {
     }
   }, [view]);
   
-  // Update current path when view changes
   useEffect(() => {
     if (previousViewRef.current !== view) {
       setSearchParams({ path: rootPath });
@@ -91,19 +89,15 @@ export default function FileManager() {
     return currentPath === rootPath;
   }, [currentPath, rootPath]);
   
-  // Check if we should show the sync placeholder
   const shouldShowSyncPlaceholder = useMemo(() => {
     return view === "mirrored-packages" && isLockFilePresent;
   }, [view, isLockFilePresent]);
   
-  // Check if loading
   const isLoading = revalidator.state === "loading";
   
-  // Show loader error if present
   useEffect(() => {
     if (loaderError) {
       toast.error(loaderError);
-      // Reset to root path if access was denied
       setSearchParams({ path: rootPath });
     }
   }, [loaderError, rootPath, setSearchParams]);
@@ -121,26 +115,36 @@ export default function FileManager() {
         { action: '', method: 'post' },
       );
     } catch (error) {
-      toast.error("Failed to delete item");
+      console.error(error);
     }
   };
+
+  const actionMessage = useMemo(() => {
+    if (actionData?.success) {
+      return actionData.message;
+    } else if (actionData?.error) {
+      return actionData.error;
+    }
+  }, [actionData?.success, actionData?.error, actionData?.message]);
+
+  useEffect(() => {
+    if (!!actionData?.success) {
+      console.log("actionMessage", actionMessage);
+      if (actionMessage) {
+        toast.success(actionMessage);
+      }
+    } else {
+      toast.error(actionMessage);
+    }
+  }, [actionMessage, actionData?.success]);
 
   useEffect(() => {
     if (actionData?.success) {
       revalidator.revalidate();
-      
-      // Show success toast only if there's a message
-      if (actionData && 'message' in actionData && actionData.message) {
-        toast.success(actionData.message);
-      }
-    } else if (actionData && 'error' in actionData && actionData.error) {
-      // Show error toast
-      toast.error(actionData.error);
     }
-  }, [actionData, revalidator]);
+  }, [actionData?.success, revalidator]);
 
   const handleCreateFolder = async () => {
-        
     try {
       await submit(
         { intent: 'createFolder', folderName: newFolderName, currentPath: currentPath },
@@ -192,19 +196,11 @@ export default function FileManager() {
     setFileToCut(null);
   };
 
-  const handleChunkedUploadError = useCallback((error: string) => {
-    toast.error(error);
-  }, []);
-
   const handleChunkUploaded = useCallback((chunkIndex: number, totalChunks: number) => {
     if (chunkIndex === 0 || chunkIndex === totalChunks - 1) {
       revalidator.revalidate();
     }
   }, [revalidator]);
-
-  const handleDownloadError = useCallback((error: string) => {
-    toast.error(error);
-  }, []);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -309,7 +305,6 @@ export default function FileManager() {
                   <>
                     {!isDownloading && (
                       <ChunkedUpload
-                        onError={handleChunkedUploadError}
                         onSelectedFile={setIsUploading}
                         currentPath={currentPath}
                         onChunkUploaded={handleChunkUploaded}
@@ -317,7 +312,6 @@ export default function FileManager() {
                     )}
                     {!isUploading && (
                       <DownloadFile
-                        onError={handleDownloadError}
                         onDownloadInput={setIsDownloading}
                         currentPath={currentPath}
                       />
@@ -443,7 +437,6 @@ export default function FileManager() {
             item={itemToRename}
             onSuccess={handleRenameSuccess}
             onCancel={handleRenameCancel}
-            onError={handleRenameError}
           />
         </Modal>
       )}
@@ -455,4 +448,4 @@ export default function FileManager() {
       />
     </PageLayoutFull>
   );
-} 
+}

@@ -39,13 +39,10 @@ export default function Home() {
       revalidator.revalidate();
       setShowDeleteModal(false);
       setDeleteTarget("");
-      
-      // Show success toast for repository actions
       if (actionData.message) {
         toast.success(actionData.message);
       }
     } else if (actionData && 'error' in actionData) {
-      // Show error toast for failed actions
       toast.error(actionData.error);
     }
   }, [actionData, revalidator]);
@@ -117,39 +114,40 @@ export default function Home() {
   return (
     <PageLayoutFull>
       <div className="relative mb-4">
-        <div className="flex items-center gap-3">
-          <Title title="Repository Configuration" />
-          <div className="flex items-center gap-2">
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-              isLockFilePresent 
-                ? 'bg-blue-100 text-blue-700 border border-blue-200' 
-                : 'bg-gray-100 text-gray-600 border border-gray-200'
-            }`}>
-              <span className={isLockFilePresent ? 'animate-spin' : ''}>
-                {isLockFilePresent ? '🔄' : '⏸️'}
-              </span>
-              <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex justify-end mt-2">
-          <Dropdown
-            trigger={
-              <FormButton onClick={() => {}} type="primary" size="small">
-                +
-              </FormButton>
-            }
-            disabled={commentedSections.length === 0 || isLockFilePresent}
-          >
-            {commentedSections.map((section: CommentedSection, index: number) => (
-              <DropdownItem
-                key={index}
-                onClick={() => handleRestoreClick(section.title)}
+        <div className="flex items-center justify-center gap-3">
+          <Title title="Repository Configuration" action={(
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                  isLockFilePresent 
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                    : 'bg-gray-100 text-gray-600 border border-gray-200'
+                }`}>
+                  <span className={isLockFilePresent ? 'animate-spin' : ''}>
+                    {isLockFilePresent ? '🔄' : '⏸️'}
+                  </span>
+                  <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
+                </div>
+              </div>
+              <Dropdown
+                trigger={
+                  <FormButton onClick={() => {}} type="primary" size="small">
+                    +
+                  </FormButton>
+                }
+                disabled={commentedSections.length === 0 || isLockFilePresent}
               >
-                Restore: {section.title}
-              </DropdownItem>
-            ))}
-          </Dropdown>
+                {commentedSections.map((section: CommentedSection, index: number) => (
+                  <DropdownItem
+                    key={index}
+                    onClick={() => handleRestoreClick(section.title)}
+                  >
+                    Restore: {section.title}
+                  </DropdownItem>
+                ))}
+              </Dropdown>
+            </div>
+          )} />
         </div>
       </div>
       <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">

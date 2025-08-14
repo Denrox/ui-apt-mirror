@@ -46,9 +46,6 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
       setImageTag('latest');
       setArchitecture('amd64');
       
-      // Show success toast
-      toast.success("Container image downloaded successfully!");
-      
       onClose();
     } catch (error) {
       console.error('Failed to download image:', error);
