@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useFetcher } from "react-router";
 import FormButton from "~/components/shared/form/form-button";
+import { toast } from "react-toastify";
 
 interface ChunkedUploadProps {
   onError: (error: string) => void;
@@ -122,6 +123,9 @@ export default function ChunkedUpload({ onError, currentPath, onChunkUploaded, o
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+
+      // Show success toast
+      toast.success("File uploaded successfully");
 
     } catch (error) {
       console.error('Upload failed:', error);

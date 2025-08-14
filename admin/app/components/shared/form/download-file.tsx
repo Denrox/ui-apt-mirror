@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useSubmit } from "react-router";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
+import { toast } from "react-toastify";
 
 interface DownloadFileProps {
   onError: (error: string) => void;
@@ -63,6 +64,7 @@ export default function DownloadFile({ onError, currentPath, onDownloadInput }: 
       setUrl("");
       setFileName("");
       setShowUrlInput(false);
+      toast.success("File downloaded successfully!");
     } catch (error) {
       onError("Failed to download file");
     } finally {

@@ -3,7 +3,7 @@ import classNames from "classnames";
 import type { Route } from "./+types/home";
 import appConfig from "~/config/config.json";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getHostAddress } from "~/utils/url";
 import ResourceMonitor from "~/components/shared/resource-monitor/resource-monitor";
 import { useLoaderData, useActionData, useSubmit, useRevalidator } from "react-router";
@@ -13,6 +13,7 @@ import Modal from "~/components/shared/modal/modal";
 import FormButton from "~/components/shared/form/form-button";
 import Dropdown from "~/components/shared/dropdown/dropdown";
 import DropdownItem from "~/components/shared/dropdown/dropdown-item";
+import { toast } from "react-toastify";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -38,6 +39,14 @@ export default function Home() {
       revalidator.revalidate();
       setShowDeleteModal(false);
       setDeleteTarget("");
+      
+      // Show success toast for repository actions
+      if (actionData.message) {
+        toast.success(actionData.message);
+      }
+    } else if (actionData && 'error' in actionData) {
+      // Show error toast for failed actions
+      toast.error(actionData.error);
     }
   }, [actionData, revalidator]);
 
@@ -93,8 +102,6 @@ export default function Home() {
       }
     };
   }, []);
-
-  const mirrorAddress = getHostAddress(appConfig.hosts.find((host) => host.id === 'mirror')?.address || '');
 
   return (
     <PageLayoutFull>

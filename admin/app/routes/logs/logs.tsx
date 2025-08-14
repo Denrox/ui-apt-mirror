@@ -1,7 +1,5 @@
-import { Link, useLoaderData, useParams } from "react-router";
+import { useLoaderData, useParams } from "react-router";
 import type { Route } from "./+types/logs";
-import fs from "fs/promises";
-import appConfig from "~/config/config.json";
 import Title from "~/components/shared/title/title";
 import { useEffect, useState, useMemo } from "react";
 import classNames from "classnames";

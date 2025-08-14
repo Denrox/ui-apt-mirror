@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import fs from "fs/promises";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
@@ -12,7 +11,7 @@ import Ellipsis from "~/components/shared/ellipsis/ellipsis";
 import Dropdown from "~/components/shared/dropdown/dropdown";
 import DropdownItem from "~/components/shared/dropdown/dropdown-item";
 import DownloadImageModal from "~/components/file-manager/download-image-modal";
-import { useActionData, useLoaderData, useSubmit, useRevalidator, useSearchParams, type SubmitTarget } from "react-router";
+import { useActionData, useLoaderData, useSubmit, useRevalidator, useSearchParams } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
 import { action } from "./action";
@@ -20,20 +19,15 @@ import classNames from "classnames";
 import ChunkedUpload from "~/components/shared/form/chunked-upload";
 import DownloadFile from "~/components/shared/form/download-file";
 import { getHostAddress } from "~/utils/url";
+import { toast } from "react-toastify";
 
 export { action, loader };
 
 export function shouldRevalidate({ 
-  currentParams, 
-  nextParams, 
   formData, 
-  actionResult, 
   defaultShouldRevalidate 
 }: {
-  currentParams: any;
-  nextParams: any;
   formData: FormData | null;
-  actionResult: any;
   defaultShouldRevalidate: boolean;
 }) {
   if (formData?.get('intent') === 'uploadChunk') {
@@ -57,7 +51,7 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { files, currentPath: loaderCurrentPath, isLockFilePresent, error: loaderError } = useLoaderData<typeof loader>();
+  const { files, isLockFilePresent, error: loaderError } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<"user-uploads" | "mirrored-packages">("user-uploads");
   const revalidator = useRevalidator();
@@ -84,7 +78,6 @@ export default function FileManager() {
   
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const submit = useSubmit();
   const [isUploading, setIsUploading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -109,7 +102,7 @@ export default function FileManager() {
   // Show loader error if present
   useEffect(() => {
     if (loaderError) {
-      setError(loaderError);
+      toast.error(loaderError);
       // Reset to root path if access was denied
       setSearchParams({ path: rootPath });
     }
@@ -128,21 +121,25 @@ export default function FileManager() {
         { action: '', method: 'post' },
       );
     } catch (error) {
-      setError("Failed to delete item");
+      toast.error("Failed to delete item");
     }
   };
 
   useEffect(() => {
     if (actionData?.success) {
-      setError(null);
       revalidator.revalidate();
+      
+      // Show success toast only if there's a message
+      if (actionData && 'message' in actionData && actionData.message) {
+        toast.success(actionData.message);
+      }
     } else if (actionData && 'error' in actionData && actionData.error) {
-      setError(actionData.error);
+      // Show error toast
+      toast.error(actionData.error);
     }
   }, [actionData, revalidator]);
 
   const handleCreateFolder = async () => {
-    setError(null);
         
     try {
       await submit(
@@ -151,7 +148,7 @@ export default function FileManager() {
       )
       setNewFolderName('');
     } catch (error) {
-      setError("Failed to create folder");
+      toast.error("Failed to create folder");
     }
   };
 
@@ -169,7 +166,7 @@ export default function FileManager() {
   };
 
   const handleRenameError = (error: string) => {
-    setError(error);
+    toast.error(error);
   };
 
   const handleCutClick = (item: { path: string; name: string }) => {
@@ -179,7 +176,6 @@ export default function FileManager() {
   const handlePasteClick = async () => {
     if (!fileToCut) return;
 
-    setError(null);
     
     try {
       await submit(
@@ -188,7 +184,7 @@ export default function FileManager() {
       );
       setFileToCut(null);
     } catch (error) {
-      setError("Failed to move item");
+      toast.error("Failed to move item");
     }
   };
 
@@ -197,7 +193,7 @@ export default function FileManager() {
   };
 
   const handleChunkedUploadError = useCallback((error: string) => {
-    setError(error);
+    toast.error(error);
   }, []);
 
   const handleChunkUploaded = useCallback((chunkIndex: number, totalChunks: number) => {
@@ -207,7 +203,7 @@ export default function FileManager() {
   }, [revalidator]);
 
   const handleDownloadError = useCallback((error: string) => {
-    setError(error);
+    toast.error(error);
   }, []);
 
   const formatFileSize = (bytes: number): string => {
@@ -269,20 +265,6 @@ export default function FileManager() {
             <span className="font-mono text-sm">{currentPath}</span>
           </div>
 
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-              <div className="flex items-center gap-2">
-                <span className="text-red-700 text-sm">{error}</span>
-                <FormButton
-                  type="secondary"
-                  size="small"
-                  onClick={() => setError(null)}
-                >
-                  ✕
-                </FormButton>
-              </div>
-            </div>
-          )}
           <div className={classNames("flex flex-wrap gap-4 px-0 bg-gray-50 rounded-md")}>
             {!shouldShowSyncPlaceholder && (
               <>

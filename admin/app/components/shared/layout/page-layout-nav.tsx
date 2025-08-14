@@ -1,7 +1,7 @@
 import React, { type PropsWithChildren } from "react"
 
 interface PageLayoutNavProps {
-  nav: React.ReactElement;
+  nav: React.ReactElement[];
 }
 
 export default function PageLayoutNav({ children, nav }: PropsWithChildren<PageLayoutNavProps>) {
