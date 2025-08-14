@@ -29,7 +29,7 @@ export default function Home() {
   const [pagesAvalabilityState, setPagesAvalabilityState] = useState<{ [key: string]: boolean }>({});
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string>("");
-  const { repositoryConfigs, commentedSections } = useLoaderData<typeof loader>();
+  const { repositoryConfigs, commentedSections, isLockFilePresent } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const revalidator = useRevalidator();
@@ -103,17 +103,43 @@ export default function Home() {
     };
   }, []);
 
+  // Auto-refresh sync status every 5 seconds
+  useEffect(() => {
+    const syncStatusInterval = setInterval(() => {
+      revalidator.revalidate();
+    }, 5000);
+
+    return () => {
+      clearInterval(syncStatusInterval);
+    };
+  }, [revalidator]);
+
   return (
     <PageLayoutFull>
       <div className="relative mb-4">
-        <Title title="Repository Configuration" action={
+        <div className="flex items-center gap-3">
+          <Title title="Repository Configuration" />
+          <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+              isLockFilePresent 
+                ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                : 'bg-gray-100 text-gray-600 border border-gray-200'
+            }`}>
+              <span className={isLockFilePresent ? 'animate-spin' : ''}>
+                {isLockFilePresent ? '🔄' : '⏸️'}
+              </span>
+              <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end mt-2">
           <Dropdown
             trigger={
               <FormButton onClick={() => {}} type="primary" size="small">
                 +
               </FormButton>
             }
-            disabled={commentedSections.length === 0}
+            disabled={commentedSections.length === 0 || isLockFilePresent}
           >
             {commentedSections.map((section: CommentedSection, index: number) => (
               <DropdownItem
@@ -124,7 +150,7 @@ export default function Home() {
               </DropdownItem>
             ))}
           </Dropdown>
-        } />
+        </div>
       </div>
       <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
         {repositoryConfigs.length > 0 ? (
@@ -140,8 +166,9 @@ export default function Home() {
               ))}
               <button
                 onClick={() => handleDeleteClick(config.title)}
-                className="absolute top-[12px] right-[12px] text-red-500 hover:text-red-700 transition-colors cursor-pointer"
-                title="Delete repository configuration"
+                className="absolute top-[12px] right-[12px] text-red-500 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title={isLockFilePresent ? "Cannot delete while sync is running" : "Delete repository configuration"}
+                disabled={isLockFilePresent}
               >
                 🗑️
               </button>

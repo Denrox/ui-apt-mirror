@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import appConfig from "~/config/config.json";
+import { checkLockFile } from "~/utils/sync";
 
 export interface RepositoryConfig {
   title: string;
@@ -104,6 +105,9 @@ async function parseRepositoryConfigs(): Promise<{ active: RepositoryConfig[], c
 }
 
 export async function loader() {
-  const { active, commented } = await parseRepositoryConfigs();
-  return { repositoryConfigs: active, commentedSections: commented };
+  const [{ active, commented }, isLockFilePresent] = await Promise.all([
+    parseRepositoryConfigs(),
+    checkLockFile()
+  ]);
+  return { repositoryConfigs: active, commentedSections: commented, isLockFilePresent };
 } 

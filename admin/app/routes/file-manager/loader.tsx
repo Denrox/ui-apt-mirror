@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs/promises";
 import appConfig from "~/config/config.json";
+import { checkLockFile } from "~/utils/sync";
 
 interface FileItem {
   name: string;
@@ -36,15 +37,6 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
   } catch (error) {
     console.error("Error reading directory:", error);
     return [];
-  }
-}
-
-async function checkLockFile(): Promise<boolean> {
-  try {
-    await fs.access("/var/run/apt-mirror.lock");
-    return true; // Lock file exists
-  } catch (error) {
-    return false; // Lock file doesn't exist
   }
 }
 
