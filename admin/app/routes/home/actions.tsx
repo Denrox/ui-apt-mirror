@@ -20,24 +20,34 @@ export async function action({ request }: { request: Request }) {
 
   if (action === "stopSync") {
     try {
-      const lockFileContent = await fs.readFile("/var/run/apt-mirror.lock", 'utf-8');
-      const pid = lockFileContent.trim();
-      
-      if (pid) {
-        try {
-          await execAsync(`kill -TERM ${pid}`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        } catch (error) {
-          console.log('Graceful shutdown failed, force killing process');
-        }
+      // Check if lock file exists first
+      try {
+        await fs.access("/var/run/apt-mirror.lock");
+      } catch (error) {
+        return { error: "No mirror sync process running" };
+      }
+
+      // Find and kill all apt-mirror2 related processes
+      try {
+        // Kill all apt-mirror2 processes gracefully first
+        await execAsync("pkill -TERM -f 'apt-mirror2'");
         
-        try {
-          await execAsync(`kill -KILL ${pid}`);
-        } catch (error) {
-          // Process might already be terminated
-        }
+        // Wait a bit for graceful shutdown
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Force kill any remaining apt-mirror2 processes
+        await execAsync("pkill -KILL -f 'apt-mirror2'");
+        
+        // Also kill any python processes that might be running apt-mirror
+        await execAsync("pkill -TERM -f 'python.*apt-mirror'");
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await execAsync("pkill -KILL -f 'python.*apt-mirror'");
+        
+      } catch (error) {
+        console.log('Some processes might already be terminated');
       }
       
+      // Remove the lock file
       await fs.unlink("/var/run/apt-mirror.lock");
       
       return { success: true, message: "Mirror sync stopped successfully" };
