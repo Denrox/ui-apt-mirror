@@ -71,6 +71,12 @@ export default function Home() {
     submit(formData, { method: "post" });
   };
 
+  const handleSyncToggle = () => {
+    const formData = new FormData();
+    formData.append("action", isLockFilePresent ? "stopSync" : "startSync");
+    submit(formData, { method: "post" });
+  };
+
   useEffect(() => {
     const checkPagesAvalability = async () => {
       const pages = appConfig.hosts;
@@ -123,7 +129,11 @@ export default function Home() {
                     ? 'bg-blue-100 text-blue-700 border border-blue-200' 
                     : 'bg-gray-100 text-gray-600 border border-gray-200'
                 }`}>
-                  <span className={isLockFilePresent ? 'animate-spin' : ''}>
+                  <span 
+                    className={`${isLockFilePresent ? 'animate-spin' : ''} cursor-pointer hover:opacity-80 transition-opacity`} 
+                    onClick={handleSyncToggle}
+                    title={isLockFilePresent ? "Click to stop sync" : "Click to start sync"}
+                  >
                     {isLockFilePresent ? '🔄' : '⏸️'}
                   </span>
                   <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
