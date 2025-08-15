@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface FormSelectProps {
   id: string;
   label: string;

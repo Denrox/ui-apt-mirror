@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import Modal from '~/components/shared/modal/modal';
 import FormInput from '~/components/shared/form/form-input';
 import FormButton from '~/components/shared/form/form-button';
 import FormSelect from '~/components/shared/form/form-select';
 import { useSubmit } from 'react-router';
+import { toast } from 'react-toastify';
 
 interface DownloadImageModalProps {
   isOpen: boolean;
@@ -44,6 +45,7 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
       setImageUrl('');
       setImageTag('latest');
       setArchitecture('amd64');
+      
       onClose();
     } catch (error) {
       console.error('Failed to download image:', error);

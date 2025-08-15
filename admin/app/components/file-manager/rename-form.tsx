@@ -2,15 +2,15 @@ import { useState } from "react";
 import { useSubmit } from "react-router";
 import FormInput from "~/components/shared/form/form-input";
 import FormButton from "~/components/shared/form/form-button";
+import { toast } from "react-toastify";
 
 interface RenameFormProps {
   item: { path: string; name: string };
   onSuccess: () => void;
   onCancel: () => void;
-  onError: (error: string) => void;
 }
 
-export default function RenameForm({ item, onSuccess, onCancel, onError }: RenameFormProps) {
+export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProps) {
   const [newName, setNewName] = useState(item.name);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submit = useSubmit();
@@ -27,7 +27,7 @@ export default function RenameForm({ item, onSuccess, onCancel, onError }: Renam
       );
       onSuccess();
     } catch (error) {
-      onError("Failed to rename item");
+      toast.error("Failed to rename item");
     } finally {
       setIsSubmitting(false);
     }

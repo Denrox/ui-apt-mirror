@@ -3,7 +3,7 @@ import classNames from "classnames";
 import type { Route } from "./+types/home";
 import appConfig from "~/config/config.json";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getHostAddress } from "~/utils/url";
 import ResourceMonitor from "~/components/shared/resource-monitor/resource-monitor";
 import { useLoaderData, useActionData, useSubmit, useRevalidator } from "react-router";
@@ -13,6 +13,7 @@ import Modal from "~/components/shared/modal/modal";
 import FormButton from "~/components/shared/form/form-button";
 import Dropdown from "~/components/shared/dropdown/dropdown";
 import DropdownItem from "~/components/shared/dropdown/dropdown-item";
+import { toast } from "react-toastify";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -28,7 +29,8 @@ export default function Home() {
   const [pagesAvalabilityState, setPagesAvalabilityState] = useState<{ [key: string]: boolean }>({});
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string>("");
-  const { repositoryConfigs, commentedSections } = useLoaderData<typeof loader>();
+  const [isActionInProgress, setIsActionInProgress] = useState(false);
+  const { repositoryConfigs, commentedSections, isLockFilePresent } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const revalidator = useRevalidator();
@@ -36,10 +38,22 @@ export default function Home() {
   useEffect(() => {
     if (actionData?.success) {
       revalidator.revalidate();
+    }
+  }, [actionData?.success, revalidator]);
+
+  useEffect(() => {
+    if (actionData?.success) {
       setShowDeleteModal(false);
       setDeleteTarget("");
+      setIsActionInProgress(false);
+      if (actionData.message) {
+        toast.success(actionData.message);
+      }
+    } else if (actionData?.error) {
+      setIsActionInProgress(false);
+      toast.error(actionData.error);
     }
-  }, [actionData, revalidator]);
+  }, [actionData?.success, actionData?.error, actionData?.message]);
 
   const handleDeleteClick = (sectionTitle: string) => {
     setDeleteTarget(sectionTitle);
@@ -47,6 +61,9 @@ export default function Home() {
   };
 
   const handleDeleteConfirm = () => {
+    if (isActionInProgress) return;
+    
+    setIsActionInProgress(true);
     const formData = new FormData();
     formData.append("action", "deleteRepository");
     formData.append("sectionTitle", deleteTarget);
@@ -59,9 +76,21 @@ export default function Home() {
   };
 
   const handleRestoreClick = (sectionTitle: string) => {
+    if (isActionInProgress) return;
+    
+    setIsActionInProgress(true);
     const formData = new FormData();
     formData.append("action", "restoreRepository");
     formData.append("sectionTitle", sectionTitle);
+    submit(formData, { method: "post" });
+  };
+
+  const handleSyncToggle = () => {
+    if (isActionInProgress) return; // Prevent multiple clicks
+    
+    setIsActionInProgress(true);
+    const formData = new FormData();
+    formData.append("action", isLockFilePresent ? "stopSync" : "startSync");
     submit(formData, { method: "post" });
   };
 
@@ -94,30 +123,66 @@ export default function Home() {
     };
   }, []);
 
-  const mirrorAddress = getHostAddress(appConfig.hosts.find((host) => host.id === 'mirror')?.address || '');
+  // Auto-refresh sync status every 5 seconds
+  useEffect(() => {
+    const syncStatusInterval = setInterval(() => {
+      revalidator.revalidate();
+    }, 5000);
+
+    return () => {
+      clearInterval(syncStatusInterval);
+    };
+  }, [revalidator]);
 
   return (
     <PageLayoutFull>
       <div className="relative mb-4">
-        <Title title="Repository Configuration" action={
-          <Dropdown
-            trigger={
-              <FormButton onClick={() => {}} type="primary" size="small">
-                +
-              </FormButton>
-            }
-            disabled={commentedSections.length === 0}
-          >
-            {commentedSections.map((section: CommentedSection, index: number) => (
-              <DropdownItem
-                key={index}
-                onClick={() => handleRestoreClick(section.title)}
+        <div className="flex items-center justify-center gap-3">
+          <Title title="Repository Configuration" action={(
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <div 
+                  className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-opacity ${
+                    isActionInProgress 
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'cursor-pointer hover:opacity-80'
+                  } ${
+                    isLockFilePresent 
+                      ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                      : 'bg-gray-100 text-gray-600 border border-gray-200'
+                  }`}
+                  onClick={isActionInProgress ? undefined : handleSyncToggle}
+                  title={isActionInProgress 
+                    ? "Action in progress..." 
+                    : (isLockFilePresent ? "Click to stop sync" : "Click to start sync")
+                  }
+                >
+                  <span className={isLockFilePresent ? 'animate-spin' : ''}>
+                    {isLockFilePresent ? '🔄' : '⏸️'}
+                  </span>
+                  <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
+                </div>
+              </div>
+              <Dropdown
+                trigger={
+                  <FormButton onClick={() => {}} type="primary" size="small">
+                    +
+                  </FormButton>
+                }
+                disabled={commentedSections.length === 0 || isLockFilePresent || isActionInProgress}
               >
-                Restore: {section.title}
-              </DropdownItem>
-            ))}
-          </Dropdown>
-        } />
+                {commentedSections.map((section: CommentedSection, index: number) => (
+                  <DropdownItem
+                    key={index}
+                    onClick={() => handleRestoreClick(section.title)}
+                  >
+                    Restore: {section.title}
+                  </DropdownItem>
+                ))}
+              </Dropdown>
+            </div>
+          )} />
+        </div>
       </div>
       <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
         {repositoryConfigs.length > 0 ? (
@@ -133,8 +198,12 @@ export default function Home() {
               ))}
               <button
                 onClick={() => handleDeleteClick(config.title)}
-                className="absolute top-[12px] right-[12px] text-red-500 hover:text-red-700 transition-colors cursor-pointer"
-                title="Delete repository configuration"
+                className="absolute top-[12px] right-[12px] text-red-500 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title={isActionInProgress 
+                  ? "Action in progress..." 
+                  : (isLockFilePresent ? "Cannot delete while sync is running" : "Delete repository configuration")
+                }
+                disabled={isLockFilePresent || isActionInProgress}
               >
                 🗑️
               </button>
@@ -163,10 +232,10 @@ export default function Home() {
           Are you sure you want to delete the repository configuration "{deleteTarget}"? This action cannot be undone.
         </p>
         <div className="flex justify-end gap-3">
-          <FormButton onClick={handleDeleteCancel} type="secondary">
+          <FormButton onClick={handleDeleteCancel} type="secondary" disabled={isActionInProgress}>
             Cancel
           </FormButton>
-          <FormButton onClick={handleDeleteConfirm} type="danger">
+          <FormButton onClick={handleDeleteConfirm} type="danger" disabled={isActionInProgress}>
             Delete
           </FormButton>
         </div>

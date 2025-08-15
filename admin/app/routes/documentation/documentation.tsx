@@ -1,6 +1,5 @@
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { useEffect, useState } from "react";
-import classNames from "classnames";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutNav from "~/components/shared/layout/page-layout-nav";
@@ -184,19 +183,15 @@ export default function Documentation() {
 
   return (
     <PageLayoutNav
-      nav={
-        <>
-          {sections.map((section) => (
-            <NavLink
-              key={section.id}
-              to={`/documentation/${section.id}`}
-              isActive={activeSection === section.id}
-            >
-              {section.linkName}
-            </NavLink>
-          ))}
-        </>
-      }
+      nav={sections.map((section) => (
+        <NavLink
+          key={section.id}
+          to={`/documentation/${section.id}`}
+          isActive={activeSection === section.id}
+        >
+          {section.linkName}
+        </NavLink>
+      ))}
     >
       <>
         <Title title={sections.find((section) => section.id === activeSection)?.title || "Documentation"} />

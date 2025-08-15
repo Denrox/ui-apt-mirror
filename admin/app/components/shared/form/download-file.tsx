@@ -2,14 +2,14 @@ import { useState, useCallback, useEffect } from "react";
 import { useSubmit } from "react-router";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
+import { toast } from "react-toastify";
 
 interface DownloadFileProps {
-  onError: (error: string) => void;
   onDownloadInput: (isDownloading: boolean) => void;
   currentPath: string;
 }
 
-export default function DownloadFile({ onError, currentPath, onDownloadInput }: DownloadFileProps) {
+export default function DownloadFile({ currentPath, onDownloadInput }: DownloadFileProps) {
   const [url, setUrl] = useState("");
   const [fileName, setFileName] = useState("");
   const [downloading, setDownloading] = useState(false);
@@ -43,7 +43,7 @@ export default function DownloadFile({ onError, currentPath, onDownloadInput }: 
 
   const handleDownload = useCallback(async () => {
     if (!url.trim()) {
-      onError("URL is required");
+      toast.error("URL is required");
       return;
     }
 
@@ -64,11 +64,11 @@ export default function DownloadFile({ onError, currentPath, onDownloadInput }: 
       setFileName("");
       setShowUrlInput(false);
     } catch (error) {
-      onError("Failed to download file");
+      toast.error("Failed to download file");
     } finally {
       setDownloading(false);
     }
-  }, [url, fileName, currentPath, onError, submit]);
+  }, [url, fileName, currentPath, submit]);
 
   const handleCancel = useCallback(() => {
     setShowUrlInput(false);

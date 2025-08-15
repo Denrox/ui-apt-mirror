@@ -7,7 +7,6 @@ import http from "http";
 import { URL } from "url";
 import { exec } from "child_process";
 import { promisify } from "util";
-import zlib from "zlib";
 
 const execAsync = promisify(exec);
 
@@ -183,7 +182,7 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
   }
 }
 
-async function handleChunkUpload(formData: FormData): Promise<{ success: boolean; error?: string }> {
+async function handleChunkUpload(formData: FormData): Promise<{ success: boolean; error?: string; message?: string }> {
   try {
     const filePath = formData.get('filePath') as string;
     const chunk = formData.get('chunk') as any;
@@ -243,10 +242,10 @@ async function handleChunkUpload(formData: FormData): Promise<{ success: boolean
 
       chunkStorage.delete(fileId);
 
-      return { success: true };
+      return { success: true, message: "File uploaded successfully" };
     }
 
-    return { success: true };
+    return { success: true, message: "Chunk processed successfully" };
   } catch (error) {
     return { success: false, error: "Failed to process chunk" };
   }
@@ -408,14 +407,18 @@ export async function action({ request }: Route.ActionArgs) {
       const success = await createDirectory(newPath);
       
       if (success) {
-        return { success: true };
+        return { success: true, message: "Folder created successfully" };
       } else {
         return { success: false, error: "Failed to create folder" };
       }
     } else if (intent === 'deleteFile') {
       const filePath = formData.get('filePath') as string;
       const success = await deleteFile(filePath);
-      return { success };
+      if (success) {
+        return { success: true, message: "File deleted successfully" };
+      } else {
+        return { success: false, error: "Failed to delete file" };
+      }
     } else if (intent === 'renameFile') {
       const filePath = formData.get('filePath') as string;
       const newName = formData.get('newName') as string;
@@ -432,7 +435,7 @@ export async function action({ request }: Route.ActionArgs) {
       const success = await renameFile(filePath, newName);
       
       if (success) {
-        return { success: true };
+        return { success: true, message: "File renamed successfully" };
       } else {
         return { success: false, error: "Failed to rename file or file with that name already exists" };
       }
@@ -447,7 +450,7 @@ export async function action({ request }: Route.ActionArgs) {
       const success = await moveFile(sourcePath, destinationPath);
       
       if (success) {
-        return { success: true };
+        return { success: true, message: "File moved successfully" };
       } else {
         return { success: false, error: "Failed to move file or file with that name already exists in destination" };
       }
@@ -458,7 +461,11 @@ export async function action({ request }: Route.ActionArgs) {
         return { success: false, error: "No file provided" };
       }
       const success = await uploadFile(filePath, file);
-      return { success };
+      if (success) {
+        return { success: true, message: "File uploaded successfully" };
+      } else {
+        return { success: false, error: "Failed to upload file" };
+      }
     } else if (intent === 'uploadChunk') {
       const res = await handleChunkUpload(formData);
       return res;
@@ -480,7 +487,7 @@ export async function action({ request }: Route.ActionArgs) {
       const success = await downloadFile(url, destPath);
       
       if (success) {
-        return { success: true };
+        return { success: true, message: "File downloaded successfully" };
       } else {
         return { success: false, error: "Failed to download file" };
       }
@@ -502,12 +509,11 @@ export async function action({ request }: Route.ActionArgs) {
         const success = await downloadImage(imageUrl.trim(), imageTag.trim(), currentPath, architecture);
         
         if (success) {
-          return { success: true };
+          return { success: true, message: "Container image downloaded successfully" };
         } else {
           return { success: false, error: "Failed to download container image" };
         }
       } catch (error) {
-        // Handle specific error messages from downloadImage function
         const errorMessage = error instanceof Error ? error.message : String(error);
         return { success: false, error: errorMessage };
       }

@@ -304,7 +304,7 @@ set _timeout 300
 set _retry 3
 
 # Set download speed limit (in bytes per second, 0 = unlimited)
-set _limit_rate 4194304
+set _limit_rate 16777216
 
 # Set user agent for downloads
 set _user_agent "apt-mirror2/14"
@@ -362,6 +362,7 @@ deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-
 #deb http://mirror.intra/deb.debian.org/debian trixie main non-free-firmware
 #deb http://mirror.intra/security.debian.org/debian-security trixie-security main non-free-firmware
 #deb http://mirror.intra/deb.debian.org/debian trixie-updates main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie-backports main non-free-firmware
 # Usage end
 # ---end---Debian Trixie---
 

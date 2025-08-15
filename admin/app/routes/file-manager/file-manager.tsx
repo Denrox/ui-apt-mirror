@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import fs from "fs/promises";
 import Title from "~/components/shared/title/title";
 import ContentBlock from "~/components/shared/content-block/content-block";
 import PageLayoutFull from "~/components/shared/layout/page-layout-full";
@@ -12,7 +11,7 @@ import Ellipsis from "~/components/shared/ellipsis/ellipsis";
 import Dropdown from "~/components/shared/dropdown/dropdown";
 import DropdownItem from "~/components/shared/dropdown/dropdown-item";
 import DownloadImageModal from "~/components/file-manager/download-image-modal";
-import { useActionData, useLoaderData, useSubmit, useRevalidator, useSearchParams, type SubmitTarget } from "react-router";
+import { useActionData, useLoaderData, useSubmit, useRevalidator, useSearchParams } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
 import { action } from "./action";
@@ -20,20 +19,15 @@ import classNames from "classnames";
 import ChunkedUpload from "~/components/shared/form/chunked-upload";
 import DownloadFile from "~/components/shared/form/download-file";
 import { getHostAddress } from "~/utils/url";
+import { toast } from "react-toastify";
 
 export { action, loader };
 
 export function shouldRevalidate({ 
-  currentParams, 
-  nextParams, 
   formData, 
-  actionResult, 
   defaultShouldRevalidate 
 }: {
-  currentParams: any;
-  nextParams: any;
   formData: FormData | null;
-  actionResult: any;
   defaultShouldRevalidate: boolean;
 }) {
   if (formData?.get('intent') === 'uploadChunk') {
@@ -57,13 +51,12 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { files, currentPath: loaderCurrentPath, isLockFilePresent, error: loaderError } = useLoaderData<typeof loader>();
+  const { files, isLockFilePresent, error: loaderError } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<"user-uploads" | "mirrored-packages">("user-uploads");
   const revalidator = useRevalidator();
   const previousViewRef = useRef(view);
   
-  // Determine root path based on view
   const rootPath = useMemo(() => {
     if (view === "mirrored-packages") {
       return appConfig.mirroredPackagesDir;
@@ -72,7 +65,6 @@ export default function FileManager() {
     }
   }, [view]);
   
-  // Update current path when view changes
   useEffect(() => {
     if (previousViewRef.current !== view) {
       setSearchParams({ path: rootPath });
@@ -84,7 +76,6 @@ export default function FileManager() {
   
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const submit = useSubmit();
   const [isUploading, setIsUploading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -98,19 +89,15 @@ export default function FileManager() {
     return currentPath === rootPath;
   }, [currentPath, rootPath]);
   
-  // Check if we should show the sync placeholder
   const shouldShowSyncPlaceholder = useMemo(() => {
     return view === "mirrored-packages" && isLockFilePresent;
   }, [view, isLockFilePresent]);
   
-  // Check if loading
   const isLoading = revalidator.state === "loading";
   
-  // Show loader error if present
   useEffect(() => {
     if (loaderError) {
-      setError(loaderError);
-      // Reset to root path if access was denied
+      toast.error(loaderError);
       setSearchParams({ path: rootPath });
     }
   }, [loaderError, rootPath, setSearchParams]);
@@ -128,22 +115,36 @@ export default function FileManager() {
         { action: '', method: 'post' },
       );
     } catch (error) {
-      setError("Failed to delete item");
+      console.error(error);
     }
   };
 
+  const actionMessage = useMemo(() => {
+    if (actionData?.success) {
+      return actionData.message;
+    } else if (actionData?.error) {
+      return actionData.error;
+    }
+  }, [actionData?.success, actionData?.error, actionData?.message]);
+
+  useEffect(() => {
+    if (!!actionData?.success) {
+      console.log("actionMessage", actionMessage);
+      if (actionMessage) {
+        toast.success(actionMessage);
+      }
+    } else {
+      toast.error(actionMessage);
+    }
+  }, [actionMessage, actionData?.success]);
+
   useEffect(() => {
     if (actionData?.success) {
-      setError(null);
       revalidator.revalidate();
-    } else if (actionData && 'error' in actionData && actionData.error) {
-      setError(actionData.error);
     }
-  }, [actionData, revalidator]);
+  }, [actionData?.success, revalidator]);
 
   const handleCreateFolder = async () => {
-    setError(null);
-        
     try {
       await submit(
         { intent: 'createFolder', folderName: newFolderName, currentPath: currentPath },
@@ -151,7 +152,7 @@ export default function FileManager() {
       )
       setNewFolderName('');
     } catch (error) {
-      setError("Failed to create folder");
+      toast.error("Failed to create folder");
     }
   };
 
@@ -169,7 +170,7 @@ export default function FileManager() {
   };
 
   const handleRenameError = (error: string) => {
-    setError(error);
+    toast.error(error);
   };
 
   const handleCutClick = (item: { path: string; name: string }) => {
@@ -179,7 +180,6 @@ export default function FileManager() {
   const handlePasteClick = async () => {
     if (!fileToCut) return;
 
-    setError(null);
     
     try {
       await submit(
@@ -188,7 +188,7 @@ export default function FileManager() {
       );
       setFileToCut(null);
     } catch (error) {
-      setError("Failed to move item");
+      toast.error("Failed to move item");
     }
   };
 
@@ -196,19 +196,11 @@ export default function FileManager() {
     setFileToCut(null);
   };
 
-  const handleChunkedUploadError = useCallback((error: string) => {
-    setError(error);
-  }, []);
-
   const handleChunkUploaded = useCallback((chunkIndex: number, totalChunks: number) => {
     if (chunkIndex === 0 || chunkIndex === totalChunks - 1) {
       revalidator.revalidate();
     }
   }, [revalidator]);
-
-  const handleDownloadError = useCallback((error: string) => {
-    setError(error);
-  }, []);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -269,20 +261,6 @@ export default function FileManager() {
             <span className="font-mono text-sm">{currentPath}</span>
           </div>
 
-          {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-              <div className="flex items-center gap-2">
-                <span className="text-red-700 text-sm">{error}</span>
-                <FormButton
-                  type="secondary"
-                  size="small"
-                  onClick={() => setError(null)}
-                >
-                  ✕
-                </FormButton>
-              </div>
-            </div>
-          )}
           <div className={classNames("flex flex-wrap gap-4 px-0 bg-gray-50 rounded-md")}>
             {!shouldShowSyncPlaceholder && (
               <>
@@ -327,7 +305,6 @@ export default function FileManager() {
                   <>
                     {!isDownloading && (
                       <ChunkedUpload
-                        onError={handleChunkedUploadError}
                         onSelectedFile={setIsUploading}
                         currentPath={currentPath}
                         onChunkUploaded={handleChunkUploaded}
@@ -335,7 +312,6 @@ export default function FileManager() {
                     )}
                     {!isUploading && (
                       <DownloadFile
-                        onError={handleDownloadError}
                         onDownloadInput={setIsDownloading}
                         currentPath={currentPath}
                       />
@@ -461,7 +437,6 @@ export default function FileManager() {
             item={itemToRename}
             onSuccess={handleRenameSuccess}
             onCancel={handleRenameCancel}
-            onError={handleRenameError}
           />
         </Modal>
       )}
@@ -473,4 +448,4 @@ export default function FileManager() {
       />
     </PageLayoutFull>
   );
-} 
+}

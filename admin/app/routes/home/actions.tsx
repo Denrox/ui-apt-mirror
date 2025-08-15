@@ -1,9 +1,46 @@
 import fs from "fs/promises";
 import appConfig from "~/config/config.json";
+import { exec, spawn } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 
 export async function action({ request }: { request: Request }) {
   const formData = await request.formData();
   const action = formData.get("action");
+
+  if (action === "startSync") {
+    try {
+      console.log('Starting mirror sync...');
+      console.log('Script path:', appConfig.startMirrorScriptPath);
+      
+      // Use spawn to start the script and return immediately
+      const child = spawn(appConfig.startMirrorScriptPath, [], {
+        stdio: 'pipe',
+        detached: true
+      });
+      
+      // Don't wait for the child process to complete
+      child.unref();
+      
+      console.log('Start sync initiated with PID:', child.pid);
+      
+      return { success: true, message: "Mirror sync started successfully" };
+    } catch (error) {
+      console.error('Error starting mirror sync:', error);
+      return { error: "Failed to start mirror sync" };
+    }
+  }
+
+  if (action === "stopSync") {
+    try {
+      await execAsync(appConfig.stopMirrorScriptPath);
+      return { success: true, message: "Mirror sync stopped successfully" };
+    } catch (error) {
+      console.error('Error stopping mirror sync:', error);
+      return { error: "Failed to stop mirror sync" };
+    }
+  }
 
   if (action === "deleteRepository") {
     const sectionTitle = formData.get("sectionTitle") as string;
@@ -24,7 +61,6 @@ export async function action({ request }: { request: Request }) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         
-        // Check for start section
         const startMatch = line.match(/# ---start---(.+?)---/);
         if (startMatch) {
           const title = startMatch[1].trim();
@@ -38,21 +74,18 @@ export async function action({ request }: { request: Request }) {
           }
         }
         
-        // Check for usage start
         if (line.trim() === '# Usage start' && inTargetSection) {
           inUsageSection = true;
           newLines.push(line); // Keep the usage start marker
           continue;
         }
         
-        // Check for usage end
         if (line.trim() === '# Usage end' && inTargetSection) {
           inUsageSection = false;
           newLines.push(line); // Keep the usage end marker
           continue;
         }
         
-        // Check for end section
         const endMatch = line.match(/# ---end---(.+?)---/);
         if (endMatch && inTargetSection) {
           inTargetSection = false;
@@ -61,7 +94,6 @@ export async function action({ request }: { request: Request }) {
           continue;
         }
         
-        // Comment lines between start and usage start if in target section
         if (inTargetSection && !inUsageSection && line.trim() && !line.startsWith('#')) {
           newLines.push(`# ${line}`);
         } else {
@@ -69,13 +101,11 @@ export async function action({ request }: { request: Request }) {
         }
       }
       
-      // Write the updated content back to the file
       await fs.writeFile(mirrorListPath, newLines.join('\n'));
       
       return { success: true, message: `Repository section "${sectionTitle}" commented successfully` };
       
     } catch (error) {
-      console.error('Error commenting repository section:', error);
       return { error: "Failed to comment repository section" };
     }
   }
@@ -99,13 +129,12 @@ export async function action({ request }: { request: Request }) {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         
-        // Check for start section
         const startMatch = line.match(/# ---start---(.+?)---/);
         if (startMatch) {
           const title = startMatch[1].trim();
           if (title === sectionTitle) {
             inTargetSection = true;
-            newLines.push(line); // Keep the start marker
+            newLines.push(line);
             continue;
           } else {
             inTargetSection = false;
@@ -113,44 +142,37 @@ export async function action({ request }: { request: Request }) {
           }
         }
         
-        // Check for usage start
         if (line.trim() === '# Usage start' && inTargetSection) {
           inUsageSection = true;
-          newLines.push(line); // Keep the usage start marker
+          newLines.push(line);
           continue;
         }
         
-        // Check for usage end
         if (line.trim() === '# Usage end' && inTargetSection) {
           inUsageSection = false;
-          newLines.push(line); // Keep the usage end marker
+          newLines.push(line);
           continue;
         }
         
-        // Check for end section
         const endMatch = line.match(/# ---end---(.+?)---/);
         if (endMatch && inTargetSection) {
           inTargetSection = false;
           inUsageSection = false;
-          newLines.push(line); // Keep the end marker
+          newLines.push(line);
           continue;
         }
         
-        // Uncomment lines between start and usage start if in target section
         if (inTargetSection && !inUsageSection && line.trim().startsWith('# ')) {
-          newLines.push(line.substring(2)); // Remove the # prefix
+          newLines.push(line.substring(2));
         } else {
           newLines.push(line);
         }
       }
       
-      // Write the updated content back to the file
       await fs.writeFile(mirrorListPath, newLines.join('\n'));
       
       return { success: true, message: `Repository section "${sectionTitle}" restored successfully` };
-      
     } catch (error) {
-      console.error('Error restoring repository section:', error);
       return { error: "Failed to restore repository section" };
     }
   }
