@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import appConfig from "~/config/config.json";
-import { exec } from "child_process";
+import { exec, spawn } from "child_process";
 import { promisify } from "util";
 
 const execAsync = promisify(exec);
@@ -11,7 +11,20 @@ export async function action({ request }: { request: Request }) {
 
   if (action === "startSync") {
     try {
-      await execAsync(appConfig.startMirrorScriptPath);
+      console.log('Starting mirror sync...');
+      console.log('Script path:', appConfig.startMirrorScriptPath);
+      
+      // Use spawn to start the script and return immediately
+      const child = spawn(appConfig.startMirrorScriptPath, [], {
+        stdio: 'pipe',
+        detached: true
+      });
+      
+      // Don't wait for the child process to complete
+      child.unref();
+      
+      console.log('Start sync initiated with PID:', child.pid);
+      
       return { success: true, message: "Mirror sync started successfully" };
     } catch (error) {
       console.error('Error starting mirror sync:', error);
