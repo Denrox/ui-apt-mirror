@@ -162,7 +162,6 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
           <FormButton
             type="secondary"
             onClick={() => setSelectedFile(null)}
-            disabled={uploading}
           >
             Cancel
           </FormButton>
