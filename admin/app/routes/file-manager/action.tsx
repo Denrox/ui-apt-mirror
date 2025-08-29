@@ -10,13 +10,46 @@ import { promisify } from "util";
 
 const execAsync = promisify(exec);
 
-// Disk-based chunk storage using destination directory
 const chunkStorage = new Map<string, { tempDir: string; totalChunks: number; fileName: string }>();
+
+const activeDownloads = new Map<string, { request: any; fileStream: any }>();
+
+setInterval(() => {
+  for (const [destPath, download] of activeDownloads.entries()) {
+    if (download.request.destroyed || download.fileStream?.destroyed) {
+      activeDownloads.delete(destPath);
+    }
+  }
+}, 30000);
+
+async function cancelAndCleanupDownload(destPath: string): Promise<void> {
+  try {
+    const activeDownload = activeDownloads.get(destPath);
+    
+    if (activeDownload) {
+      activeDownload.request.destroy();
+      
+      if (activeDownload.fileStream) {
+        activeDownload.fileStream.destroy();
+      }
+      
+      activeDownloads.delete(destPath);
+    }
+    
+    try {
+      await fs.unlink(destPath);
+    } catch (unlinkError) {
+      // File might not exist, which is fine
+    }
+  } catch (error) {
+    console.error('Failed to cancel and cleanup download:', error);
+  }
+}
 
 function isValidFileName(name: string): boolean {
   const forbiddenPatterns = [
-    /^\./,        // Files starting with a dot
-    /\//,         // Files containing "/"
+    /^\./,
+    /\//,
   ];
   
   return !forbiddenPatterns.some(pattern => pattern.test(name));
@@ -114,6 +147,8 @@ async function moveFile(sourcePath: string, destinationPath: string): Promise<bo
 
 async function downloadFile(url: string, destPath: string): Promise<boolean> {
   return new Promise((resolve) => {
+    let fileStream: fsSync.WriteStream | undefined;
+    
     try {
       const urlObj = new URL(url);
       const protocol = urlObj.protocol === 'https:' ? https : http;
@@ -124,27 +159,33 @@ async function downloadFile(url: string, destPath: string): Promise<boolean> {
           return;
         }
 
-        const fileStream = fsSync.createWriteStream(destPath);
+        fileStream = fsSync.createWriteStream(destPath);
         response.pipe(fileStream);
 
         fileStream.on('finish', () => {
-          fileStream.close();
+          fileStream?.close();
+          activeDownloads.delete(destPath);
           resolve(true);
         });
 
         fileStream.on('error', () => {
+          activeDownloads.delete(destPath);
           resolve(false);
         });
       });
 
       request.on('error', () => {
+        activeDownloads.delete(destPath);
         resolve(false);
       });
 
       request.setTimeout(30000, () => {
         request.destroy();
+        activeDownloads.delete(destPath);
         resolve(false);
       });
+
+      activeDownloads.set(destPath, { request, fileStream });
     } catch (error) {
       resolve(false);
     }
@@ -465,6 +506,24 @@ export async function action({ request }: Route.ActionArgs) {
         return { success: true, message: "File uploaded successfully" };
       } else {
         return { success: false, error: "Failed to upload file" };
+      }
+    } else if (intent === 'cleanupDownload') {
+      const filePath = formData.get('filePath') as string;
+      const fileName = formData.get('fileName') as string;
+      
+      if (!filePath || !fileName) {
+        return { success: false, error: "Missing required cleanup data" };
+      }
+      
+      try {
+        const fullPath = path.join(filePath, fileName);
+        
+        await cancelAndCleanupDownload(fullPath);
+        
+        return { success: true, message: "Download cleanup completed" };
+      } catch (error) {
+        console.error('Failed to cleanup download:', error);
+        return { success: false, error: "Failed to cleanup download" };
       }
     } else if (intent === 'uploadChunk') {
       const res = await handleChunkUpload(formData);

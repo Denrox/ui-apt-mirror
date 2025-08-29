@@ -25,6 +25,19 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fetcher = useFetcher();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const cancelUpload = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setSelectedFile(null);
+    setProgress(0);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    setUploading(false);
+  }, []);
   
   const generateFileId = () => {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -99,10 +112,16 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
     setUploading(true);
     setProgress(0);
 
+    abortControllerRef.current = new AbortController();
+
     try {
       const chunks = splitFileIntoChunks(selectedFile);
 
       for (let i = 0; i < chunks.length; i++) {
+        if (abortControllerRef.current?.signal.aborted) {
+          break;
+        }
+
         const chunk = chunks[i];
         const success = await uploadChunk(chunk);
 
@@ -161,8 +180,7 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
           </FormButton>
           <FormButton
             type="secondary"
-            onClick={() => setSelectedFile(null)}
-            disabled={uploading}
+            onClick={() => cancelUpload()}
           >
             Cancel
           </FormButton>

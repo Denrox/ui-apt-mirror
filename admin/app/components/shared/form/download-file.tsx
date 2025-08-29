@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSubmit } from "react-router";
 import FormButton from "~/components/shared/form/form-button";
 import FormInput from "~/components/shared/form/form-input";
@@ -15,6 +15,7 @@ export default function DownloadFile({ currentPath, onDownloadInput }: DownloadF
   const [downloading, setDownloading] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const submit = useSubmit();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const extractFileNameFromUrl = useCallback((url: string) => {
     if (!url.trim()) return;
@@ -47,6 +48,7 @@ export default function DownloadFile({ currentPath, onDownloadInput }: DownloadF
       return;
     }
 
+    abortControllerRef.current = new AbortController();
     setDownloading(true);
 
     try {
@@ -60,20 +62,57 @@ export default function DownloadFile({ currentPath, onDownloadInput }: DownloadF
         { action: '', method: 'post' }
       );
 
-      setUrl("");
-      setFileName("");
-      setShowUrlInput(false);
+      if (!abortControllerRef.current.signal.aborted) {
+        setUrl("");
+        setFileName("");
+        setShowUrlInput(false);
+        toast.success("File downloaded successfully");
+      }
     } catch (error) {
-      toast.error("Failed to download file");
+      if (!abortControllerRef.current.signal.aborted) {
+        toast.error("Failed to download file");
+      }
     } finally {
       setDownloading(false);
+      abortControllerRef.current = null;
     }
   }, [url, fileName, currentPath, submit]);
 
-  const handleCancel = useCallback(() => {
+  const cleanupPartialDownload = useCallback(async () => {
+    if (fileName) {
+      try {
+        await submit(
+          { 
+            intent: 'cleanupDownload', 
+            filePath: currentPath,
+            fileName: fileName 
+          },
+          { action: '', method: 'post' }
+        );
+      } catch (error) {
+        console.error('Failed to clean up partial download:', error);
+      }
+    }
+  }, [fileName, currentPath, submit]);
+
+  const handleCancel = useCallback(async () => {
+    if (downloading && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      await cleanupPartialDownload();
+    }
+    
     setShowUrlInput(false);
     setUrl("");
     setFileName("");
+    setDownloading(false);
+  }, [downloading, cleanupPartialDownload]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   if (!showUrlInput) {
@@ -104,7 +143,6 @@ export default function DownloadFile({ currentPath, onDownloadInput }: DownloadF
       <FormButton
         type="secondary"
         onClick={handleCancel}
-        disabled={downloading}
       >
         Cancel
       </FormButton>
