@@ -196,6 +196,17 @@ export default function FileManager() {
     setFileToCut(null);
   };
 
+  const handleHealthCheck = async () => {
+    try {
+      await submit(
+        { intent: 'runHealthCheck' },
+        { action: '', method: 'post' },
+      );
+    } catch (error) {
+      toast.error("Failed to run health check");
+    }
+  };
+
   const handleChunkUploaded = useCallback((chunkIndex: number, totalChunks: number) => {
     if (chunkIndex === 0 || chunkIndex === totalChunks - 1) {
       revalidator.revalidate();
@@ -229,7 +240,16 @@ export default function FileManager() {
   return (
     <PageLayoutFull>
       <div className="flex items-center justify-between mb-4 px-[12px]">
-        <Title title="File Manager" />
+        <div className="flex items-center gap-4">
+          <Title title="File Manager" />
+          <FormButton
+            type="secondary"
+            disabled={isOperationInProgress || isLoading}
+            onClick={handleHealthCheck}
+          >
+            🔍 Health Check
+          </FormButton>
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600 hidden md:block">View:</span>
           <FormSelect
@@ -334,6 +354,7 @@ export default function FileManager() {
                         </DropdownItem>
                       </Dropdown>
                     )}
+
                   </>
                 )}
               </>

@@ -2,6 +2,7 @@
   "mirrorLogsDir": "/var/log/apt-mirror",
   "nginxLogsDir": "/var/log/nginx",
   "filesDir": "/var/www/files",
+  "healthReportFile": "/var/health-reports/health.json",
   "mirroredPackagesDir": "/var/spool/apt-mirror",
   "resourceMonitorScriptPath": "/usr/local/bin/resource-monitor.sh",
   "mirrorListPath": "/etc/apt/mirror.list",

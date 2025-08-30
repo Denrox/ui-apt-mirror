@@ -7,6 +7,8 @@ import http from "http";
 import { URL } from "url";
 import { exec } from "child_process";
 import { promisify } from "util";
+import appConfig from "~/config/config.json";
+import buildConfig from "~/config/config.build.json";
 
 const execAsync = promisify(exec);
 
@@ -575,6 +577,185 @@ export async function action({ request }: Route.ActionArgs) {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         return { success: false, error: errorMessage };
+      }
+    } else if (intent === 'runHealthCheck') {
+      try {
+        const dataDirs = [appConfig.filesDir, appConfig.mirroredPackagesDir];
+        const healthFile = appConfig.healthReportFile;
+        
+        const invalidFiles: Array<{ path: string; reason: string; size: number }> = [];
+        const cleanedTmpDirs: string[] = [];
+        const scanErrors: string[] = [];
+        let totalFiles = 0;
+        let totalDirectories = 0;
+        
+        const isOlderThanDays = (dirPath: string, maxDays: number): boolean => {
+          try {
+            const stats = fsSync.statSync(dirPath);
+            const currentTime = Date.now();
+            const daysOld = (currentTime - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
+            return daysOld > maxDays;
+          } catch {
+            return false;
+          }
+        };
+        
+        const scanDirectory = async (currentPath: string, currentDepth: number, maxDepth: number): Promise<void> => {
+          if (currentDepth > maxDepth) return;
+          
+          try {
+            const items = await fs.readdir(currentPath);
+            
+            for (const itemName of items) {
+              if (itemName.startsWith('.') && !itemName.startsWith('.tmp-')) {
+                continue;
+              }
+              
+              const itemPath = path.join(currentPath, itemName);
+              
+              try {
+                const stats = await fs.stat(itemPath);
+                
+                if (stats.isDirectory()) {
+                  if (itemName.startsWith('.tmp-')) {
+                    console.log(`Found .tmp- directory: ${itemPath}`);
+                    
+                    if (isOlderThanDays(itemPath, 1)) { // 1 day max age
+                      try {
+                        await fs.rm(itemPath, { recursive: true, force: true });
+                        const relativePath = itemPath.replace(currentPath + '/', '');
+                        cleanedTmpDirs.push(relativePath);
+                        console.log(`Successfully removed old .tmp- directory: ${itemPath}`);
+                      } catch (removeError) {
+                        const errorMsg = `Failed to remove old .tmp- directory: ${itemPath}`;
+                        scanErrors.push(errorMsg);
+                        console.error(errorMsg, removeError);
+                      }
+                    } else {
+                      console.log(`Keeping .tmp- directory (not old enough): ${itemPath}`);
+                    }
+                  } else {
+                    await scanDirectory(itemPath, currentDepth + 1, maxDepth);
+                  }
+                } else if (stats.isFile()) {
+                  if (stats.size < 1024) {
+                    const relativePath = itemPath.replace(currentPath + '/', '');
+                    invalidFiles.push({
+                      path: relativePath,
+                      reason: 'suspiciously_small',
+                      size: stats.size
+                    });
+                    console.log(`Found suspiciously small file: ${relativePath} (${stats.size} bytes)`);
+                  }
+                  
+                  try {
+                    await fs.access(itemPath, fsSync.constants.R_OK);
+                  } catch {
+                    const relativePath = itemPath.replace(currentPath + '/', '');
+                    invalidFiles.push({
+                      path: relativePath,
+                      reason: 'unreadable',
+                      size: stats.size
+                    });
+                    console.log(`Found unreadable file: ${relativePath}`);
+                  }
+                }
+              } catch (itemError) {
+                const errorMsg = `Error processing item: ${itemPath}`;
+                scanErrors.push(errorMsg);
+                console.error(errorMsg, itemError);
+              }
+            }
+          } catch (readError) {
+            const errorMsg = `Error reading directory: ${currentPath}`;
+            scanErrors.push(errorMsg);
+            console.error(errorMsg, readError);
+          }
+        };
+        
+        const countItems = async (targetDir: string): Promise<{ files: number; dirs: number }> => {
+          try {
+            const files = await fs.readdir(targetDir);
+            let fileCount = 0;
+            let dirCount = 0;
+            
+            for (const item of files) {
+              try {
+                const itemPath = path.join(targetDir, item);
+                const stats = await fs.stat(itemPath);
+                if (stats.isDirectory()) {
+                  dirCount++;
+                } else {
+                  fileCount++;
+                }
+              } catch {
+                // Skip items we can't stat
+              }
+            }
+            
+            return { files: fileCount, dirs: dirCount };
+          } catch {
+            return { files: 0, dirs: 0 };
+          }
+        };
+        
+        console.log('Step 1: Scanning directories and performing cleanup...');
+        for (const dir of dataDirs) {
+          try {
+            console.log(`Scanning directory: ${dir}`);
+            await scanDirectory(dir, 0, 10);
+          } catch (error) {
+            const errorMsg = `Error scanning directory: ${dir}`;
+            scanErrors.push(errorMsg);
+            console.error(errorMsg, error);
+          }
+        }
+        
+        console.log('Step 2: Counting total files and directories...');
+        for (const dir of dataDirs) {
+          try {
+            const counts = await countItems(dir);
+            totalFiles += counts.files;
+            totalDirectories += counts.dirs;
+          } catch (error) {
+            const errorMsg = `Error counting items in directory: ${dir}`;
+            scanErrors.push(errorMsg);
+            console.error(errorMsg, error);
+          }
+        }
+        
+        // Generate health report
+        console.log('Step 3: Writing results to health file...');
+        const healthReport = {
+          timestamp: new Date().toISOString(),
+          scan_paths: dataDirs,
+          total_files: totalFiles,
+          total_directories: totalDirectories,
+          invalid_files: invalidFiles,
+          cleaned_tmp_dirs: cleanedTmpDirs,
+          scan_errors: scanErrors
+        };
+        
+        const healthDir = path.dirname(healthFile);
+        await fs.mkdir(healthDir, { recursive: true });
+        await fs.writeFile(healthFile, JSON.stringify(healthReport, null, 2));
+        
+        console.log('File System Health Check completed successfully!');
+        console.log(`Results written to: ${healthFile}`);
+        console.log(`Total files scanned: ${totalFiles}`);
+        console.log(`Total directories scanned: ${totalDirectories}`);
+        console.log(`Invalid files found: ${invalidFiles.length}`);
+        console.log(`Cleaned .tmp- directories: ${cleanedTmpDirs.length}`);
+        console.log(`Scan errors: ${scanErrors.length}`);
+        
+        return { 
+          success: true, 
+          message: "File system health check completed successfully. Temp files were cleaned.", 
+          output: `Scanned ${totalFiles} files and ${totalDirectories} directories. Found ${invalidFiles.length} invalid files, cleaned ${cleanedTmpDirs.length} tmp directories, ${scanErrors.length} errors.`
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Health check failed: ${errorMessage}` };
       }
     }
 
