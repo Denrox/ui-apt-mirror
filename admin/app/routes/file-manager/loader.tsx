@@ -41,16 +41,13 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
 }
 
 function isPathAllowed(requestedPath: string): boolean {
-  // Define root directories
   const userUploadsDir = appConfig.filesDir;
   const mirroredPackagesDir = appConfig.mirroredPackagesDir;
   
-  // Normalize paths for comparison
   const normalizedRequestedPath = path.resolve(requestedPath);
   const normalizedUserUploadsDir = path.resolve(userUploadsDir);
   const normalizedMirroredPackagesDir = path.resolve(mirroredPackagesDir);
   
-  // Check if the requested path is within one of the allowed root directories
   return normalizedRequestedPath.startsWith(normalizedUserUploadsDir) || 
          normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir);
 }
@@ -59,7 +56,6 @@ export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
   const requestedPath = url.searchParams.get('path') || appConfig.filesDir;
   
-  // Security check: ensure the requested path is within allowed directories
   if (!isPathAllowed(requestedPath)) {
     console.error("Security violation: Attempted to access unauthorized directory:", requestedPath);
     return { 
@@ -70,15 +66,16 @@ export async function loader({ request }: { request: Request }) {
     };
   }
   
-  // Load files from the current directory only
-  const [files, isLockFilePresent] = await Promise.all([
+  const [files, isLockFilePresent, healthReport] = await Promise.all([
     getFileList(requestedPath).catch(() => []),
-    checkLockFile()
+    checkLockFile(),
+    fs.readFile(appConfig.healthReportFile, 'utf-8').then(content => JSON.parse(content)).catch(() => null)
   ]);
   
   return { 
     files,
     currentPath: requestedPath,
-    isLockFilePresent
+    isLockFilePresent,
+    healthReport
   };
 }

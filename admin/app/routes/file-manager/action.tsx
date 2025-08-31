@@ -740,14 +740,6 @@ export async function action({ request }: Route.ActionArgs) {
         await fs.mkdir(healthDir, { recursive: true });
         await fs.writeFile(healthFile, JSON.stringify(healthReport, null, 2));
         
-        console.log('File System Health Check completed successfully!');
-        console.log(`Results written to: ${healthFile}`);
-        console.log(`Total files scanned: ${totalFiles}`);
-        console.log(`Total directories scanned: ${totalDirectories}`);
-        console.log(`Invalid files found: ${invalidFiles.length}`);
-        console.log(`Cleaned .tmp- directories: ${cleanedTmpDirs.length}`);
-        console.log(`Scan errors: ${scanErrors.length}`);
-        
         return { 
           success: true, 
           message: "File system health check completed successfully. Temp files were cleaned.", 
@@ -756,6 +748,16 @@ export async function action({ request }: Route.ActionArgs) {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         return { success: false, error: `Health check failed: ${errorMessage}` };
+      }
+    } else if (intent === 'clearHealthCheck') {
+      try {
+        const healthFile = appConfig.healthReportFile;
+        await fs.unlink(healthFile);
+        
+        return { success: true, message: "Health report cleared successfully" };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return { success: false, error: `Failed to clear health report: ${errorMessage}` };
       }
     }
 

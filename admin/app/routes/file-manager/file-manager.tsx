@@ -11,6 +11,7 @@ import Ellipsis from "~/components/shared/ellipsis/ellipsis";
 import Dropdown from "~/components/shared/dropdown/dropdown";
 import DropdownItem from "~/components/shared/dropdown/dropdown-item";
 import DownloadImageModal from "~/components/file-manager/download-image-modal";
+import FileManagerWarning from "~/components/shared/filemanager-warning/filemanager-warning";
 import { useActionData, useLoaderData, useSubmit, useRevalidator, useSearchParams } from "react-router";
 import appConfig from "~/config/config.json";
 import { loader } from "./loader";
@@ -51,7 +52,7 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { files, isLockFilePresent, error: loaderError } = useLoaderData<typeof loader>();
+  const { files, isLockFilePresent, healthReport, error: loaderError } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<"user-uploads" | "mirrored-packages">("user-uploads");
   const revalidator = useRevalidator();
@@ -129,7 +130,6 @@ export default function FileManager() {
 
   useEffect(() => {
     if (!!actionData?.success) {
-      console.log("actionMessage", actionMessage);
       if (actionMessage) {
         toast.success(actionMessage);
       }
@@ -207,6 +207,17 @@ export default function FileManager() {
     }
   };
 
+  const handleClearHealthCheck = async () => {
+    try {
+      await submit(
+        { intent: 'clearHealthCheck' },
+        { action: '', method: 'post' },
+      );
+    } catch (error) {
+      toast.error("Failed to clear health check");
+    }
+  };
+
   const handleChunkUploaded = useCallback((chunkIndex: number, totalChunks: number) => {
     if (chunkIndex === 0 || chunkIndex === totalChunks - 1) {
       revalidator.revalidate();
@@ -269,11 +280,31 @@ export default function FileManager() {
       <ContentBlock>
         <div className="flex flex-col gap-4">
           {view === "mirrored-packages" && (
-            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-              <div className="flex items-center gap-2">
-                <span className="text-yellow-700 text-sm">⚠️ Manual changes can break mirror functionality</span>
-              </div>
-            </div>
+            <FileManagerWarning
+              type="warning"
+              message="Manual changes can break mirror functionality"
+            />
+          )}
+          
+          {healthReport && healthReport.invalid_files && healthReport.invalid_files.length > 0 && (
+            <FileManagerWarning
+              type="error"
+              message={`${healthReport.invalid_files.length} broken files were found`}
+              details={healthReport.invalid_files.map((file: any) => `${file.path} (${file.reason})`)}
+              actionLabel="Clear"
+              onAction={handleClearHealthCheck}
+              actionIcon="🗑️"
+            />
+          )}
+          
+          {healthReport && (!healthReport.invalid_files || healthReport.invalid_files.length === 0) && (
+            <FileManagerWarning
+              type="info"
+              message="File system is valid - no broken files found"
+              actionLabel="Clear"
+              onAction={handleClearHealthCheck}
+              actionIcon="🗑️"
+            />
           )}
           
           <div className="flex items-center gap-2 px-0 bg-gray-50 rounded-md">
