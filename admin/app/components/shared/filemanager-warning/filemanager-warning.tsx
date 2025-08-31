@@ -54,7 +54,7 @@ export default function Warning({
             </span>
           </div>
           {details && details.length > 0 && (
-            <div className="text-xs space-y-1">
+            <div className="text-xs space-y-[4px] mt-[4px] max-h-[64px] overflow-y-auto">
               {details.map((detail, index) => (
                 <div
                   key={index}

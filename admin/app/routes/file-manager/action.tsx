@@ -344,7 +344,6 @@ async function downloadImage(
         !imageUrl.includes('/') &&
         !imageUrl.startsWith('gcr.io/')
       ) {
-        console.log('Docker Hub failed, trying GCR fallback...');
 
         // Try GCR with the same image name
         const gcrImage = `gcr.io/google-containers/${imageUrl}:${imageTag}`;
@@ -352,11 +351,8 @@ async function downloadImage(
 
         try {
           await execAsync(gcrCommand);
-          console.log('Successfully downloaded from GCR fallback');
           return true;
         } catch (gcrError) {
-          console.error('GCR fallback also failed:', gcrError);
-          // Re-throw the original Docker error for proper error handling
           throw dockerError;
         }
       } else {
@@ -710,8 +706,6 @@ export async function action({
 
                     if (stats.isDirectory()) {
                       if (itemName.startsWith('.tmp-')) {
-                        console.log(`Found .tmp- directory: ${itemPath}`);
-
                         if (isOlderThanDays(itemPath, 1)) {
                           try {
                             await fs.rm(itemPath, {
@@ -727,10 +721,6 @@ export async function action({
                             const errorMsg = `Failed to remove old .tmp- directory: ${itemPath}`;
                             scanErrors.push(errorMsg);
                           }
-                        } else {
-                          console.log(
-                            `Keeping .tmp- directory (not old enough): ${itemPath}`,
-                          );
                         }
                       } else {
                         await scanDirectory(
@@ -740,7 +730,7 @@ export async function action({
                         );
                       }
                     } else if (stats.isFile()) {
-                      if (stats.size < 1024) {
+                      if (stats.size < 16) {
                         invalidFiles.push({
                           path: itemPath,
                           reason: 'suspiciously_small',
@@ -789,21 +779,15 @@ export async function action({
               }
             };
 
-            console.log(
-              'Step 1: Scanning directories and performing cleanup...',
-            );
             for (const dir of dataDirs) {
               try {
-                console.log(`Scanning directory: ${dir}`);
                 await scanDirectory(dir, 0, 10);
               } catch (error) {
                 const errorMsg = `Error scanning directory: ${dir}`;
                 scanErrors.push(errorMsg);
-                console.error(errorMsg, error);
               }
             }
 
-            console.log('Step 2: Counting total files and directories...');
             for (const dir of dataDirs) {
               try {
                 const counts = await countItems(dir);
@@ -812,12 +796,9 @@ export async function action({
               } catch (error) {
                 const errorMsg = `Error counting items in directory: ${dir}`;
                 scanErrors.push(errorMsg);
-                console.error(errorMsg, error);
               }
             }
 
-            // Generate health report
-            console.log('Step 3: Writing results to health file...');
             const healthReport = {
               timestamp: new Date().toISOString(),
               scan_paths: dataDirs,
@@ -835,7 +816,6 @@ export async function action({
               JSON.stringify(healthReport, null, 2),
             );
 
-            console.log('Step 3: Writing final results to health file...');
             const finalHealthReport = {
               timestamp: new Date().toISOString(),
               status: 'done',
@@ -851,17 +831,7 @@ export async function action({
               healthFile,
               JSON.stringify(finalHealthReport, null, 2),
             );
-
-            console.log('File System Health Check completed successfully!');
-            console.log(`Results written to: ${healthFile}`);
-            console.log(`Total files scanned: ${totalFiles}`);
-            console.log(`Total directories scanned: ${totalDirectories}`);
-            console.log(`Invalid files found: ${invalidFiles.length}`);
-            console.log(`Cleaned .tmp- directories: ${cleanedTmpDirs.length}`);
-            console.log(`Scan errors: ${scanErrors.length}`);
           } catch (error) {
-            console.error('Background health check failed:', error);
-            // Update health report with error status
             const errorHealthReport = {
               timestamp: new Date().toISOString(),
               status: 'error',
