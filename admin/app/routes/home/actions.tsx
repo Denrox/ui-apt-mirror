@@ -18,8 +18,6 @@ export async function action({ request }: { request: Request }) {
 
       child.unref();
 
-      console.log('Start sync initiated with PID:', child.pid);
-
       return { success: true, message: 'Mirror sync started successfully' };
     } catch (error) {
       console.error('Error starting mirror sync:', error);
