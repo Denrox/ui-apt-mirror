@@ -7,13 +7,13 @@ interface FormCheckboxProps {
   description?: string;
 }
 
-export default function FormCheckbox({ 
-  id, 
-  label, 
-  checked, 
-  onChange, 
+export default function FormCheckbox({
+  id,
+  label,
+  checked,
+  onChange,
   disabled = false,
-  description 
+  description,
 }: FormCheckboxProps) {
   return (
     <div className="flex items-start">
@@ -28,16 +28,14 @@ export default function FormCheckbox({
         />
       </div>
       <div className="ml-3 text-sm">
-        <label 
-          htmlFor={id} 
+        <label
+          htmlFor={id}
           className={`font-medium ${disabled ? 'text-gray-400' : 'text-gray-700'}`}
         >
           {label}
         </label>
-        {description && (
-          <p className="text-gray-500 mt-1">{description}</p>
-        )}
+        {description && <p className="text-gray-500 mt-1">{description}</p>}
       </div>
     </div>
   );
-} 
+}

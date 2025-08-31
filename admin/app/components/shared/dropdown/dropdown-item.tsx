@@ -6,7 +6,11 @@ interface DropdownItemProps {
   disabled?: boolean;
 }
 
-export default function DropdownItem({ children, onClick, disabled = false }: DropdownItemProps) {
+export default function DropdownItem({
+  children,
+  onClick,
+  disabled = false,
+}: DropdownItemProps) {
   return (
     <button
       onClick={onClick}
@@ -18,4 +22,4 @@ export default function DropdownItem({ children, onClick, disabled = false }: Dr
       {children}
     </button>
   );
-} 
+}

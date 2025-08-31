@@ -6,7 +6,8 @@
     "build": "react-router build",
     "dev": "NODE_OPTIONS=\"--max-http-header-size=8192000000\" react-router dev",
     "start": "NODE_OPTIONS=\"--max-http-header-size=8192000000\" react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "typecheck": "react-router typegen && tsc",
+    "prettier": "prettier --write app/**/*.{js,jsx,ts,tsx}"
   },
   "dependencies": {
     "@react-router/node": "^7.5.3",
@@ -24,6 +25,7 @@
     "@types/node": "^20",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "prettier": "^3.6.2",
     "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3",
     "vite": "^6.3.3",

@@ -1,4 +1,4 @@
-import React, { type JSX } from "react";
+import React, { type JSX } from 'react';
 
 interface TitleProps {
   title: string | JSX.Element;
@@ -9,15 +9,11 @@ interface TitleProps {
 
 export default function Title({ title, action, noCenter }: TitleProps) {
   return (
-    <div className={`flex items-center ${noCenter ? '' : 'justify-center'} gap-[16px]`}>
-      <div className="text-[20px] font-semibold">
-        {title}
-      </div>
-      {action && (
-        <div className="flex items-center">
-          {action}
-        </div>
-      )}
+    <div
+      className={`flex items-center ${noCenter ? '' : 'justify-center'} gap-[16px]`}
+    >
+      <div className="text-[20px] font-semibold">{title}</div>
+      {action && <div className="flex items-center">{action}</div>}
     </div>
   );
 }

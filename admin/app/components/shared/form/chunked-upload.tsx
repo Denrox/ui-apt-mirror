@@ -1,7 +1,7 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { useFetcher } from "react-router";
-import FormButton from "~/components/shared/form/form-button";
-import { toast } from "react-toastify";
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useFetcher } from 'react-router';
+import FormButton from '~/components/shared/form/form-button';
+import { toast } from 'react-toastify';
 
 interface ChunkedUploadProps {
   currentPath: string;
@@ -19,7 +19,11 @@ interface UploadChunk {
 
 const CHUNK_SIZE = 10240 * 1024; // 10MB chunks
 
-export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelectedFile }: ChunkedUploadProps) {
+export default function ChunkedUpload({
+  currentPath,
+  onChunkUploaded,
+  onSelectedFile,
+}: ChunkedUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -38,7 +42,7 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
     }
     setUploading(false);
   }, []);
-  
+
   const generateFileId = () => {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
   };
@@ -58,53 +62,59 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
         index: i,
         total: totalChunks,
         fileName: file.name,
-        fileId
+        fileId,
       });
     }
 
     return chunks;
   };
 
-  const uploadChunk = useCallback(async (chunkData: UploadChunk, retries = 3): Promise<boolean> => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        const formData = new FormData();
-        formData.append('intent', 'uploadChunk');
-        formData.append('filePath', currentPath);
-        formData.append('chunk', chunkData.chunk);
-        formData.append('chunkIndex', chunkData.index.toString());
-        formData.append('totalChunks', chunkData.total.toString());
-        formData.append('fileName', chunkData.fileName);
-        formData.append('fileId', chunkData.fileId);
+  const uploadChunk = useCallback(
+    async (chunkData: UploadChunk, retries = 3): Promise<boolean> => {
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          const formData = new FormData();
+          formData.append('intent', 'uploadChunk');
+          formData.append('filePath', currentPath);
+          formData.append('chunk', chunkData.chunk);
+          formData.append('chunkIndex', chunkData.index.toString());
+          formData.append('totalChunks', chunkData.total.toString());
+          formData.append('fileName', chunkData.fileName);
+          formData.append('fileId', chunkData.fileId);
 
-        await fetcher.submit(formData, {
-          method: 'POST',
-          action: '',
-          encType: 'multipart/form-data',
-        });
+          await fetcher.submit(formData, {
+            method: 'POST',
+            action: '',
+            encType: 'multipart/form-data',
+          });
 
-        return true;
-      } catch (error) {
-        console.error(`Chunk upload attempt ${attempt} failed:`, error);
-        if (attempt === retries) {
-          return false;
+          return true;
+        } catch (error) {
+          console.error(`Chunk upload attempt ${attempt} failed:`, error);
+          if (attempt === retries) {
+            return false;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
         }
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
-    }
-    return false;
-  }, [currentPath, fetcher]);
+      return false;
+    },
+    [currentPath, fetcher],
+  );
 
   useEffect(() => {
     onSelectedFile(!!selectedFile);
   }, [selectedFile, onSelectedFile]);
 
-  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-    }
-  }, []);
+  const handleFileSelect = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file) {
+        setSelectedFile(file);
+      }
+    },
+    [],
+  );
 
   const handleUpload = useCallback(async () => {
     if (!selectedFile) return;
@@ -126,7 +136,9 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
         const success = await uploadChunk(chunk);
 
         if (!success) {
-          throw new Error(`Failed to upload chunk ${i + 1} of ${chunks.length} after retries`);
+          throw new Error(
+            `Failed to upload chunk ${i + 1} of ${chunks.length} after retries`,
+          );
         }
 
         onChunkUploaded?.(chunk.index, chunk.total);
@@ -137,11 +149,10 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
 
       setSelectedFile(null);
       setProgress(0);
-      
+
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-
     } catch (error) {
       console.error('Upload failed:', error);
     } finally {
@@ -161,8 +172,10 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
       />
       {!selectedFile && (
         <label htmlFor="chunked-file-upload">
-          <FormButton 
-            onClick={() => document.getElementById('chunked-file-upload')?.click()}
+          <FormButton
+            onClick={() =>
+              document.getElementById('chunked-file-upload')?.click()
+            }
             disabled={uploading}
           >
             Upload File
@@ -172,25 +185,19 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
       {selectedFile && (
         <>
           <span className="text-sm">{selectedFile.name}</span>
-          <FormButton 
-            onClick={handleUpload}
-            disabled={uploading}
-          >
+          <FormButton onClick={handleUpload} disabled={uploading}>
             Upload
           </FormButton>
-          <FormButton
-            type="secondary"
-            onClick={() => cancelUpload()}
-          >
+          <FormButton type="secondary" onClick={() => cancelUpload()}>
             Cancel
           </FormButton>
         </>
       )}
-      
+
       {uploading && (
         <div className="flex items-center gap-2">
           <div className="w-32 bg-gray-200 rounded-full h-2">
-            <div 
+            <div
               className="bg-blue-600 h-2 rounded-full transition-all duration-300"
               style={{ width: `${progress}%` }}
             ></div>
@@ -200,4 +207,4 @@ export default function ChunkedUpload({ currentPath, onChunkUploaded, onSelected
       )}
     </div>
   );
-} 
+}

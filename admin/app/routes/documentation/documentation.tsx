@@ -1,24 +1,24 @@
-import { useParams } from "react-router";
-import { useEffect, useState } from "react";
-import Title from "~/components/shared/title/title";
-import ContentBlock from "~/components/shared/content-block/content-block";
-import PageLayoutNav from "~/components/shared/layout/page-layout-nav";
-import NavLink from "~/components/shared/nav/nav-link";
+import { useParams } from 'react-router';
+import { useEffect, useState } from 'react';
+import Title from '~/components/shared/title/title';
+import ContentBlock from '~/components/shared/content-block/content-block';
+import PageLayoutNav from '~/components/shared/layout/page-layout-nav';
+import NavLink from '~/components/shared/nav/nav-link';
 
 export function meta() {
   return [
-    { title: "Documentation" },
-    { name: "description", content: "Apt Mirror Documentation" },
+    { title: 'Documentation' },
+    { name: 'description', content: 'Apt Mirror Documentation' },
   ];
 }
 
 const sections = [
-  { id: "file-structure", linkName: "File Structure", title: "File Structure" },
-  { id: "commands", linkName: "Commands", title: "Commands" }
+  { id: 'file-structure', linkName: 'File Structure', title: 'File Structure' },
+  { id: 'commands', linkName: 'Commands', title: 'Commands' },
 ];
 
 export default function Documentation() {
-  const [activeSection, setActiveSection] = useState<string>("file-structure");
+  const [activeSection, setActiveSection] = useState<string>('file-structure');
   const { section } = useParams();
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">Data Directory Structure</h3>
         <div className="bg-gray-50 p-4 rounded-lg font-mono text-sm">
           <pre className="whitespace-pre-wrap">
-{`data/
+            {`data/
 ├── conf/
 │   ├── apt-mirror/
 │   │   └── mirror.list          # apt-mirror2 configuration
@@ -62,15 +62,24 @@ export default function Documentation() {
         <div className="space-y-4">
           <div>
             <h4 className="font-semibold text-blue-600">conf/</h4>
-            <p className="text-gray-700">Configuration files for apt-mirror and nginx. Contains mirror settings, authentication, and web server configurations.</p>
+            <p className="text-gray-700">
+              Configuration files for apt-mirror and nginx. Contains mirror
+              settings, authentication, and web server configurations.
+            </p>
           </div>
           <div>
             <h4 className="font-semibold text-blue-600">data/</h4>
-            <p className="text-gray-700">Main data storage directory. apt-mirror/ contains downloaded package repositories, files/ contains custom file repository.</p>
+            <p className="text-gray-700">
+              Main data storage directory. apt-mirror/ contains downloaded
+              package repositories, files/ contains custom file repository.
+            </p>
           </div>
           <div>
             <h4 className="font-semibold text-blue-600">logs/</h4>
-            <p className="text-gray-700">Log files from apt-mirror synchronization and nginx web server operations.</p>
+            <p className="text-gray-700">
+              Log files from apt-mirror synchronization and nginx web server
+              operations.
+            </p>
           </div>
         </div>
       </div>
@@ -83,7 +92,9 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">Build Process</h3>
         <div className="bg-gray-50 p-4 rounded-lg">
           <h4 className="font-semibold text-blue-600 mb-2">./build.sh</h4>
-          <p className="text-gray-700 mb-3">Builds Docker images for multiple architectures (amd64, arm64).</p>
+          <p className="text-gray-700 mb-3">
+            Builds Docker images for multiple architectures (amd64, arm64).
+          </p>
           <div className="bg-white p-3 rounded border-l-4 border-blue-500">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
@@ -91,7 +102,10 @@ export default function Documentation() {
               <li>Sets up multi-platform builder</li>
               <li>Builds images for both amd64 and arm64 architectures</li>
               <li>Saves compressed tar files to dist/ directory</li>
-              <li>Installs required packages: apt-mirror, nginx, openssl, curl, wget, xz-utils, nodejs, npm</li>
+              <li>
+                Installs required packages: apt-mirror, nginx, openssl, curl,
+                wget, xz-utils, nodejs, npm
+              </li>
             </ul>
           </div>
         </div>
@@ -101,13 +115,19 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">Initial Setup</h3>
         <div className="bg-gray-50 p-4 rounded-lg">
           <h4 className="font-semibold text-blue-600 mb-2">./setup.sh</h4>
-          <p className="text-gray-700 mb-3">Performs initial deployment and configuration of the apt-mirror container.</p>
+          <p className="text-gray-700 mb-3">
+            Performs initial deployment and configuration of the apt-mirror
+            container.
+          </p>
           <div className="bg-white p-3 rounded border-l-4 border-green-500">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>Detects system architecture (amd64/arm64)</li>
               <li>Validates required image files exist in dist/</li>
-              <li>Prompts for custom configuration (domain, sync frequency, admin password)</li>
+              <li>
+                Prompts for custom configuration (domain, sync frequency, admin
+                password)
+              </li>
               <li>Generates nginx htpasswd file for authentication</li>
               <li>Cleans up previous installations</li>
               <li>Creates data directories structure</li>
@@ -123,7 +143,10 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">Starting and Restarting</h3>
         <div className="bg-gray-50 p-4 rounded-lg">
           <h4 className="font-semibold text-blue-600 mb-2">./start.sh</h4>
-          <p className="text-gray-700 mb-3">Loads Docker image and starts the container. Used by setup.sh and for manual restarts.</p>
+          <p className="text-gray-700 mb-3">
+            Loads Docker image and starts the container. Used by setup.sh and
+            for manual restarts.
+          </p>
           <div className="bg-white p-3 rounded border-l-4 border-blue-500">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
@@ -133,32 +156,70 @@ export default function Documentation() {
               <li>Starts the container using docker-compose</li>
             </ul>
           </div>
-          
-          <h4 className="font-semibold text-blue-600 mb-2 mt-4">After Initial Setup</h4>
-          <p className="text-gray-700 mb-3">Commands for managing the running container.</p>
+
+          <h4 className="font-semibold text-blue-600 mb-2 mt-4">
+            After Initial Setup
+          </h4>
+          <p className="text-gray-700 mb-3">
+            Commands for managing the running container.
+          </p>
           <div className="bg-white p-3 rounded border-l-4 border-orange-500">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
-              <li><code className="bg-gray-100 px-1 rounded">./start.sh</code> - Load image and start container</li>
-              <li><code className="bg-gray-100 px-1 rounded">docker compose up -d</code> - Start container</li>
-              <li><code className="bg-gray-100 px-1 rounded">docker compose down</code> - Stop container</li>
-              <li><code className="bg-gray-100 px-1 rounded">docker compose restart</code> - Restart container</li>
-              <li><code className="bg-gray-100 px-1 rounded">docker logs ui-apt-mirror</code> - View container logs</li>
-              <li><code className="bg-gray-100 px-1 rounded">docker compose logs</code> - View compose logs</li>
+              <li>
+                <code className="bg-gray-100 px-1 rounded">./start.sh</code> -
+                Load image and start container
+              </li>
+              <li>
+                <code className="bg-gray-100 px-1 rounded">
+                  docker compose up -d
+                </code>{' '}
+                - Start container
+              </li>
+              <li>
+                <code className="bg-gray-100 px-1 rounded">
+                  docker compose down
+                </code>{' '}
+                - Stop container
+              </li>
+              <li>
+                <code className="bg-gray-100 px-1 rounded">
+                  docker compose restart
+                </code>{' '}
+                - Restart container
+              </li>
+              <li>
+                <code className="bg-gray-100 px-1 rounded">
+                  docker logs ui-apt-mirror
+                </code>{' '}
+                - View container logs
+              </li>
+              <li>
+                <code className="bg-gray-100 px-1 rounded">
+                  docker compose logs
+                </code>{' '}
+                - View compose logs
+              </li>
             </ul>
           </div>
         </div>
       </div>
 
       <div>
-        <h3 className="text-lg font-semibold mb-4">Upgrading the Installation</h3>
+        <h3 className="text-lg font-semibold mb-4">
+          Upgrading the Installation
+        </h3>
         <div className="bg-gray-50 p-4 rounded-lg">
           <h4 className="font-semibold text-blue-600 mb-2">./upgrade.sh</h4>
-          <p className="text-gray-700 mb-3">Downloads and installs the latest version from the official website.</p>
+          <p className="text-gray-700 mb-3">
+            Downloads and installs the latest version from the official website.
+          </p>
           <div className="bg-white p-3 rounded border-l-4 border-purple-500">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
-              <li>Checks connectivity to https://ui-apt-mirror.dbashkatov.com/</li>
+              <li>
+                Checks connectivity to https://ui-apt-mirror.dbashkatov.com/
+              </li>
               <li>Prompts user to choose architecture (current or all)</li>
               <li>Downloads latest version from official website</li>
               <li>Extracts archive to temporary directory</li>
@@ -194,12 +255,17 @@ export default function Documentation() {
       ))}
     >
       <>
-        <Title title={sections.find((section) => section.id === activeSection)?.title || "Documentation"} />
+        <Title
+          title={
+            sections.find((section) => section.id === activeSection)?.title ||
+            'Documentation'
+          }
+        />
         <ContentBlock className="flex-1">
-          {activeSection === "file-structure" && renderFileStructure()}
-          {activeSection === "commands" && renderCommands()}
+          {activeSection === 'file-structure' && renderFileStructure()}
+          {activeSection === 'commands' && renderCommands()}
         </ContentBlock>
       </>
     </PageLayoutNav>
   );
-} 
+}

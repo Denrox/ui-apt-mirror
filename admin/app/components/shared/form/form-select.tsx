@@ -8,18 +8,21 @@ interface FormSelectProps {
   placeholder?: string;
 }
 
-export default function FormSelect({ 
-  id, 
-  label, 
-  value, 
-  onChange, 
+export default function FormSelect({
+  id,
+  label,
+  value,
+  onChange,
   options,
   disabled = false,
-  placeholder
+  placeholder,
 }: FormSelectProps) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+      <label
+        htmlFor={id}
+        className="block text-sm font-medium text-gray-700 mb-1"
+      >
         {label}
       </label>
       <select
@@ -42,4 +45,4 @@ export default function FormSelect({
       </select>
     </div>
   );
-} 
+}

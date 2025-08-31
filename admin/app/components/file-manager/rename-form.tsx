@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { useSubmit } from "react-router";
-import FormInput from "~/components/shared/form/form-input";
-import FormButton from "~/components/shared/form/form-button";
-import { toast } from "react-toastify";
+import { useState } from 'react';
+import { useSubmit } from 'react-router';
+import FormInput from '~/components/shared/form/form-input';
+import FormButton from '~/components/shared/form/form-button';
+import { toast } from 'react-toastify';
 
 interface RenameFormProps {
   item: { path: string; name: string };
@@ -10,7 +10,11 @@ interface RenameFormProps {
   onCancel: () => void;
 }
 
-export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProps) {
+export default function RenameForm({
+  item,
+  onSuccess,
+  onCancel,
+}: RenameFormProps) {
   const [newName, setNewName] = useState(item.name);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submit = useSubmit();
@@ -19,7 +23,7 @@ export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProp
     if (!newName.trim() || newName.trim() === item.name) return;
 
     setIsSubmitting(true);
-    
+
     try {
       await submit(
         { intent: 'renameFile', filePath: item.path, newName: newName.trim() },
@@ -27,7 +31,7 @@ export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProp
       );
       onSuccess();
     } catch (error) {
-      toast.error("Failed to rename item");
+      toast.error('Failed to rename item');
     } finally {
       setIsSubmitting(false);
     }
@@ -60,11 +64,13 @@ export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProp
         </FormButton>
         <FormButton
           onClick={handleSubmit}
-          disabled={!newName.trim() || newName.trim() === item.name || isSubmitting}
+          disabled={
+            !newName.trim() || newName.trim() === item.name || isSubmitting
+          }
         >
           Save
         </FormButton>
       </div>
     </div>
   );
-} 
+}

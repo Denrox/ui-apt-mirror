@@ -1,7 +1,7 @@
-import path from "path";
-import fs from "fs/promises";
-import appConfig from "~/config/config.json";
-import { checkLockFile } from "~/utils/sync";
+import path from 'path';
+import fs from 'fs/promises';
+import appConfig from '~/config/config.json';
+import { checkLockFile } from '~/utils/sync';
 
 interface FileItem {
   name: string;
@@ -15,27 +15,32 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
   try {
     const items = await fs.readdir(dirPath, { withFileTypes: true });
     const fileList: FileItem[] = [];
-    
+
     for (const item of items) {
       const fullPath = path.join(dirPath, item.name);
       const stats = await fs.stat(fullPath);
       const isDirectory = item.isDirectory();
-      
+
       fileList.push({
         name: item.name,
         path: fullPath,
         isDirectory: isDirectory,
         size: stats.size,
-        modified: stats.mtime
+        modified: stats.mtime,
       });
     }
-    return fileList.filter((file) => file.name !== '.' && file.name !== '..' && !file.name.startsWith('.')).sort((a, b) => {
-      if (a.isDirectory && !b.isDirectory) return -1;
-      if (!a.isDirectory && b.isDirectory) return 1;
-      return a.name.localeCompare(b.name);
-    });
+    return fileList
+      .filter(
+        (file) =>
+          file.name !== '.' && file.name !== '..' && !file.name.startsWith('.'),
+      )
+      .sort((a, b) => {
+        if (a.isDirectory && !b.isDirectory) return -1;
+        if (!a.isDirectory && b.isDirectory) return 1;
+        return a.name.localeCompare(b.name);
+      });
   } catch (error) {
-    console.error("Error reading directory:", error);
+    console.error('Error reading directory:', error);
     return [];
   }
 }
@@ -43,39 +48,47 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
 function isPathAllowed(requestedPath: string): boolean {
   const userUploadsDir = appConfig.filesDir;
   const mirroredPackagesDir = appConfig.mirroredPackagesDir;
-  
+
   const normalizedRequestedPath = path.resolve(requestedPath);
   const normalizedUserUploadsDir = path.resolve(userUploadsDir);
   const normalizedMirroredPackagesDir = path.resolve(mirroredPackagesDir);
-  
-  return normalizedRequestedPath.startsWith(normalizedUserUploadsDir) || 
-         normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir);
+
+  return (
+    normalizedRequestedPath.startsWith(normalizedUserUploadsDir) ||
+    normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir)
+  );
 }
 
 export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
   const requestedPath = url.searchParams.get('path') || appConfig.filesDir;
-  
+
   if (!isPathAllowed(requestedPath)) {
-    console.error("Security violation: Attempted to access unauthorized directory:", requestedPath);
-    return { 
+    console.error(
+      'Security violation: Attempted to access unauthorized directory:',
+      requestedPath,
+    );
+    return {
       files: [],
       currentPath: appConfig.filesDir,
       isLockFilePresent: false,
-      error: "Access denied: Directory not allowed"
+      error: 'Access denied: Directory not allowed',
     };
   }
-  
+
   const [files, isLockFilePresent, healthReport] = await Promise.all([
     getFileList(requestedPath).catch(() => []),
     checkLockFile(),
-    fs.readFile(appConfig.healthReportFile, 'utf-8').then(content => JSON.parse(content)).catch(() => null)
+    fs
+      .readFile(appConfig.healthReportFile, 'utf-8')
+      .then((content) => JSON.parse(content))
+      .catch(() => null),
   ]);
-  
-  return { 
+
+  return {
     files,
     currentPath: requestedPath,
     isLockFilePresent,
-    healthReport
+    healthReport,
   };
 }

@@ -20,7 +20,7 @@ export default function Ellipsis({ children, className = '' }: EllipsisProps) {
 
     checkOverflow();
     window.addEventListener('resize', checkOverflow);
-    
+
     return () => {
       window.removeEventListener('resize', checkOverflow);
     };
@@ -54,4 +54,4 @@ export default function Ellipsis({ children, className = '' }: EllipsisProps) {
       )}
     </div>
   );
-} 
+}
