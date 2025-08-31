@@ -455,7 +455,14 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   };
 }
 
-export async function action({ request }: Route.ActionArgs) {
+export async function action({
+  request,
+}: Route.ActionArgs): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+  output?: string;
+}> {
   try {
     const formData = await request.formData();
     const intent = formData.get('intent') as string;
@@ -703,6 +710,8 @@ export async function action({ request }: Route.ActionArgs) {
 
                     if (stats.isDirectory()) {
                       if (itemName.startsWith('.tmp-')) {
+                        console.log(`Found .tmp- directory: ${itemPath}`);
+
                         if (isOlderThanDays(itemPath, 1)) {
                           try {
                             await fs.rm(itemPath, {
@@ -718,6 +727,10 @@ export async function action({ request }: Route.ActionArgs) {
                             const errorMsg = `Failed to remove old .tmp- directory: ${itemPath}`;
                             scanErrors.push(errorMsg);
                           }
+                        } else {
+                          console.log(
+                            `Keeping .tmp- directory (not old enough): ${itemPath}`,
+                          );
                         }
                       } else {
                         await scanDirectory(
