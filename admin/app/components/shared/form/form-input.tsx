@@ -1,9 +1,10 @@
 interface FormInputProps {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  type?: string;
-  disabled?: boolean;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly placeholder?: string;
+  readonly type?: string;
+  readonly disabled?: boolean;
+  readonly id?: string;
 }
 
 export default function FormInput({
@@ -12,9 +13,11 @@ export default function FormInput({
   placeholder,
   type = 'text',
   disabled = false,
+  id,
 }: FormInputProps) {
   return (
     <input
+      id={id}
       type={type}
       value={value}
       onChange={(e) => onChange(e.target.value)}

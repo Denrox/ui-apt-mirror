@@ -1,10 +1,9 @@
-import React, { type JSX } from 'react';
+import { type JSX, type ReactElement } from 'react';
 
 interface TitleProps {
-  title: string | JSX.Element;
-  description?: string | JSX.Element;
-  action?: React.ReactElement;
-  noCenter?: boolean;
+  readonly title: string | JSX.Element;
+  readonly action?: ReactElement;
+  readonly noCenter?: boolean;
 }
 
 export default function Title({ title, action, noCenter }: TitleProps) {

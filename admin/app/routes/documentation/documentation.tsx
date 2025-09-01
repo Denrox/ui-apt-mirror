@@ -257,8 +257,7 @@ export default function Documentation() {
       <>
         <Title
           title={
-            sections.find((section) => section.id === activeSection)?.title ||
-            'Documentation'
+            sections.find((section) => section.id === activeSection)?.title ?? 'Documentation'
           }
         />
         <ContentBlock className="flex-1">

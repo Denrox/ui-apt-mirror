@@ -51,10 +51,8 @@ export async function action({ request }: { request: Request }) {
       let inTargetSection = false;
       let inUsageSection = false;
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-
-        const startMatch = line.match(/# ---start---(.+?)---/);
+      for (const line of lines) {
+        const startMatch = /# ---start---(.+?)---/.exec(line);
         if (startMatch) {
           const title = startMatch[1].trim();
           if (title === sectionTitle) {
@@ -79,7 +77,7 @@ export async function action({ request }: { request: Request }) {
           continue;
         }
 
-        const endMatch = line.match(/# ---end---(.+?)---/);
+        const endMatch = /# ---end---(.+?)---/.exec(line);
         if (endMatch && inTargetSection) {
           inTargetSection = false;
           inUsageSection = false;
@@ -126,10 +124,8 @@ export async function action({ request }: { request: Request }) {
       let inTargetSection = false;
       let inUsageSection = false;
 
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-
-        const startMatch = line.match(/# ---start---(.+?)---/);
+      for (const line of lines) {
+        const startMatch = /# ---start---(.+?)---/.exec(line);
         if (startMatch) {
           const title = startMatch[1].trim();
           if (title === sectionTitle) {
@@ -154,7 +150,7 @@ export async function action({ request }: { request: Request }) {
           continue;
         }
 
-        const endMatch = line.match(/# ---end---(.+?)---/);
+        const endMatch = /# ---end---(.+?)---/.exec(line);
         if (endMatch && inTargetSection) {
           inTargetSection = false;
           inUsageSection = false;
@@ -182,6 +178,25 @@ export async function action({ request }: { request: Request }) {
     } catch (error) {
       return { error: 'Failed to restore repository section' };
     }
+  }
+
+  if (action === 'checkHealth') {
+    for (const host of appConfig.hosts) {
+      if (host.id === 'admin') {
+        try {
+          const response = await fetch(`http://${host.address}/api/health`);
+          if (response.ok) {
+            const healthData = await response.json();
+            if (healthData.status === 'healthy') {
+              return { success: true, message: 'Admin service is healthy' };
+            }
+          }
+        } catch (error) {
+          console.error('Error checking admin health:', error);
+        }
+      }
+    }
+    return { error: 'Admin service not found or not healthy' };
   }
 
   return { error: 'Invalid action' };

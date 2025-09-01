@@ -1,13 +1,12 @@
-import React from 'react';
 import FormButton from '~/components/shared/form/form-button';
 
 interface WarningProps {
-  type: 'warning' | 'error' | 'info';
-  message: string;
-  details?: string[];
-  actionLabel?: string;
-  onAction?: () => void;
-  actionIcon?: string;
+  readonly type: 'warning' | 'error' | 'info';
+  readonly message: string;
+  readonly details?: string[];
+  readonly actionLabel?: string;
+  readonly onAction?: () => void;
+  readonly actionIcon?: string;
 }
 
 export default function Warning({
@@ -60,9 +59,9 @@ export default function Warning({
           </div>
           {details && details.length > 0 && (
             <div className="text-xs space-y-[4px] mt-[4px] max-h-[64px] overflow-auto w-full">
-              {details.map((detail, index) => (
+              {details.map((detail) => (
                 <div
-                  key={index}
+                  key={detail}
                   className="font-mono bg-white/50 px-2 py-1 rounded"
                 >
                   {detail}

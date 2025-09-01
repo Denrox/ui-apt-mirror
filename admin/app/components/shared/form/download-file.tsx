@@ -5,8 +5,8 @@ import FormInput from '~/components/shared/form/form-input';
 import { toast } from 'react-toastify';
 
 interface DownloadFileProps {
-  onDownloadInput: (isDownloading: boolean) => void;
-  currentPath: string;
+  readonly onDownloadInput: (isDownloading: boolean) => void;
+  readonly currentPath: string;
 }
 
 export default function DownloadFile({
@@ -26,7 +26,7 @@ export default function DownloadFile({
     try {
       const urlObj = new URL(url.trim());
       const pathname = urlObj.pathname;
-      const extractedName = pathname.split('/').pop() || 'downloaded-file';
+      const extractedName = pathname.split('/').pop() ?? 'downloaded-file';
       setFileName(extractedName);
     } catch (error) {
       setFileName('downloaded-file');
@@ -59,7 +59,7 @@ export default function DownloadFile({
         {
           intent: 'downloadFile',
           url: url.trim(),
-          fileName: fileName || 'downloaded-file',
+          fileName: fileName ?? 'downloaded-file',
           currentPath: currentPath,
         },
         { action: '', method: 'post' },

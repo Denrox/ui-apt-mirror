@@ -8,7 +8,6 @@ import { URL } from 'url';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
-import buildConfig from '~/config/config.build.json';
 
 const execAsync = promisify(exec);
 
@@ -204,11 +203,11 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
     const destDir = path.dirname(destPath);
     await fs.mkdir(destDir, { recursive: true });
 
-    if (file && typeof file.arrayBuffer === 'function') {
+    if (file && typeof file?.arrayBuffer === 'function') {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       await fs.writeFile(destPath, buffer);
-    } else if (file && file.stream) {
+    } else if (file?.stream) {
       const stream = file.stream();
       const chunks: Buffer[] = [];
       for await (const chunk of stream) {
@@ -250,10 +249,10 @@ async function handleChunkUpload(
 
     let chunkBuffer: Buffer;
     try {
-      if (chunk && typeof chunk.arrayBuffer === 'function') {
+      if (chunk && typeof chunk?.arrayBuffer === 'function') {
         const arrayBuffer = await chunk.arrayBuffer();
         chunkBuffer = Buffer.from(arrayBuffer);
-      } else if (chunk && chunk.buffer) {
+      } else if (chunk?.buffer) {
         chunkBuffer = chunk.buffer;
       } else {
         return { success: false, error: 'Invalid chunk format' };

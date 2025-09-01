@@ -193,9 +193,9 @@ export default function Home() {
                   }
                 >
                   {commentedSections.map(
-                    (section: CommentedSection, index: number) => (
+                    (section: CommentedSection) => (
                       <DropdownItem
-                        key={index}
+                        key={section.title}
                         onClick={() => handleRestoreClick(section.title)}
                       >
                         Restore: {section.title}
@@ -210,9 +210,9 @@ export default function Home() {
       </div>
       <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
         {repositoryConfigs.length > 0 ? (
-          repositoryConfigs.map((config: RepositoryConfig, index: number) => (
+          repositoryConfigs.map((config: RepositoryConfig) => (
             <div
-              key={index}
+              key={config.title}
               className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
             >
               <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">

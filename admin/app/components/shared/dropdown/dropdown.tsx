@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 
 interface DropdownProps {
-  trigger: React.ReactNode;
-  children: React.ReactNode;
-  disabled?: boolean;
+  readonly trigger: ReactNode;
+  readonly children: ReactNode;
+  readonly disabled?: boolean;
 }
 
 export default function Dropdown({

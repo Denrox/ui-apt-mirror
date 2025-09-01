@@ -1,18 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useFetcher } from 'react-router';
 import FormButton from '~/components/shared/form/form-button';
-import { toast } from 'react-toastify';
 
 interface ChunkedUploadProps {
-  currentPath: string;
-  onSelectedFile: (isSelected: boolean) => void;
-  onChunkUploaded?: (chunkIndex: number, totalChunks: number) => void;
+  readonly currentPath: string;
+  readonly onSelectedFile: (isSelected: boolean) => void;
+  readonly onChunkUploaded?: (chunkIndex: number, totalChunks: number) => void;
 }
 
 interface UploadChunk {
-  chunk: Blob;
-  index: number;
-  total: number;
+  readonly chunk: Blob;
+  readonly index: number;
+  readonly total: number;
   fileName: string;
   fileId: string;
 }
@@ -103,7 +102,7 @@ export default function ChunkedUpload({
   );
 
   useEffect(() => {
-    onSelectedFile(!!selectedFile);
+    onSelectedFile(Boolean(selectedFile));
   }, [selectedFile, onSelectedFile]);
 
   const handleFileSelect = useCallback(

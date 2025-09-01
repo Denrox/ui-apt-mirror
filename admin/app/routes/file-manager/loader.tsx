@@ -61,12 +61,14 @@ function isPathAllowed(requestedPath: string): boolean {
 
 export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
-  const requestedPath = url.searchParams.get('path') || appConfig.filesDir;
+  const searchParams = url.searchParams;
+  const rootPath = appConfig.filesDir;
+  const currentPath = searchParams.get('path') ?? rootPath;
 
-  if (!isPathAllowed(requestedPath)) {
+  if (!isPathAllowed(currentPath)) {
     console.error(
       'Security violation: Attempted to access unauthorized directory:',
-      requestedPath,
+      currentPath,
     );
     return {
       files: [],
@@ -77,17 +79,23 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const [files, isLockFilePresent, healthReport] = await Promise.all([
-    getFileList(requestedPath).catch(() => []),
+    getFileList(currentPath).catch((error) => {
+      console.error('Failed to get file list:', error);
+      return [];
+    }),
     checkLockFile(),
     fs
       .readFile(appConfig.healthReportFile, 'utf-8')
       .then((content) => JSON.parse(content))
-      .catch(() => null),
+      .catch((error) => {
+        console.error('Failed to read health report:', error);
+        return null;
+      }),
   ]);
 
   return {
     files,
-    currentPath: requestedPath,
+    currentPath: currentPath,
     isLockFilePresent,
     healthReport,
   };

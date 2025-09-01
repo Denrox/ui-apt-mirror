@@ -23,7 +23,7 @@ export async function loader({ params }: Route.LoaderArgs) {
 
   const logsContent = await Promise.all(
     logs
-      .filter((log) => log.endsWith('.log') || log.match(/\.log.+$/))
+      .filter((log) => log.endsWith('.log') || /\.log.+$/.exec(log))
       .map(async (log) => {
         try {
           const logContent = await fs.readFile(`${logsDir}/${log}`, 'utf-8');

@@ -1,9 +1,9 @@
-import React from 'react';
+import { type ReactNode } from 'react';
 
 interface DropdownItemProps {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
+  readonly children: ReactNode;
+  readonly onClick?: () => void;
+  readonly disabled?: boolean;
 }
 
 export default function DropdownItem({

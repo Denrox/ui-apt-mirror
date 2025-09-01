@@ -34,7 +34,7 @@ async function parseRepositoryConfigs(): Promise<{
       const line = lines[i];
 
       // Check for start section
-      const startMatch = line.match(/# ---start---(.+?)---/);
+      const startMatch = /# ---start---(.+?)---/.exec(line);
       if (startMatch) {
         // Reset for new section
         currentConfig = {
@@ -62,7 +62,7 @@ async function parseRepositoryConfigs(): Promise<{
       }
 
       // Check for end section
-      const endMatch = line.match(/# ---end---(.+?)---/);
+      const endMatch = /# ---end---(.+?)---/.exec(line);
       if (endMatch && currentConfig && inTargetSection) {
         // Check if all lines between start and usage start are commented out
         const hasNonCommentedLines = sectionLines.some(

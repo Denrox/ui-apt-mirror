@@ -1,15 +1,14 @@
 import { useState } from 'react';
-import Modal from '~/components/shared/modal/modal';
-import FormInput from '~/components/shared/form/form-input';
-import FormButton from '~/components/shared/form/form-button';
-import FormSelect from '~/components/shared/form/form-select';
 import { useSubmit } from 'react-router';
-import { toast } from 'react-toastify';
+import FormButton from '~/components/shared/form/form-button';
+import FormInput from '~/components/shared/form/form-input';
+import Modal from '~/components/shared/modal/modal';
+import FormSelect from '~/components/shared/form/form-select';
 
 interface DownloadImageModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  currentPath: string;
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly currentPath: string;
 }
 
 export default function DownloadImageModal({
@@ -73,10 +72,11 @@ export default function DownloadImageModal({
     >
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="image-url" className="block text-sm font-medium text-gray-700 mb-1">
             Image URL
           </label>
           <FormInput
+            id="image-url"
             value={imageUrl}
             onChange={setImageUrl}
             placeholder="e.g., nginx, repo/image, docker.io/repo/image, gcr.io/project/image"
@@ -89,10 +89,11 @@ export default function DownloadImageModal({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="image-tag" className="block text-sm font-medium text-gray-700 mb-1">
             Tag
           </label>
           <FormInput
+            id="image-tag"
             value={imageTag}
             onChange={setImageTag}
             placeholder="latest"

@@ -1,9 +1,9 @@
 import type { PropsWithChildren } from 'react';
 
 interface FormFieldProps {
-  label: string;
-  required?: boolean;
-  error?: string;
+  readonly label: string;
+  readonly required?: boolean;
+  readonly error?: string;
 }
 
 export default function FormField({

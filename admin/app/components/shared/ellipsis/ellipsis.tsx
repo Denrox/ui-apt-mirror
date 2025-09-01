@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 interface EllipsisProps {
-  children: React.ReactNode;
-  className?: string;
+  readonly children: React.ReactNode;
+  readonly className?: string;
 }
 
 export default function Ellipsis({ children, className = '' }: EllipsisProps) {

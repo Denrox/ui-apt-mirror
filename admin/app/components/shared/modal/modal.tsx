@@ -1,9 +1,9 @@
 import type { PropsWithChildren } from 'react';
 
 interface ModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  title?: string;
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly title?: string;
 }
 
 export default function Modal({

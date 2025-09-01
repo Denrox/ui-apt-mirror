@@ -1,11 +1,12 @@
 import { Link } from 'react-router';
 import classNames from 'classnames';
+import { type ReactNode } from 'react';
 
 interface NavLinkProps {
-  to: string;
-  isActive: boolean;
-  children: React.ReactNode;
-  onClick?: () => void;
+  readonly to: string;
+  readonly isActive: boolean;
+  readonly children: ReactNode;
+  readonly onClick?: () => void;
 }
 
 export default function NavLink({

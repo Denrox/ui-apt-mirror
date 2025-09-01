@@ -44,7 +44,7 @@ export function shouldRevalidate({
   return defaultShouldRevalidate;
 }
 
-export function meta({}: any) {
+export function meta() {
   return [
     { title: 'File Manager' },
     { name: 'description', content: 'File Manager for apt-mirror2' },
@@ -90,7 +90,7 @@ export default function FileManager() {
     }
   }, [view, rootPath, setSearchParams]);
 
-  const currentPath = searchParams.get('path') || rootPath;
+  const currentPath = searchParams.get('path') ?? rootPath;
 
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState('');
@@ -153,7 +153,7 @@ export default function FileManager() {
   }, [actionData?.success, actionData?.error, actionData?.message]);
 
   useEffect(() => {
-    if (!!actionData?.success) {
+    if (actionData?.success) {
       if (actionMessage) {
         toast.success(actionMessage);
       }
@@ -195,10 +195,6 @@ export default function FileManager() {
 
   const handleRenameCancel = () => {
     setItemToRename(null);
-  };
-
-  const handleRenameError = (error: string) => {
-    toast.error(error);
   };
 
   const handleCutClick = (item: { path: string; name: string }) => {
@@ -321,9 +317,9 @@ export default function FileManager() {
             disabled={
               isUploading ||
               isDownloading ||
-              !!itemToRename ||
-              !!fileToCut ||
-              !!newFolderName.trim() ||
+              Boolean(itemToRename) ||
+              Boolean(fileToCut) ||
+              Boolean(newFolderName.trim()) ||
               isLoading
             }
           />
@@ -495,9 +491,9 @@ export default function FileManager() {
               </div>
             ) : (
               <div className="divide-y divide-gray-200 w-full overflow-x-auto">
-                {currentPathFiles.map((item, index) => (
+                {currentPathFiles.map((item) => (
                   <div
-                    key={index}
+                    key={item.path}
                     className="flex w-auto items-center justify-between p-3 hover:bg-gray-50"
                   >
                     <div
@@ -521,7 +517,7 @@ export default function FileManager() {
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-sm text-gray-500 text-right w-[96px] flex-shrink-0">
-                        {item.isDirectory ? '' : formatFileSize(item.size || 0)}
+                        {item.isDirectory ? '' : formatFileSize(item.size ?? 0)}
                       </div>
                       <div className="text-sm text-gray-500 w-[120px] flex-shrink-0">
                         {item.modified && formatDate(item.modified)}
@@ -532,7 +528,7 @@ export default function FileManager() {
                             type="secondary"
                             size="small"
                             disabled={
-                              isOperationInProgress || !!fileToCut || isLoading
+                              isOperationInProgress || Boolean(fileToCut) || isLoading
                             }
                             onClick={() => {
                               const link = document.createElement('a');
@@ -541,7 +537,7 @@ export default function FileManager() {
                                 view === 'mirrored-packages'
                                   ? rootPath
                                   : appConfig.filesDir;
-                              link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address || '')}${item.path.replace(basePath, '')}`;
+                              link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}${item.path.replace(basePath, '')}`;
                               link.target = '_blank';
                               link.rel = 'noopener noreferrer';
                               document.body.appendChild(link);
@@ -556,7 +552,7 @@ export default function FileManager() {
                           type="secondary"
                           size="small"
                           disabled={
-                            isOperationInProgress || !!fileToCut || isLoading
+                            isOperationInProgress || Boolean(fileToCut) || isLoading
                           }
                           onClick={() =>
                             handleCutClick({ path: item.path, name: item.name })
@@ -568,7 +564,7 @@ export default function FileManager() {
                           type="secondary"
                           size="small"
                           disabled={
-                            isOperationInProgress || !!fileToCut || isLoading
+                            isOperationInProgress || Boolean(fileToCut) || isLoading
                           }
                           onClick={() =>
                             handleRenameClick({
@@ -583,7 +579,7 @@ export default function FileManager() {
                           type="secondary"
                           size="small"
                           disabled={
-                            isOperationInProgress || !!fileToCut || isLoading
+                            isOperationInProgress || Boolean(fileToCut) || isLoading
                           }
                           onClick={() => handleDelete(item.path)}
                         >
@@ -601,7 +597,7 @@ export default function FileManager() {
 
       {itemToRename && (
         <Modal
-          isOpen={!!itemToRename}
+          isOpen={Boolean(itemToRename)}
           onClose={handleRenameCancel}
           title="Rename Item"
         >

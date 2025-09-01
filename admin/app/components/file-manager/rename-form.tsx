@@ -4,10 +4,15 @@ import FormInput from '~/components/shared/form/form-input';
 import FormButton from '~/components/shared/form/form-button';
 import { toast } from 'react-toastify';
 
+interface RenameFormItem {
+  readonly path: string;
+  readonly name: string;
+}
+
 interface RenameFormProps {
-  item: { path: string; name: string };
-  onSuccess: () => void;
-  onCancel: () => void;
+  readonly item: RenameFormItem;
+  readonly onSuccess: () => void;
+  readonly onCancel: () => void;
 }
 
 export default function RenameForm({
@@ -44,10 +49,11 @@ export default function RenameForm({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="new-name" className="block text-sm font-medium text-gray-700 mb-2">
           New Name
         </label>
         <FormInput
+          id="new-name"
           value={newName}
           onChange={setNewName}
           placeholder="Enter new name"
