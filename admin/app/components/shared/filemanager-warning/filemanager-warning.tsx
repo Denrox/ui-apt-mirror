@@ -48,13 +48,18 @@ export default function Warning({
     <div className={`p-3 border rounded-md ${getStyles()}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 justify-between">
             <span className="text-sm font-medium">
               {getIcon()} {message}
             </span>
+            {actionLabel && onAction && (
+              <FormButton type="secondary" size="small" onClick={onAction}>
+                {actionIcon} {actionLabel}
+              </FormButton>
+            )}
           </div>
           {details && details.length > 0 && (
-            <div className="text-xs space-y-[4px] mt-[4px] max-h-[64px] overflow-y-auto">
+            <div className="text-xs space-y-[4px] mt-[4px] max-h-[64px] overflow-auto w-full">
               {details.map((detail, index) => (
                 <div
                   key={index}
@@ -66,11 +71,6 @@ export default function Warning({
             </div>
           )}
         </div>
-        {actionLabel && onAction && (
-          <FormButton type="secondary" size="small" onClick={onAction}>
-            {actionIcon} {actionLabel}
-          </FormButton>
-        )}
       </div>
     </div>
   );
