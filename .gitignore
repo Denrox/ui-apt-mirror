@@ -10,3 +10,4 @@ data/logs/nginx/*
 data/conf/nginx/.htpasswd
 dist/*
 !dist/.gitkeep
+.scannerwork

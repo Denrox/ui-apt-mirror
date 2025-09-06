@@ -1,25 +1,28 @@
 interface FormSelectProps {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-  disabled?: boolean;
-  placeholder?: string;
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly options: readonly { readonly value: string; readonly label: string }[];
+  readonly disabled?: boolean;
+  readonly placeholder?: string;
 }
 
-export default function FormSelect({ 
-  id, 
-  label, 
-  value, 
-  onChange, 
+export default function FormSelect({
+  id,
+  label,
+  value,
+  onChange,
   options,
   disabled = false,
-  placeholder
+  placeholder,
 }: FormSelectProps) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+      <label
+        htmlFor={id}
+        className="block text-sm font-medium text-gray-700 mb-1"
+      >
         {label}
       </label>
       <select
@@ -42,4 +45,4 @@ export default function FormSelect({
       </select>
     </div>
   );
-} 
+}

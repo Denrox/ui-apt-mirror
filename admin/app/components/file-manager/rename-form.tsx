@@ -1,16 +1,25 @@
-import { useState } from "react";
-import { useSubmit } from "react-router";
-import FormInput from "~/components/shared/form/form-input";
-import FormButton from "~/components/shared/form/form-button";
-import { toast } from "react-toastify";
+import { useState } from 'react';
+import { useSubmit } from 'react-router';
+import FormInput from '~/components/shared/form/form-input';
+import FormButton from '~/components/shared/form/form-button';
+import { toast } from 'react-toastify';
 
-interface RenameFormProps {
-  item: { path: string; name: string };
-  onSuccess: () => void;
-  onCancel: () => void;
+interface RenameFormItem {
+  readonly path: string;
+  readonly name: string;
 }
 
-export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProps) {
+interface RenameFormProps {
+  readonly item: RenameFormItem;
+  readonly onSuccess: () => void;
+  readonly onCancel: () => void;
+}
+
+export default function RenameForm({
+  item,
+  onSuccess,
+  onCancel,
+}: RenameFormProps) {
   const [newName, setNewName] = useState(item.name);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submit = useSubmit();
@@ -19,7 +28,7 @@ export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProp
     if (!newName.trim() || newName.trim() === item.name) return;
 
     setIsSubmitting(true);
-    
+
     try {
       await submit(
         { intent: 'renameFile', filePath: item.path, newName: newName.trim() },
@@ -27,7 +36,7 @@ export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProp
       );
       onSuccess();
     } catch (error) {
-      toast.error("Failed to rename item");
+      toast.error('Failed to rename item');
     } finally {
       setIsSubmitting(false);
     }
@@ -40,10 +49,11 @@ export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProp
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label htmlFor="new-name" className="block text-sm font-medium text-gray-700 mb-2">
           New Name
         </label>
         <FormInput
+          id="new-name"
           value={newName}
           onChange={setNewName}
           placeholder="Enter new name"
@@ -60,11 +70,13 @@ export default function RenameForm({ item, onSuccess, onCancel }: RenameFormProp
         </FormButton>
         <FormButton
           onClick={handleSubmit}
-          disabled={!newName.trim() || newName.trim() === item.name || isSubmitting}
+          disabled={
+            !newName.trim() || newName.trim() === item.name || isSubmitting
+          }
         >
           Save
         </FormButton>
       </div>
     </div>
   );
-} 
+}

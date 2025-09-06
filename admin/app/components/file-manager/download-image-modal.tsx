@@ -1,18 +1,21 @@
 import { useState } from 'react';
-import Modal from '~/components/shared/modal/modal';
-import FormInput from '~/components/shared/form/form-input';
-import FormButton from '~/components/shared/form/form-button';
-import FormSelect from '~/components/shared/form/form-select';
 import { useSubmit } from 'react-router';
-import { toast } from 'react-toastify';
+import FormButton from '~/components/shared/form/form-button';
+import FormInput from '~/components/shared/form/form-input';
+import Modal from '~/components/shared/modal/modal';
+import FormSelect from '~/components/shared/form/form-select';
 
 interface DownloadImageModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  currentPath: string;
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly currentPath: string;
 }
 
-export default function DownloadImageModal({ isOpen, onClose, currentPath }: DownloadImageModalProps) {
+export default function DownloadImageModal({
+  isOpen,
+  onClose,
+  currentPath,
+}: DownloadImageModalProps) {
   const [imageUrl, setImageUrl] = useState('');
   const [imageTag, setImageTag] = useState('latest');
   const [architecture, setArchitecture] = useState('amd64');
@@ -28,24 +31,24 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
     if (!imageUrl.trim()) return;
 
     setIsSubmitting(true);
-    
+
     try {
       await submit(
-        { 
-          intent: 'downloadImage', 
-          imageUrl: imageUrl.trim(), 
+        {
+          intent: 'downloadImage',
+          imageUrl: imageUrl.trim(),
           imageTag: imageTag.trim() || 'latest',
           architecture: architecture,
-          currentPath: currentPath 
+          currentPath: currentPath,
         },
-        { action: '', method: 'post' }
+        { action: '', method: 'post' },
       );
-      
+
       // Reset form and close modal
       setImageUrl('');
       setImageTag('latest');
       setArchitecture('amd64');
-      
+
       onClose();
     } catch (error) {
       console.error('Failed to download image:', error);
@@ -69,24 +72,28 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
     >
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="image-url" className="block text-sm font-medium text-gray-700 mb-1">
             Image URL
           </label>
           <FormInput
+            id="image-url"
             value={imageUrl}
             onChange={setImageUrl}
             placeholder="e.g., nginx, repo/image, docker.io/repo/image, gcr.io/project/image"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Supports Docker Hub and Google Container Registry (GCR). Single words (e.g., "nginx") will use docker.io/library/. Uses skopeo for downloading images.
+            Supports Docker Hub and Google Container Registry (GCR). Single
+            words (e.g., "nginx") will use docker.io/library/. Uses skopeo for
+            downloading images.
           </p>
         </div>
-        
+
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="image-tag" className="block text-sm font-medium text-gray-700 mb-1">
             Tag
           </label>
           <FormInput
+            id="image-tag"
             value={imageTag}
             onChange={setImageTag}
             placeholder="latest"
@@ -100,7 +107,7 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
           onChange={setArchitecture}
           options={architectureOptions}
         />
-        
+
         <div className="flex justify-end gap-2 pt-4">
           <FormButton
             type="secondary"
@@ -119,4 +126,4 @@ export default function DownloadImageModal({ isOpen, onClose, currentPath }: Dow
       </div>
     </Modal>
   );
-} 
+}

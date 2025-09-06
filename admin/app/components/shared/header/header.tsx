@@ -1,11 +1,11 @@
-import { Link, useLocation } from "react-router";
-import classNames from "classnames";
-import { useState } from "react";
+import { Link, useLocation } from 'react-router';
+import classNames from 'classnames';
+import { useState } from 'react';
 
 export default function Header() {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  
+
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
   };
@@ -15,19 +15,35 @@ export default function Header() {
   };
 
   const navItems = [
-    { to: "/", label: "Status", isActive: location.pathname === "/" },
-    { to: "/logs/mirror", label: "Logs", isActive: location.pathname.startsWith("/logs") },
-    { to: "/documentation/file-structure", label: "Documentation", isActive: location.pathname.startsWith("/documentation") },
-    { to: "/file-manager", label: "File Manager", isActive: location.pathname === "/file-manager" }
+    { to: '/', label: 'Status', isActive: location.pathname === '/' },
+    {
+      to: '/logs/mirror',
+      label: 'Logs',
+      isActive: location.pathname.startsWith('/logs'),
+    },
+    {
+      to: '/documentation/file-structure',
+      label: 'Documentation',
+      isActive: location.pathname.startsWith('/documentation'),
+    },
+    {
+      to: '/file-manager',
+      label: 'File Manager',
+      isActive: location.pathname === '/file-manager',
+    },
   ];
 
-  const navLinkClasses = "text-[16px] hover:border-b-2 hover:border-blue-600 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-blue-200 hover:text-blue-600 text-center font-semibold";
-  const activeLinkClasses = "border-b-2 border-blue-600 text-blue-600 bg-blue-200";
+  const navLinkClasses =
+    'text-[16px] hover:border-b-2 hover:border-blue-600 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-blue-200 hover:text-blue-600 text-center font-semibold';
+  const activeLinkClasses =
+    'border-b-2 border-blue-600 text-blue-600 bg-blue-200';
 
   return (
     <div className="flex size-full bg-gradient-to-r from-blue-400 to-blue-600 border-b border-gray-100 shadow-sm justify-center items-center h-[72px]">
       <div className="container gap-[2px] h-full mx-auto text-white flex flex-row items-center justify-between relative">
-        <div className="text-[16px] font-semibold px-[8px]">Apt Mirror Admin Utility</div>
+        <div className="text-[16px] font-semibold px-[8px]">
+          Apt Mirror Admin Utility
+        </div>
         {/* Desktop Navigation - Hidden on screens below 1024px */}
         <div className="hidden h-full lg:flex flex-row items-center justify-center">
           {navItems.map((item) => (
@@ -35,7 +51,7 @@ export default function Header() {
               key={item.to}
               to={item.to}
               className={classNames(navLinkClasses, {
-                [activeLinkClasses]: item.isActive
+                [activeLinkClasses]: item.isActive,
               })}
             >
               {item.label}
@@ -84,11 +100,12 @@ export default function Header() {
                 to={item.to}
                 onClick={closeMenu}
                 className={classNames(
-                  "block px-[16px] py-[12px] text-[16px] font-semibold border-b border-gray-100 last:border-b-0",
+                  'block px-[16px] py-[12px] text-[16px] font-semibold border-b border-gray-100 last:border-b-0',
                   {
-                    "text-blue-600 bg-blue-50": item.isActive,
-                    "text-gray-700 hover:text-blue-600 hover:bg-blue-50": !item.isActive
-                  }
+                    'text-blue-600 bg-blue-50': item.isActive,
+                    'text-gray-700 hover:text-blue-600 hover:bg-blue-50':
+                      !item.isActive,
+                  },
                 )}
               >
                 {item.label}

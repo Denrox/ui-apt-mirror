@@ -1,28 +1,32 @@
-import { useState, useCallback, useEffect } from "react";
-import { useSubmit } from "react-router";
-import FormButton from "~/components/shared/form/form-button";
-import FormInput from "~/components/shared/form/form-input";
-import { toast } from "react-toastify";
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useSubmit } from 'react-router';
+import FormButton from '~/components/shared/form/form-button';
+import FormInput from '~/components/shared/form/form-input';
+import { toast } from 'react-toastify';
 
 interface DownloadFileProps {
-  onDownloadInput: (isDownloading: boolean) => void;
-  currentPath: string;
+  readonly onDownloadInput: (isDownloading: boolean) => void;
+  readonly currentPath: string;
 }
 
-export default function DownloadFile({ currentPath, onDownloadInput }: DownloadFileProps) {
-  const [url, setUrl] = useState("");
-  const [fileName, setFileName] = useState("");
+export default function DownloadFile({
+  currentPath,
+  onDownloadInput,
+}: DownloadFileProps) {
+  const [url, setUrl] = useState('');
+  const [fileName, setFileName] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const submit = useSubmit();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const extractFileNameFromUrl = useCallback((url: string) => {
     if (!url.trim()) return;
-    
+
     try {
       const urlObj = new URL(url.trim());
       const pathname = urlObj.pathname;
-      const extractedName = pathname.split('/').pop() || 'downloaded-file';
+      const extractedName = pathname.split('/').pop() ?? 'downloaded-file';
       setFileName(extractedName);
     } catch (error) {
       setFileName('downloaded-file');
@@ -43,45 +47,80 @@ export default function DownloadFile({ currentPath, onDownloadInput }: DownloadF
 
   const handleDownload = useCallback(async () => {
     if (!url.trim()) {
-      toast.error("URL is required");
+      toast.error('URL is required');
       return;
     }
 
+    abortControllerRef.current = new AbortController();
     setDownloading(true);
 
     try {
       await submit(
-        { 
-          intent: 'downloadFile', 
-          url: url.trim(), 
-          fileName: fileName || 'downloaded-file',
-          currentPath: currentPath 
+        {
+          intent: 'downloadFile',
+          url: url.trim(),
+          fileName: fileName ?? 'downloaded-file',
+          currentPath: currentPath,
         },
-        { action: '', method: 'post' }
+        { action: '', method: 'post' },
       );
 
-      setUrl("");
-      setFileName("");
-      setShowUrlInput(false);
+      if (!abortControllerRef.current.signal.aborted) {
+        setUrl('');
+        setFileName('');
+        setShowUrlInput(false);
+        toast.success('File downloaded successfully');
+      }
     } catch (error) {
-      toast.error("Failed to download file");
+      if (!abortControllerRef.current.signal.aborted) {
+        toast.error('Failed to download file');
+      }
     } finally {
       setDownloading(false);
+      abortControllerRef.current = null;
     }
   }, [url, fileName, currentPath, submit]);
 
-  const handleCancel = useCallback(() => {
+  const cleanupPartialDownload = useCallback(async () => {
+    if (fileName) {
+      try {
+        await submit(
+          {
+            intent: 'cleanupDownload',
+            filePath: currentPath,
+            fileName: fileName,
+          },
+          { action: '', method: 'post' },
+        );
+      } catch (error) {
+        console.error('Failed to clean up partial download:', error);
+      }
+    }
+  }, [fileName, currentPath, submit]);
+
+  const handleCancel = useCallback(async () => {
+    if (downloading && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      await cleanupPartialDownload();
+    }
+
     setShowUrlInput(false);
-    setUrl("");
-    setFileName("");
+    setUrl('');
+    setFileName('');
+    setDownloading(false);
+  }, [downloading, cleanupPartialDownload]);
+
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   if (!showUrlInput) {
     return (
-      <FormButton
-        onClick={handleDownloadClick}
-        disabled={downloading}
-      >
+      <FormButton onClick={handleDownloadClick} disabled={downloading}>
         Download File
       </FormButton>
     );
@@ -99,15 +138,11 @@ export default function DownloadFile({ currentPath, onDownloadInput }: DownloadF
         onClick={handleDownload}
         disabled={downloading || !url.trim()}
       >
-        {downloading ? "Downloading..." : "Download"}
+        {downloading ? 'Downloading...' : 'Download'}
       </FormButton>
-      <FormButton
-        type="secondary"
-        onClick={handleCancel}
-        disabled={downloading}
-      >
+      <FormButton type="secondary" onClick={handleCancel}>
         Cancel
       </FormButton>
     </div>
   );
-} 
+}

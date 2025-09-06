@@ -1,67 +1,58 @@
-import fs from "fs/promises";
-import appConfig from "~/config/config.json";
-import { exec, spawn } from "child_process";
-import { promisify } from "util";
+import fs from 'fs/promises';
+import appConfig from '~/config/config.json';
+import { exec, spawn } from 'child_process';
+import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
 export async function action({ request }: { request: Request }) {
   const formData = await request.formData();
-  const action = formData.get("action");
+  const action = formData.get('action');
 
-  if (action === "startSync") {
+  if (action === 'startSync') {
     try {
-      console.log('Starting mirror sync...');
-      console.log('Script path:', appConfig.startMirrorScriptPath);
-      
-      // Use spawn to start the script and return immediately
       const child = spawn(appConfig.startMirrorScriptPath, [], {
         stdio: 'pipe',
-        detached: true
+        detached: true,
       });
-      
-      // Don't wait for the child process to complete
+
       child.unref();
-      
-      console.log('Start sync initiated with PID:', child.pid);
-      
-      return { success: true, message: "Mirror sync started successfully" };
+
+      return { success: true, message: 'Mirror sync started successfully' };
     } catch (error) {
       console.error('Error starting mirror sync:', error);
-      return { error: "Failed to start mirror sync" };
+      return { error: 'Failed to start mirror sync' };
     }
   }
 
-  if (action === "stopSync") {
+  if (action === 'stopSync') {
     try {
       await execAsync(appConfig.stopMirrorScriptPath);
-      return { success: true, message: "Mirror sync stopped successfully" };
+      return { success: true, message: 'Mirror sync stopped successfully' };
     } catch (error) {
       console.error('Error stopping mirror sync:', error);
-      return { error: "Failed to stop mirror sync" };
+      return { error: 'Failed to stop mirror sync' };
     }
   }
 
-  if (action === "deleteRepository") {
-    const sectionTitle = formData.get("sectionTitle") as string;
-    
+  if (action === 'deleteRepository') {
+    const sectionTitle = formData.get('sectionTitle') as string;
+
     if (!sectionTitle) {
-      return { error: "Section title is required" };
+      return { error: 'Section title is required' };
     }
 
     try {
       const mirrorListPath = appConfig.mirrorListPath;
       const content = await fs.readFile(mirrorListPath, 'utf-8');
       const lines = content.split('\n');
-      
+
       const newLines: string[] = [];
       let inTargetSection = false;
       let inUsageSection = false;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        
-        const startMatch = line.match(/# ---start---(.+?)---/);
+
+      for (const line of lines) {
+        const startMatch = /# ---start---(.+?)---/.exec(line);
         if (startMatch) {
           const title = startMatch[1].trim();
           if (title === sectionTitle) {
@@ -73,63 +64,68 @@ export async function action({ request }: { request: Request }) {
             inUsageSection = false;
           }
         }
-        
+
         if (line.trim() === '# Usage start' && inTargetSection) {
           inUsageSection = true;
           newLines.push(line); // Keep the usage start marker
           continue;
         }
-        
+
         if (line.trim() === '# Usage end' && inTargetSection) {
           inUsageSection = false;
           newLines.push(line); // Keep the usage end marker
           continue;
         }
-        
-        const endMatch = line.match(/# ---end---(.+?)---/);
+
+        const endMatch = /# ---end---(.+?)---/.exec(line);
         if (endMatch && inTargetSection) {
           inTargetSection = false;
           inUsageSection = false;
           newLines.push(line); // Keep the end marker
           continue;
         }
-        
-        if (inTargetSection && !inUsageSection && line.trim() && !line.startsWith('#')) {
+
+        if (
+          inTargetSection &&
+          !inUsageSection &&
+          line.trim() &&
+          !line.startsWith('#')
+        ) {
           newLines.push(`# ${line}`);
         } else {
           newLines.push(line);
         }
       }
-      
+
       await fs.writeFile(mirrorListPath, newLines.join('\n'));
-      
-      return { success: true, message: `Repository section "${sectionTitle}" commented successfully` };
-      
+
+      return {
+        success: true,
+        message: `Repository section "${sectionTitle}" commented successfully`,
+      };
     } catch (error) {
-      return { error: "Failed to comment repository section" };
+      return { error: 'Failed to comment repository section' };
     }
   }
 
-  if (action === "restoreRepository") {
-    const sectionTitle = formData.get("sectionTitle") as string;
-    
+  if (action === 'restoreRepository') {
+    const sectionTitle = formData.get('sectionTitle') as string;
+
     if (!sectionTitle) {
-      return { error: "Section title is required" };
+      return { error: 'Section title is required' };
     }
 
     try {
       const mirrorListPath = appConfig.mirrorListPath;
       const content = await fs.readFile(mirrorListPath, 'utf-8');
       const lines = content.split('\n');
-      
+
       const newLines: string[] = [];
       let inTargetSection = false;
       let inUsageSection = false;
-      
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        
-        const startMatch = line.match(/# ---start---(.+?)---/);
+
+      for (const line of lines) {
+        const startMatch = /# ---start---(.+?)---/.exec(line);
         if (startMatch) {
           const title = startMatch[1].trim();
           if (title === sectionTitle) {
@@ -141,41 +137,67 @@ export async function action({ request }: { request: Request }) {
             inUsageSection = false;
           }
         }
-        
+
         if (line.trim() === '# Usage start' && inTargetSection) {
           inUsageSection = true;
           newLines.push(line);
           continue;
         }
-        
+
         if (line.trim() === '# Usage end' && inTargetSection) {
           inUsageSection = false;
           newLines.push(line);
           continue;
         }
-        
-        const endMatch = line.match(/# ---end---(.+?)---/);
+
+        const endMatch = /# ---end---(.+?)---/.exec(line);
         if (endMatch && inTargetSection) {
           inTargetSection = false;
           inUsageSection = false;
           newLines.push(line);
           continue;
         }
-        
-        if (inTargetSection && !inUsageSection && line.trim().startsWith('# ')) {
+
+        if (
+          inTargetSection &&
+          !inUsageSection &&
+          line.trim().startsWith('# ')
+        ) {
           newLines.push(line.substring(2));
         } else {
           newLines.push(line);
         }
       }
-      
+
       await fs.writeFile(mirrorListPath, newLines.join('\n'));
-      
-      return { success: true, message: `Repository section "${sectionTitle}" restored successfully` };
+
+      return {
+        success: true,
+        message: `Repository section "${sectionTitle}" restored successfully`,
+      };
     } catch (error) {
-      return { error: "Failed to restore repository section" };
+      return { error: 'Failed to restore repository section' };
     }
   }
 
-  return { error: "Invalid action" };
-} 
+  if (action === 'checkHealth') {
+    for (const host of appConfig.hosts) {
+      if (host.id === 'admin') {
+        try {
+          const response = await fetch(`http://${host.address}/api/health`);
+          if (response.ok) {
+            const healthData = await response.json();
+            if (healthData.status === 'healthy') {
+              return { success: true, message: 'Admin service is healthy' };
+            }
+          }
+        } catch (error) {
+          console.error('Error checking admin health:', error);
+        }
+      }
+    }
+    return { error: 'Admin service not found or not healthy' };
+  }
+
+  return { error: 'Invalid action' };
+}

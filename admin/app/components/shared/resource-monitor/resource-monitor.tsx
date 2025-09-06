@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
 
 interface ProcessInfo {
   name: string;
-  status: "running" | "not_running" | "not_found" | "error";
+  status: 'running' | 'not_running' | 'not_found' | 'error';
   ramMb: number;
   cpuPercent: number;
 }
@@ -25,7 +25,7 @@ export default function ResourceMonitor() {
 
   const fetchResourceData = async () => {
     try {
-      const response = await fetch("/api/resources");
+      const response = await fetch('/api/resources');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -33,8 +33,8 @@ export default function ResourceMonitor() {
       setResourceData(data);
       setError(null);
     } catch (err) {
-      console.error("Failed to fetch resource data:", err);
-      setError("Failed to load resource data");
+      console.error('Failed to fetch resource data:', err);
+      setError('Failed to load resource data');
     } finally {
       setLoading(false);
     }
@@ -73,30 +73,30 @@ export default function ResourceMonitor() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "running":
-        return "text-green-600";
-      case "not_running":
-        return "text-yellow-600";
-      case "not_found":
-      case "error":
-        return "text-red-600";
+      case 'running':
+        return 'text-green-600';
+      case 'not_running':
+        return 'text-yellow-600';
+      case 'not_found':
+      case 'error':
+        return 'text-red-600';
       default:
-        return "text-gray-600";
+        return 'text-gray-600';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case "running":
-        return "Running";
-      case "not_running":
-        return "Stopped";
-      case "not_found":
-        return "Not Found";
-      case "error":
-        return "Error";
+      case 'running':
+        return 'Running';
+      case 'not_running':
+        return 'Stopped';
+      case 'not_found':
+        return 'Not Found';
+      case 'error':
+        return 'Error';
       default:
-        return "Unknown";
+        return 'Unknown';
     }
   };
 
@@ -107,19 +107,19 @@ export default function ResourceMonitor() {
           <div key={process.name} className="px-[12px]">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-gray-700 capitalize">
-                {process.name.replace("-", " ")}
+                {process.name.replace('-', ' ')}
               </span>
-              <span className={`text-xs font-medium ${getStatusColor(process.status)}`}>
+              <span
+                className={`text-xs font-medium ${getStatusColor(process.status)}`}
+              >
                 {getStatusText(process.status)}
               </span>
             </div>
-            
+
             <div className="space-y-0.5">
               <div className="flex justify-between text-xs">
                 <span className="text-gray-500">RAM:</span>
-                <span className="font-medium">
-                  {process.ramMb} MB
-                </span>
+                <span className="font-medium">{process.ramMb} MB</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span className="text-gray-500">CPU:</span>
@@ -133,4 +133,4 @@ export default function ResourceMonitor() {
       </div>
     </div>
   );
-} 
+}
