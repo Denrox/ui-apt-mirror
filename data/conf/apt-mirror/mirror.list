@@ -77,7 +77,58 @@ deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
 # Usage end
 # ---end---Debian Bookworm---
 
+# ---start---Docker Ubuntu Noble---
+# Docker CE for Ubuntu 24.04 (Noble Numbat) - AMD64 architecture
+deb https://download.docker.com/linux/ubuntu noble stable
+# Usage start
+#Types: deb
+#URIs: https://mirror.intra/download.docker.com/linux/ubuntu
+#Suites: noble
+#Components: stable
+#Signed-By: /usr/share/keyrings/docker-archive-keyring.gpg
+# Usage end
+# ---end---Docker Ubuntu Noble---
+
+# ---start---Docker Debian 13---
+# Docker CE for Debian 13 (Trixie) - AMD64 architecture
+deb https://download.docker.com/linux/debian trixie stable
+# Usage start
+#Types: deb
+#URIs: https://mirror.intra/download.docker.com/linux/debian
+#Suites: trixie
+#Components: stable
+#Signed-By: /usr/share/keyrings/docker-archive-keyring.gpg
+# Usage end
+# ---end---Docker Debian 13---
+
+# ---start---Kubernetes Ubuntu Noble---
+# Kubernetes for Ubuntu 24.04 (Noble Numbat) - AMD64 architecture
+deb https://pkgs.k8s.io/core:/stable:/v1.33/deb/ noble main
+# Usage start
+#Types: deb
+#URIs: https://mirror.intra/pkgs.k8s.io/core:/stable:/v1.31/deb
+#Suites: noble
+#Components: main
+#Signed-By: /usr/share/keyrings/kubernetes-archive-keyring.gpg
+# Usage end
+# ---end---Kubernetes Ubuntu Noble---
+
+# ---start---Kubernetes Debian 13---
+# Kubernetes for Debian 13 (Trixie) - AMD64 architecture
+deb https://pkgs.k8s.io/core:/stable:/v1.33/deb/ trixie main
+# Usage start
+#Types: deb
+#URIs: https://mirror.intra/pkgs.k8s.io/core:/stable:/v1.31/deb
+#Suites: trixie
+#Components: main
+#Signed-By: /usr/share/keyrings/kubernetes-archive-keyring.gpg
+# Usage end
+# ---end---Kubernetes Debian 13---
+
 # Clean up old packages
 clean http://archive.ubuntu.com/ubuntu
 clean http://deb.debian.org/debian
 clean http://security.debian.org/debian-security
+clean https://download.docker.com/linux/ubuntu
+clean https://download.docker.com/linux/debian
+clean https://pkgs.k8s.io/core:/stable:/v1.31/deb
