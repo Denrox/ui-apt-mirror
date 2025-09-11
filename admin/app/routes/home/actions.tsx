@@ -173,10 +173,10 @@ export async function action({ request }: { request: Request }) {
 
       return {
         success: true,
-        message: `Repository section "${sectionTitle}" restored successfully`,
+        message: `Repository section "${sectionTitle}" enabled successfully`,
       };
     } catch (error) {
-      return { error: 'Failed to restore repository section' };
+      return { error: 'Failed to enable repository section' };
     }
   }
 

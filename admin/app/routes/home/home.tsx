@@ -198,7 +198,7 @@ export default function Home() {
                         key={section.title}
                         onClick={() => handleRestoreClick(section.title)}
                       >
-                        Restore: {section.title}
+                        Enable: {section.title}
                       </DropdownItem>
                     ),
                   )}
@@ -246,7 +246,7 @@ export default function Home() {
               No repository configurations found
             </div>
             <div className="text-gray-400 text-[12px] text-center mt-1">
-              Use the + button to restore commented configurations
+              Use the + button to add configurations
             </div>
           </div>
         )}
