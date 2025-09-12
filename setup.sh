@@ -382,11 +382,7 @@ deb https://download.docker.com/linux/ubuntu noble stable
 # Docker CE for Debian 13 (Trixie) - AMD64 architecture
 deb https://download.docker.com/linux/debian trixie stable
 # Usage start
-#Types: deb
-#URIs: https://mirror.intra/download.docker.com/linux/debian
-#Suites: trixie
-#Components: stable
-#Signed-By: /usr/share/keyrings/docker-archive-keyring.gpg
+#deb [trusted=yes] http://mirror.intra/download.docker.com/linux/debian trixie stable
 # Usage end
 # ---end---Docker Debian 13---
 
