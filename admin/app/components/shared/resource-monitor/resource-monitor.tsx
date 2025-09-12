@@ -101,7 +101,7 @@ export default function ResourceMonitor() {
   };
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-md p-[0px] py-[12px] mb-4">
+    <div className="bg-gray-50 border border-gray-200 rounded-md p-[0px] py-[12px]">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-[12px] md:gap-[32px]">
         {resourceData.processes.map((process) => (
           <div key={process.name} className="px-[12px]">
