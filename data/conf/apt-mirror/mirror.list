@@ -85,6 +85,7 @@ deb https://download.docker.com/linux/ubuntu noble stable
 #URIs: http://mirror.intra/download.docker.com/linux/ubuntu
 #Suites: noble
 #Components: stable
+#Trusted: yes
 # Usage end
 # ---end---Docker Ubuntu Noble---
 
