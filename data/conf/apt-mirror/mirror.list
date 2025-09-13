@@ -81,7 +81,10 @@ deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
 # Docker CE for Ubuntu 24.04 (Noble Numbat) - AMD64 architecture
 deb https://download.docker.com/linux/ubuntu noble stable
 # Usage start
-#deb [trusted=yes] http://mirror.intra/download.docker.com/linux/ubuntu noble stable
+#Types: deb
+#URIs: http://mirror.intra/download.docker.com/linux/ubuntu
+#Suites: noble
+#Components: stable
 # Usage end
 # ---end---Docker Ubuntu Noble---
 
