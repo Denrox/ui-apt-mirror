@@ -366,10 +366,33 @@ deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-
 # Usage end
 # ---end---Debian Trixie---
 
+# ---start---Docker Ubuntu Noble---
+# Docker CE for Ubuntu 24.04 (Noble Numbat) - AMD64 architecture
+deb https://download.docker.com/linux/ubuntu noble stable
+# Usage start
+#Types: deb
+#URIs: http://mirror.intra/download.docker.com/linux/ubuntu
+#Suites: noble
+#Components: stable
+#Trusted: yes
+# Usage end
+# ---end---Docker Ubuntu Noble---
+
+# ---start---Docker Debian 13---
+# Docker CE for Debian 13 (Trixie) - AMD64 architecture
+deb https://download.docker.com/linux/debian trixie stable
+# Usage start
+#deb [trusted=yes] http://mirror.intra/download.docker.com/linux/debian trixie stable
+# Usage end
+# ---end---Docker Debian 13---
+
+
 # Clean up old packages
 clean http://archive.ubuntu.com/ubuntu
 clean http://deb.debian.org/debian
 clean http://security.debian.org/debian-security
+clean https://download.docker.com/linux/ubuntu
+clean https://download.docker.com/linux/debian
 EOF
     
     print_success "apt-mirror2 configuration generated with $OPTIMAL_THREADS threads and $OPTIMAL_CONNECTIONS connections."

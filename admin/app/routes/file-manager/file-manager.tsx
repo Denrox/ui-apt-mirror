@@ -287,19 +287,21 @@ export default function FileManager() {
       <div className="flex items-center justify-between mb-4 px-[12px]">
         <div className="flex items-center gap-4">
           <Title title="File Manager" />
-          <FormButton
-            type="secondary"
-            disabled={
-              isOperationInProgress ||
-              isLoading ||
-              (healthReport && healthReport.status === 'inProgress')
-            }
-            onClick={handleHealthCheck}
-          >
-            {healthReport && healthReport.status === 'inProgress'
-              ? '🔍 File System check in progress'
-              : '🔍 Health Check'}
-          </FormButton>
+          <div className="hidden md:block">
+            <FormButton
+              type="secondary"
+              disabled={
+                isOperationInProgress ||
+                isLoading ||
+                (healthReport && healthReport.status === 'inProgress')
+              }
+              onClick={handleHealthCheck}
+            >
+              {healthReport && healthReport.status === 'inProgress'
+                ? '🔍 File System check in progress'
+                : '🔍 Health Check'}
+            </FormButton>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600 hidden md:block">View:</span>
