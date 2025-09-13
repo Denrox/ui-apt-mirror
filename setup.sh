@@ -370,11 +370,7 @@ deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-
 # Docker CE for Ubuntu 24.04 (Noble Numbat) - AMD64 architecture
 deb https://download.docker.com/linux/ubuntu noble stable
 # Usage start
-#Types: deb
-#URIs: https://mirror.intra/download.docker.com/linux/ubuntu
-#Suites: noble
-#Components: stable
-#Signed-By: /usr/share/keyrings/docker-archive-keyring.gpg
+#deb [trusted=yes] https://download.docker.com/linux/ubuntu noble stable
 # Usage end
 # ---end---Docker Ubuntu Noble---
 
