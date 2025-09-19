@@ -19,9 +19,10 @@ export default function NavLink({
     <Link
       to={to}
       className={classNames(
-        'text-[16px] block leading-[48px] min-h-[48px] flex-0 bg-blue-200 border-white hover:border-blue-600 px-[16px] w-[200px] hover:text-blue-600 text-center font-semibold cursor-pointer lg:mb-0',
+        'text-[16px] block leading-[48px] min-h-[48px] flex-0 border-l-4 border-transparent hover:border-gray-600 px-[16px] w-[200px] hover:text-gray-800 hover:bg-gray-300 text-center font-semibold cursor-pointer lg:mb-0 transition-all duration-200 rounded-t',
         {
-          'border-blue-600 text-blue-600': isActive,
+          'border-gray-700 text-gray-900 bg-gray-300 shadow-md': isActive,
+          'bg-gray-200 text-gray-700': !isActive,
         },
       )}
       onClick={onClick}

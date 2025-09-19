@@ -61,12 +61,14 @@ export default function Downloader() {
       ))}
     >
       <>
-        <Title
-          title={
-            sections.find((section) => section.id === activeSection)?.title ||
-            ''
-          }
-        />
+        <div className="lg:-translate-x-[132px]">
+          <Title
+            title={
+              sections.find((section) => section.id === activeSection)?.title ||
+              ''
+            }
+          />
+        </div>
         {sortedLogs.length > 0 && (
           <div className="flex flex-row justify-around align-center flex-wrap gap-[12px]">
             {sortedLogs.map((log) => (

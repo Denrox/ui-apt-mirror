@@ -255,11 +255,13 @@ export default function Documentation() {
       ))}
     >
       <>
-        <Title
-          title={
-            sections.find((section) => section.id === activeSection)?.title ?? 'Documentation'
-          }
-        />
+        <div className="lg:-translate-x-[132px]">
+          <Title
+            title={
+              sections.find((section) => section.id === activeSection)?.title ?? 'Documentation'
+            }
+          />
+        </div>
         <ContentBlock className="flex-1">
           {activeSection === 'file-structure' && renderFileStructure()}
           {activeSection === 'commands' && renderCommands()}

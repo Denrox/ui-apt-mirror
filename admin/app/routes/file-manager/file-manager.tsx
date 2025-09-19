@@ -515,7 +515,7 @@ export default function FileManager() {
                       <span className="text-lg">
                         <FontAwesomeIcon 
                           icon={item.isDirectory ? faFolder : faFile} 
-                          className={item.isDirectory ? 'text-blue-500' : 'text-gray-500'}
+                          className={item.isDirectory ? 'text-gray-600' : 'text-gray-500'}
                         />
                       </span>
                       <div className="flex align-center w-[180px] md:w-[240px] max-w-[auto] lg:max-w-[360px] flex-shrink-0 lg:w-auto font-medium">

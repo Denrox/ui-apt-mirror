@@ -182,8 +182,8 @@ export default function Home() {
   return (
     <PageLayoutFull>
       {/* Fixed Main Title - Non-scrollable */}
-      <div className="sticky top-0 z-10 bg-white border-b border-gray-200 mb-4">
-        <div className="flex items-center justify-center gap-3 py-4">
+      <div className="sticky top-0 z-10 bg-white">
+        <div className="flex items-center justify-center gap-3">
           <Title
             title="Repository Configuration"
             action={
@@ -196,7 +196,7 @@ export default function Home() {
                         : 'cursor-pointer hover:opacity-80'
                     } ${
                       isLockFilePresent
-                        ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                        ? 'bg-gray-200 text-gray-800 border border-gray-300'
                         : 'bg-gray-100 text-gray-600 border border-gray-200'
                     }`}
                     onClick={isActionInProgress ? undefined : handleSyncToggle}
@@ -246,19 +246,6 @@ export default function Home() {
       {/* Scrollable Content Area */}
       <div className="overflow-y-auto max-h-[calc(100vh-200px)] flex flex-col gap-[32px]">
         <div className="relative">
-          <div className="flex items-center justify-between md:mb-[24px] mb-[12px] px-[12px] md:px-0">
-            <h3 className="text-lg font-semibold text-gray-700">Repository Configurations</h3>
-            <button
-              onClick={handleRepositoryConfigsToggle}
-              className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
-              title={isRepositoryConfigsExpanded ? 'Collapse' : 'Expand'}
-            >
-              <span className="text-xs">
-                {isRepositoryConfigsExpanded ? '▼' : '▶'}
-              </span>
-              <span>{isRepositoryConfigsExpanded ? 'Collapse' : 'Expand'}</span>
-            </button>
-          </div>
         <div 
           className={`overflow-hidden transition-all duration-300 ease-in-out relative ${
             isRepositoryConfigsExpanded ? 'max-h-none pb-[32px]' : 'max-h-[164px]'
@@ -271,7 +258,7 @@ export default function Home() {
                   key={config.title}
                   className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
                 >
-                  <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold">
+                  <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold">
                     {config.title}
                   </div>
                   {config.content.map((line: string, lineIndex: number) => (
@@ -363,23 +350,23 @@ export default function Home() {
               {},
             )}
           >
-            <a
+              <a
               href={getHostAddress(page.address)}
               target="_blank"
               rel="noopener noreferrer"
               className={classNames(
-                'block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-blue-500 font-semibold',
+                'block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold hover:text-gray-900',
                 {},
               )}
             >{`${page.name} (${getHostAddress(page.address)})`}</a>
             <div className="text-[12px] text-gray-500">{page.description}</div>
             <div className="absolute top-[12px] right-[12px] leading-none">
               {pagesAvalabilityState[getHostAddress(page.address)] ? (
-                <div className="font-semibold leading-[24px] text-[9px] text-green-500">
+                <div className="font-semibold leading-[24px] text-[9px] text-gray-600">
                   Online
                 </div>
               ) : (
-                <div className="font-semibold leading-[24px] text-[12px] text-red-500">
+                <div className="font-semibold leading-[24px] text-[12px] text-gray-500">
                   Offline
                 </div>
               )}

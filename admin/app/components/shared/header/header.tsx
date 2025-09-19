@@ -34,12 +34,12 @@ export default function Header() {
   ];
 
   const navLinkClasses =
-    'text-[16px] hover:border-b-2 hover:border-blue-600 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-blue-200 hover:text-blue-600 text-center font-semibold';
+    'text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold';
   const activeLinkClasses =
-    'border-b-2 border-blue-600 text-blue-600 bg-blue-200';
+    'border-b-2 border-gray-300 text-gray-800 bg-gray-200';
 
   return (
-    <div className="flex size-full bg-gradient-to-r from-blue-400 to-blue-600 border-b border-gray-100 shadow-sm justify-center items-center h-[72px]">
+    <div className="flex size-full bg-gradient-to-r from-gray-600 to-gray-700 border-b border-gray-300 shadow-sm justify-center items-center h-[72px]">
       <div className="container gap-[2px] h-full mx-auto text-white flex flex-row items-center justify-between relative">
         <div className="text-[16px] font-semibold px-[8px]">
           Apt Mirror Admin Utility
@@ -63,7 +63,7 @@ export default function Header() {
         <div className="lg:hidden flex items-center justify-end">
           <button
             onClick={toggleMenu}
-            className="text-white hover:text-blue-200 focus:outline-none focus:text-blue-200 p-[8px]"
+            className="text-white hover:text-gray-200 focus:outline-none focus:text-gray-200 p-[8px]"
             aria-label="Toggle menu"
           >
             <svg
@@ -102,8 +102,8 @@ export default function Header() {
                 className={classNames(
                   'block px-[16px] py-[12px] text-[16px] font-semibold border-b border-gray-100 last:border-b-0',
                   {
-                    'text-blue-600 bg-blue-50': item.isActive,
-                    'text-gray-700 hover:text-blue-600 hover:bg-blue-50':
+                    'text-gray-800 bg-gray-200': item.isActive,
+                    'text-gray-700 hover:text-gray-800 hover:bg-gray-100':
                       !item.isActive,
                   },
                 )}

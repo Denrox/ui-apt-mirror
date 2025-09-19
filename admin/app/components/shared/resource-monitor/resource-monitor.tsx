@@ -53,16 +53,16 @@ export default function ResourceMonitor() {
 
   if (loading) {
     return (
-      <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
-        <div className="text-sm text-blue-600">Loading resource data...</div>
+      <div className="bg-gray-50 border border-gray-200 rounded-md p-4 mb-4">
+        <div className="text-sm text-gray-600">Loading resource data...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-4">
-        <div className="text-sm text-red-600">{error}</div>
+      <div className="bg-gray-50 border border-gray-300 rounded-md p-4 mb-4">
+        <div className="text-sm text-gray-700">{error}</div>
       </div>
     );
   }
@@ -74,12 +74,12 @@ export default function ResourceMonitor() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'running':
-        return 'text-green-600';
+        return 'text-gray-700';
       case 'not_running':
-        return 'text-yellow-600';
+        return 'text-gray-500';
       case 'not_found':
       case 'error':
-        return 'text-red-600';
+        return 'text-gray-400';
       default:
         return 'text-gray-600';
     }
