@@ -28,7 +28,7 @@ import DownloadFile from '~/components/shared/form/download-file';
 import { getHostAddress } from '~/utils/url';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEllipsisV, faSync, faTrash, faCut, faEdit, faSearch } from '@fortawesome/free-solid-svg-icons';
+import { faEllipsisV, faSync, faTrash, faCut, faEdit, faSearch, faFolder, faFile } from '@fortawesome/free-solid-svg-icons';
 
 export { action, loader };
 
@@ -513,7 +513,10 @@ export default function FileManager() {
                       })}
                     >
                       <span className="text-lg">
-                        {item.isDirectory ? '📁' : '📄'}
+                        <FontAwesomeIcon 
+                          icon={item.isDirectory ? faFolder : faFile} 
+                          className={item.isDirectory ? 'text-blue-500' : 'text-gray-500'}
+                        />
                       </span>
                       <div className="flex align-center w-[180px] md:w-[240px] max-w-[auto] lg:max-w-[360px] flex-shrink-0 lg:w-auto font-medium">
                         <Ellipsis>{item.name}</Ellipsis>
