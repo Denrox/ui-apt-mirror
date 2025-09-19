@@ -1,4 +1,11 @@
 import FormButton from '~/components/shared/form/form-button';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { 
+  faExclamationTriangle, 
+  faTimesCircle, 
+  faInfoCircle,
+  faTrash
+} from '@fortawesome/free-solid-svg-icons';
 
 interface WarningProps {
   readonly type: 'warning' | 'error' | 'info';
@@ -6,7 +13,7 @@ interface WarningProps {
   readonly details?: string[];
   readonly actionLabel?: string;
   readonly onAction?: () => void;
-  readonly actionIcon?: string;
+  readonly actionIcon?: React.ReactNode;
 }
 
 export default function Warning({
@@ -15,7 +22,7 @@ export default function Warning({
   details,
   actionLabel,
   onAction,
-  actionIcon = '🗑️',
+  actionIcon = <FontAwesomeIcon icon={faTrash} />,
 }: WarningProps) {
   const getStyles = () => {
     switch (type) {
@@ -33,13 +40,13 @@ export default function Warning({
   const getIcon = () => {
     switch (type) {
       case 'warning':
-        return '⚠️';
+        return <FontAwesomeIcon icon={faExclamationTriangle} />;
       case 'error':
-        return '❌';
+        return <FontAwesomeIcon icon={faTimesCircle} />;
       case 'info':
-        return 'ℹ️';
+        return <FontAwesomeIcon icon={faInfoCircle} />;
       default:
-        return '⚠️';
+        return <FontAwesomeIcon icon={faExclamationTriangle} />;
     }
   };
 

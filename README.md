@@ -2,7 +2,7 @@
 
 A containerized APT mirror solution with a web interface. This project provides a complete local Ubuntu / Debian package repository with an admin panel and file hosting capabilities.
 
-## 🚀 Features
+## Features
 
 - **APT Mirror**: Local Ubuntu package repository with automatic synchronization using apt-mirror2 (Python/asyncio version) from PyPI
 - **Web Interface**: web UI for all services
@@ -15,14 +15,14 @@ A containerized APT mirror solution with a web interface. This project provides 
 - **Easy Deployment**: Simple scripts for building and deployment
 - **Configurable**: Custom domains, sync frequency, and admin passwords
 
-## 📋 Requirements
+## Requirements
 
 - arm64 or amd64 machine
 - Docker and Docker Compose
 - Linux system
 - Complete Mirroring apt repos usually requires a lot of disk space (> 500G) 
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -39,7 +39,7 @@ A containerized APT mirror solution with a web interface. This project provides 
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 🛠️ Installation
+## Installation
 
 ### 1. Build the Images
 
@@ -69,7 +69,7 @@ The script will:
 - Load the appropriate Docker image
 - Start the container
 
-## 🌐 Web Interfaces
+## Web Interfaces
 
 ### Main Repository (mirror.intra)
 
@@ -93,7 +93,7 @@ The script will:
 - **URL**: `http://files.mirror.intra`
 - **Purpose**: File hosting and sharing
 
-## 📊 Usage
+## Usage
 
 ### Using the APT Mirror
 
@@ -132,7 +132,7 @@ Use the file repository at `http://files.mirror.intra` to:
 - Upload files via web interface
 - Browse uploaded files
 
-## 🔧 Management
+## Management
 
 ### Upgrading the Installation
 
@@ -150,7 +150,7 @@ The upgrade script will:
 - Run setup.sh to deploy the upgrade
 - Clean up temporary files
 
-## 📁 Directory Structure
+## Directory Structure
 
 ```
 ui-apt-mirror/
@@ -180,11 +180,11 @@ ui-apt-mirror/
     └── conf/nginx/         # Nginx configurations
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [apt-mirror2](https://gitlab.com/apt-mirror2/apt-mirror2) - The Python/asyncio APT mirroring tool from PyPI
 - [nginx](https://nginx.org/) - Web server

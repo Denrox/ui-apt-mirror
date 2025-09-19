@@ -27,6 +27,8 @@ import ChunkedUpload from '~/components/shared/form/chunked-upload';
 import DownloadFile from '~/components/shared/form/download-file';
 import { getHostAddress } from '~/utils/url';
 import { toast } from 'react-toastify';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faEllipsisV, faSync, faTrash, faCut, faEdit, faSearch } from '@fortawesome/free-solid-svg-icons';
 
 export { action, loader };
 
@@ -298,8 +300,8 @@ export default function FileManager() {
               onClick={handleHealthCheck}
             >
               {healthReport && healthReport.status === 'inProgress'
-                ? '🔍 File System check in progress'
-                : '🔍 Health Check'}
+                ? <><FontAwesomeIcon icon={faSearch} /> File System check in progress</>
+                : <><FontAwesomeIcon icon={faSearch} /> Health Check</>}
             </FormButton>
           </div>
         </div>
@@ -350,7 +352,7 @@ export default function FileManager() {
                 )}
                 actionLabel="Clear"
                 onAction={handleClearHealthCheck}
-                actionIcon="🗑️"
+                actionIcon={<FontAwesomeIcon icon={faTrash} />}
               />
             )}
 
@@ -363,7 +365,7 @@ export default function FileManager() {
                 message="File system is valid - no broken files found"
                 actionLabel="Clear"
                 onAction={handleClearHealthCheck}
-                actionIcon="🗑️"
+                actionIcon={<FontAwesomeIcon icon={faTrash} />}
               />
             )}
 
@@ -460,7 +462,7 @@ export default function FileManager() {
                               disabled={isOperationInProgress || isLoading}
                               onClick={() => {}} // Empty handler to satisfy FormButton requirements
                             >
-                              ⋮
+                              <FontAwesomeIcon icon={faEllipsisV} />
                             </FormButton>
                           }
                         >
@@ -479,7 +481,7 @@ export default function FileManager() {
           <div className="border border-gray-200 rounded-md">
             {shouldShowSyncPlaceholder ? (
               <div className="p-8 text-center">
-                <div className="text-gray-500 text-lg mb-2">🔄</div>
+                <div className="text-gray-500 text-lg mb-2"><FontAwesomeIcon icon={faSync} className="animate-spin" /></div>
                 <div className="text-gray-700 font-medium mb-2">
                   Automatic sync is performed
                 </div>
@@ -560,7 +562,7 @@ export default function FileManager() {
                             handleCutClick({ path: item.path, name: item.name })
                           }
                         >
-                          ✂️
+                          <FontAwesomeIcon icon={faCut} />
                         </FormButton>
                         <FormButton
                           type="secondary"
@@ -575,7 +577,7 @@ export default function FileManager() {
                             })
                           }
                         >
-                          ✏️
+                          <FontAwesomeIcon icon={faEdit} />
                         </FormButton>
                         <FormButton
                           type="secondary"
@@ -585,7 +587,7 @@ export default function FileManager() {
                           }
                           onClick={() => handleDelete(item.path)}
                         >
-                          🗑️
+                          <FontAwesomeIcon icon={faTrash} />
                         </FormButton>
                       </div>
                     </div>

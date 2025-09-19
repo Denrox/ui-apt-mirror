@@ -10,6 +10,9 @@
     "prettier": "prettier --write app/**/*.{js,jsx,ts,tsx}"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^7.0.1",
+    "@fortawesome/free-solid-svg-icons": "^7.0.1",
+    "@fortawesome/react-fontawesome": "^3.0.2",
     "@react-router/node": "^7.5.3",
     "@react-router/serve": "^7.5.3",
     "classnames": "^2.5.1",

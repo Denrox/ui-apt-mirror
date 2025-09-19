@@ -19,6 +19,8 @@ import FormButton from '~/components/shared/form/form-button';
 import Dropdown from '~/components/shared/dropdown/dropdown';
 import DropdownItem from '~/components/shared/dropdown/dropdown-item';
 import { toast } from 'react-toastify';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faSync, faPause, faTrash, faBox } from '@fortawesome/free-solid-svg-icons';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -207,7 +209,7 @@ export default function Home() {
                     }
                   >
                     <span className={isLockFilePresent ? 'animate-spin' : ''}>
-                      {isLockFilePresent ? '🔄' : '⏸️'}
+                      {isLockFilePresent ? <FontAwesomeIcon icon={faSync} /> : <FontAwesomeIcon icon={faPause} />}
                     </span>
                     <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
                   </div>
@@ -279,7 +281,7 @@ export default function Home() {
                   ))}
                   <button
                     onClick={() => handleDeleteClick(config.title)}
-                    className="absolute top-[12px] right-[12px] text-red-500 hover:text-red-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="absolute top-[12px] right-[12px] text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     title={
                       isActionInProgress
                         ? 'Action in progress...'
@@ -289,13 +291,13 @@ export default function Home() {
                     }
                     disabled={isLockFilePresent || isActionInProgress}
                   >
-                    🗑️
+                    <FontAwesomeIcon icon={faTrash} />
                   </button>
                 </div>
               ))
             ) : (
               <div className="w-full h-[148px] bg-gray-50 border-2 border-dashed border-gray-300 rounded-md flex flex-col items-center justify-center p-[12px]">
-                <div className="text-gray-400 text-[48px] mb-2">📦</div>
+                <div className="text-gray-400 text-[48px] mb-2"><FontAwesomeIcon icon={faBox} /></div>
                 <div className="text-gray-500 text-[14px] font-medium text-center">
                   No repository configurations found
                 </div>
