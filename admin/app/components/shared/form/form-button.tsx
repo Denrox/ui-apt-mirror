@@ -18,10 +18,10 @@ export default function FormButton({
     'font-semibold rounded-md outline-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap';
 
   const typeClasses = {
-    primary: 'bg-gray-700 text-white hover:bg-gray-800 focus:ring-gray-600',
+    primary: 'bg-gray-700 text-white hover:bg-gray-800 focus:ring-gray-400',
     secondary:
-      'bg-gray-200 text-gray-700 hover:bg-gray-300 focus:ring-gray-500',
-    danger: 'bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500',
+      'bg-gray-200 text-gray-700 hover:bg-gray-300 focus:ring-gray-400',
+    danger: 'bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-400',
   };
 
   const sizeClasses = {

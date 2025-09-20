@@ -362,11 +362,11 @@ export default function Home() {
             <div className="text-[12px] text-gray-500">{page.description}</div>
             <div className="absolute top-[12px] right-[12px] leading-none">
               {pagesAvalabilityState[getHostAddress(page.address)] ? (
-                <div className="font-semibold leading-[24px] text-[9px] text-gray-600">
+                <div className="font-semibold leading-[24px] text-[9px] text-emerald-500">
                   Online
                 </div>
               ) : (
-                <div className="font-semibold leading-[24px] text-[12px] text-gray-500">
+                <div className="font-semibold leading-[24px] text-[12px] text-rose-400">
                   Offline
                 </div>
               )}

@@ -27,13 +27,13 @@ export default function Warning({
   const getStyles = () => {
     switch (type) {
       case 'warning':
-        return 'bg-gray-100 border-gray-300 text-gray-700';
+        return 'bg-amber-50/50 border-amber-100 text-amber-600';
       case 'error':
-        return 'bg-gray-200 border-gray-400 text-gray-800';
+        return 'bg-rose-50/50 border-rose-100 text-rose-600';
       case 'info':
-        return 'bg-gray-50 border-gray-200 text-gray-600';
+        return 'bg-sky-50/50 border-sky-100 text-sky-600';
       default:
-        return 'bg-gray-100 border-gray-300 text-gray-700';
+        return 'bg-amber-50/50 border-amber-100 text-amber-600';
     }
   };
 

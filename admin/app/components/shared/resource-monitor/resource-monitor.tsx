@@ -74,12 +74,12 @@ export default function ResourceMonitor() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'running':
-        return 'text-gray-700';
+        return 'text-emerald-500';
       case 'not_running':
-        return 'text-gray-500';
+        return 'text-rose-400';
       case 'not_found':
       case 'error':
-        return 'text-gray-400';
+        return 'text-rose-500';
       default:
         return 'text-gray-600';
     }
