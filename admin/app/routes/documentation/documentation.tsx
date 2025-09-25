@@ -15,6 +15,7 @@ export function meta() {
 const sections = [
   { id: 'file-structure', linkName: 'File Structure', title: 'File Structure' },
   { id: 'commands', linkName: 'Commands', title: 'Commands' },
+  { id: 'npm-proxy', linkName: 'NPM Proxy', title: 'NPM Proxy Configuration' },
 ];
 
 export default function Documentation() {
@@ -42,13 +43,15 @@ export default function Documentation() {
 │       └── sites-available/     # Nginx site configurations
 │           ├── mirror.intra.conf
 │           ├── admin.mirror.intra.conf
-│           └── files.mirror.intra.conf
+│           ├── files.mirror.intra.conf
+│           └── npm.mirror.intra.conf
 ├── data/
 │   ├── apt-mirror/              # apt-mirror2 working directory
 │   │   ├── mirror/              # Downloaded package mirrors
 │   │   ├── skel/                # Skeleton files
 │   │   └── var/                 # Variable data
-│   └── files/                   # Custom file repository
+│   ├── files/                   # Custom file repository
+│   └── npm/                     # NPM package cache
 └── logs/
     ├── apt-mirror/              # apt-mirror2 logs
     │   └── apt-mirror.log       # Main apt-mirror2 log file
@@ -71,7 +74,8 @@ export default function Documentation() {
             <h4 className="font-semibold text-sky-500">data/</h4>
             <p className="text-gray-700">
               Main data storage directory. apt-mirror/ contains downloaded
-              package repositories, files/ contains custom file repository.
+              package repositories, files/ contains custom file repository,
+              npm/ contains cached npm packages.
             </p>
           </div>
           <div>
@@ -242,6 +246,105 @@ export default function Documentation() {
     </div>
   );
 
+  const renderNpmProxy = () => (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-semibold mb-4">NPM Proxy Overview</h3>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <p className="text-gray-700 mb-3">
+            The NPM Proxy provides a local caching layer for npm packages, 
+            speeding up installations and reducing bandwidth usage. It acts as 
+            a transparent proxy to the official npm registry.
+          </p>
+          <div className="bg-white p-3 rounded border-l-4 border-blue-300">
+            <h5 className="font-semibold mb-2">Features:</h5>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Transparent caching of npm packages</li>
+              <li>Automatic package metadata fetching</li>
+              <li>Support for all npm registry operations</li>
+              <li>Bandwidth optimization for repeated installs</li>
+              <li>Offline package availability</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-lg font-semibold mb-4">Configuration File</h3>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="font-semibold text-sky-500 mb-2">npm.mirror.intra.conf</h4>
+          <p className="text-gray-700 mb-3">
+            Nginx configuration for the npm proxy service. Routes npm requests 
+            to the admin application's npm endpoint.
+          </p>
+          <div className="bg-white p-3 rounded border-l-4 border-green-300">
+            <h5 className="font-semibold mb-2">Key Features:</h5>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Proxy pass to admin app /npm/ endpoint</li>
+              <li>Header forwarding for authentication</li>
+              <li>CORS support for web requests</li>
+              <li>Timeout and buffer configuration</li>
+              <li>Request/response size limits</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-lg font-semibold mb-4">Usage</h3>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="font-semibold text-sky-500 mb-2">Configure npm to use the proxy</h4>
+          <div className="bg-white p-3 rounded border-l-4 border-amber-300">
+            <h5 className="font-semibold mb-2">Commands:</h5>
+            <div className="space-y-2 text-sm font-mono">
+              <div className="bg-gray-100 p-2 rounded">
+                npm config set registry http://npm.mirror.intra
+              </div>
+              <div className="bg-gray-100 p-2 rounded">
+                npm config set registry http://npm.yourdomain.com
+              </div>
+            </div>
+          </div>
+          
+          <h4 className="font-semibold text-sky-500 mb-2 mt-4">Verify Configuration</h4>
+          <div className="bg-white p-3 rounded border-l-4 border-purple-300">
+            <h5 className="font-semibold mb-2">Test Commands:</h5>
+            <div className="space-y-2 text-sm font-mono">
+              <div className="bg-gray-100 p-2 rounded">
+                npm view react
+              </div>
+              <div className="bg-gray-100 p-2 rounded">
+                npm install react
+              </div>
+              <div className="bg-gray-100 p-2 rounded">
+                curl http://npm.mirror.intra/react
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-lg font-semibold mb-4">File Management</h3>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <p className="text-gray-700 mb-3">
+            Cached npm packages are stored in the data/npm/ directory and can be 
+            viewed and managed through the File Manager in the admin interface.
+          </p>
+          <div className="bg-white p-3 rounded border-l-4 border-indigo-300">
+            <h5 className="font-semibold mb-2">Access:</h5>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Admin UI → File Manager → NPM Packages view</li>
+              <li>Browse cached packages by name</li>
+              <li>View package metadata and tarballs</li>
+              <li>Monitor cache usage and growth</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <PageLayoutNav
       nav={sections.map((section) => (
@@ -265,6 +368,7 @@ export default function Documentation() {
         <ContentBlock className="flex-1">
           {activeSection === 'file-structure' && renderFileStructure()}
           {activeSection === 'commands' && renderCommands()}
+          {activeSection === 'npm-proxy' && renderNpmProxy()}
         </ContentBlock>
       </>
     </PageLayoutNav>

@@ -34,6 +34,7 @@ if [ -f /etc/nginx/sites-available/mirror.intra.conf ]; then
     ln -sf /etc/nginx/sites-available/mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/admin.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/files.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
+    ln -sf /etc/nginx/sites-available/npm.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     echo "✅ Nginx sites enabled"
 else
     echo "⚠️  Nginx configuration not found. Please ensure nginx config volume is mounted."

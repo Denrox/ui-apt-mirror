@@ -131,7 +131,9 @@ export default function Home() {
       const pagesAvalabilityState = await Promise.all(
         pages.map(async (page) => {
           try {
-            const response = await fetch(getHostAddress(page.address));
+            // Use /health endpoint for npm service, root for others
+            const healthEndpoint = page.id === 'npm' ? '/health' : '/';
+            const response = await fetch(getHostAddress(page.address) + healthEndpoint);
             return { [getHostAddress(page.address)]: response.ok };
           } catch (error) {
             return { [getHostAddress(page.address)]: false };
@@ -341,12 +343,18 @@ export default function Home() {
       <div className="px-[12px] md:px-0">
         <ResourceMonitor />
       </div>
-      <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
-        {appConfig.hosts.map((page) => (
+      <div className="flex flex-row items-center md:gap-[16px] lg:gap-[24px] gap-[12px] flex-wrap px-[12px] md:px-0">
+        {appConfig.hosts.filter((page) => {
+          // Filter out npm service if npm proxy is disabled
+          if (page.id === 'npm' && !appConfig.isNpmProxyEnabled) {
+            return false;
+          }
+          return true;
+        }).map((page) => (
           <div
             key={page.address}
             className={classNames(
-              'h-[120px] md:w-[calc(50%-18px)] w-full lg:w-[calc(33%-17px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]',
+              'h-[120px] w-full md:w-[calc(50%-16px)] lg:w-[calc(25%-18px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]',
               {},
             )}
           >

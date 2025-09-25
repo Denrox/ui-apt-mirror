@@ -1,19 +1,21 @@
 # UI APT Mirror
 
-A containerized APT mirror solution with a web interface. This project provides a complete local Ubuntu / Debian package repository with an admin panel and file hosting capabilities.
+A containerized APT mirror solution with a web interface. This project provides a complete local Ubuntu / Debian package repository with an admin panel, file hosting capabilities, and optional npm package caching.
 
 ## Features
 
 - **APT Mirror**: Local Ubuntu package repository with automatic synchronization using apt-mirror2 (Python/asyncio version) from PyPI
+- **NPM Proxy**: Optional local npm package registry cache for faster npm installs and reduced bandwidth usage
 - **Web Interface**: web UI for all services
-- **Multi-Host Setup**: Three distinct web services:
+- **Multi-Host Setup**: Four distinct web services:
   - `mirror.intra` - DEB packages repository
   - `admin.mirror.intra` - Admin panel with authentication
   - `files.mirror.intra` - File hosting service
+  - `npm.mirror.intra` - NPM registry cache (optional)
 - **Advanced File Manager**: File upload/download, directory management, and container image downloads from Docker Hub and GCR
 - **Multi-Architecture Support**: Builds for both AMD64 and ARM64
 - **Easy Deployment**: Simple scripts for building and deployment
-- **Configurable**: Custom domains, sync frequency, and admin passwords
+- **Configurable**: Custom domains, sync frequency, admin passwords, and optional npm proxy
 
 ## Requirements
 
@@ -34,8 +36,8 @@ A containerized APT mirror solution with a web interface. This project provides 
 │  │             │  │  (Python)   │  │             │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 ├─────────────────────────────────────────────────────────────┤
-│  mirror.intra  │  admin.mirror.intra  │  files.mirror.intra │
-│  (packages)    │     (admin panel)    │   (file hosting)    │
+│  mirror.intra  │  admin.mirror.intra  │  files.mirror.intra │  npm.mirror.intra │
+│  (packages)    │     (admin panel)    │   (file hosting)    │  (npm cache)      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,6 +68,7 @@ The script will:
 - Ask for your custom domain (default: `mirror.intra`)
 - Configure sync frequency
 - Set admin password
+- Ask if you need npm proxy functionality (default: Yes)
 - Load the appropriate Docker image
 - Start the container
 
@@ -92,6 +95,15 @@ The script will:
 
 - **URL**: `http://files.mirror.intra`
 - **Purpose**: File hosting and sharing
+
+### NPM Proxy (npm.mirror.intra) - Optional
+
+- **URL**: `http://npm.mirror.intra`
+- **Purpose**: Local npm package registry cache
+- **Features**:
+  - Caches npm packages locally for faster installs
+  - Reduces bandwidth usage
+  - Transparent proxy to npmjs.org
 
 ## Usage
 
@@ -125,6 +137,26 @@ sudo apt update
 Access the admin panel at `http://admin.mirror.intra` to:
 - Monitor sync status
 - View logs and statistics
+
+### Using the NPM Proxy
+
+To use the local npm proxy (if enabled during setup), configure npm to use your local registry:
+
+```bash
+# Configure npm to use the local proxy
+npm config set registry http://npm.mirror.intra
+
+# Or for a specific project
+npm install --registry http://npm.mirror.intra
+
+# To revert back to the official registry
+npm config set registry https://registry.npmjs.org
+```
+
+The npm proxy will:
+- Cache packages locally on first download
+- Serve cached packages for subsequent requests
+- Automatically fetch from npmjs.org if not cached
 
 ### File Hosting
 

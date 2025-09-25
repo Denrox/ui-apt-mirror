@@ -160,6 +160,14 @@ get_user_config() {
     echo ""
     admin_pass=${admin_pass:-$default_admin_pass}
     
+    # Ask about npm proxy
+    echo ""
+    echo "NPM Proxy Configuration:"
+    echo "  The npm proxy provides a local caching proxy for npm packages."
+    echo "  This can speed up npm installs and reduce bandwidth usage."
+    read -p "Do you need a caching npm proxy? (Y/n): " enable_npm_proxy
+    enable_npm_proxy=${enable_npm_proxy:-y}
+    
     # Detect host timezone
     local host_timezone=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "UTC")
     echo ""
@@ -170,9 +178,11 @@ get_user_config() {
     MIRROR_DOMAIN="$custom_domain"
     ADMIN_DOMAIN="admin.$custom_domain"
     FILES_DOMAIN="files.$custom_domain"
+    NPM_DOMAIN="npm.$custom_domain"
     SYNC_FREQUENCY="$sync_freq"
     ADMIN_PASSWORD="$admin_pass"
     HOST_TIMEZONE="$custom_timezone"
+    ENABLE_NPM_PROXY="$enable_npm_proxy"
     
     print_success "Configuration completed."
 }
@@ -191,6 +201,39 @@ generate_htpasswd() {
     echo "admin:$pass_hash" > data/conf/nginx/.htpasswd
     
     print_success "htpasswd file generated successfully."
+}
+
+# Function to update admin app configuration files
+update_admin_config() {
+    local domain=$1
+    
+    print_status "Updating admin app configuration files..."
+    
+    # Determine npm proxy enabled status
+    local npm_enabled="false"
+    if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
+        npm_enabled="true"
+    fi
+    
+    # Update config.json
+    if [ -f "admin/app/config/config.json" ]; then
+        # Replace domain placeholders
+        sed -i "s/domain/$domain/g" admin/app/config/config.json
+        # Replace npm proxy enabled status
+        sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
+        sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
+    fi
+    
+    # Update config.build.json
+    if [ -f "admin/app/config/config.build.json" ]; then
+        # Replace domain placeholders
+        sed -i "s/domain/$domain/g" admin/app/config/config.build.json
+        # Replace npm proxy enabled status
+        sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
+        sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
+    fi
+    
+    print_success "Admin app configuration files updated successfully."
 }
 
 # Function to generate docker-compose.yml from template
@@ -215,6 +258,7 @@ generate_docker_compose() {
     sed -i "s/\${MIRROR_DOMAIN:-mirror.intra}/$domain/g" docker-compose.yml
     sed -i "s/\${ADMIN_DOMAIN:-admin.mirror.intra}/admin.$domain/g" docker-compose.yml
     sed -i "s/\${FILES_DOMAIN:-files.mirror.intra}/files.$domain/g" docker-compose.yml
+    sed -i "s/\${NPM_DOMAIN:-npm.mirror.intra}/npm.$domain/g" docker-compose.yml
     
     # Escape timezone for sed (replace / with \/)
     local escaped_timezone=$(echo "$timezone" | sed 's/\//\\\//g')
@@ -248,7 +292,7 @@ cleanup_previous() {
 create_data_dirs() {
     print_status "Creating data directories..."
     
-    mkdir -p data/{data/apt-mirror,data/files,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/sites-available}
+    mkdir -p data/{data/apt-mirror,data/files,data/npm,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/sites-available}
     
     # Set proper permissions
     chmod 755 data/
@@ -419,10 +463,22 @@ show_status() {
         echo "  Main Repository: http://$mirror_domain"
         echo "  Admin Panel: http://$admin_domain (admin/[password])"
         echo "  File Repository: http://$files_domain"
+        
+        # Show npm proxy URL if enabled
+        if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
+            echo "  NPM Proxy: http://npm.$mirror_domain"
+            echo "    Usage: npm config set registry http://npm.$mirror_domain"
+        fi
     else
         echo "  Main Repository: http://mirror.intra"
         echo "  Admin Panel: http://admin.mirror.intra (admin/[password])"
         echo "  File Repository: http://files.mirror.intra"
+        
+        # Show npm proxy URL if enabled
+        if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
+            echo "  NPM Proxy: http://npm.mirror.intra"
+            echo "    Usage: npm config set registry http://npm.mirror.intra"
+        fi
     fi
     
     echo ""
@@ -477,8 +533,22 @@ update_nginx_configs() {
             sed -i "s/admin\.mirror\.intra/admin.$domain/g" "$config_file"
             # Replace files.mirror.intra with files.customdomain
             sed -i "s/files\.mirror\.intra/files.$domain/g" "$config_file"
+            # Replace npm.mirror.intra with npm.customdomain
+            sed -i "s/npm\.mirror\.intra/npm.$domain/g" "$config_file"
         fi
     done
+    
+    # Handle npm proxy configuration
+    if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
+        print_status "NPM proxy is enabled. Updating npm proxy configuration..."
+        
+        # Update domain in the npm config file
+        sed -i "s/npm\.mirror\.intra/npm.$domain/g" data/conf/nginx/sites-available/npm.mirror.intra.conf
+        
+        print_success "NPM proxy configuration updated at: http://npm.$domain"
+    else
+        print_status "NPM proxy is disabled. Skipping npm proxy configuration."
+    fi
     
     print_success "Nginx configuration files updated with domain: $domain"
 }
@@ -544,6 +614,9 @@ main() {
     
     # Generate apt-mirror configuration
     generate_mirror_config "$MIRROR_DOMAIN"
+    
+    # Update admin app configuration
+    update_admin_config "$MIRROR_DOMAIN"
     
     # Generate docker-compose.yml
     generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY" "$HOST_TIMEZONE"

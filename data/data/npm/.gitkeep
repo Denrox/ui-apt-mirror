@@ -1,0 +1,2 @@
+# This file ensures the npm cache directory is tracked by git
+# The actual npm packages will be cached here at runtime

@@ -71,7 +71,7 @@ export default function FileManager() {
     error: loaderError,
   } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [view, setView] = useState<'user-uploads' | 'mirrored-packages'>(
+  const [view, setView] = useState<'user-uploads' | 'mirrored-packages' | 'npm-packages'>(
     'user-uploads',
   );
   const revalidator = useRevalidator();
@@ -80,6 +80,8 @@ export default function FileManager() {
   const rootPath = useMemo(() => {
     if (view === 'mirrored-packages') {
       return appConfig.mirroredPackagesDir;
+    } else if (view === 'npm-packages') {
+      return appConfig.npmPackagesDir;
     } else {
       return appConfig.filesDir;
     }
@@ -312,11 +314,12 @@ export default function FileManager() {
             label=""
             value={view}
             onChange={(value) =>
-              setView(value as 'user-uploads' | 'mirrored-packages')
+              setView(value as 'user-uploads' | 'mirrored-packages' | 'npm-packages')
             }
             options={[
               { value: 'user-uploads', label: 'User Uploads' },
               { value: 'mirrored-packages', label: 'Mirrored Packages' },
+              ...(appConfig.isNpmProxyEnabled ? [{ value: 'npm-packages', label: 'Npm Packages' }] : []),
             ]}
             disabled={
               isUploading ||
@@ -336,6 +339,13 @@ export default function FileManager() {
             <FileManagerWarning
               type="warning"
               message="Manual changes can break mirror functionality"
+            />
+          )}
+
+          {view === 'npm-packages' && (
+            <FileManagerWarning
+              type="warning"
+              message="Manual changes can break npm proxy functionality"
             />
           )}
 
