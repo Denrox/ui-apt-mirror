@@ -8,7 +8,6 @@ import zlib from 'zlib';
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org';
 
-// Ensure cache directory exists
 async function ensureCacheDir() {
   try {
     await fs.mkdir('/var/www/npm', { recursive: true });
@@ -17,20 +16,16 @@ async function ensureCacheDir() {
   }
 }
 
-// Generate cache file path from package path
 function getCachePath(packagePath: string): string {
-  // Clean the package path
   const cleanPath = packagePath.replace(/^\/+/, '').replace(/\/+$/, '');
   const cachePath = path.join('/var/www/npm', cleanPath);
   
-  // Ensure directory exists for nested packages
   const dir = path.dirname(cachePath);
   fs.mkdir(dir, { recursive: true }).catch(console.error);
   
   return cachePath;
 }
 
-// Check if file exists in cache
 async function isCached(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -40,19 +35,16 @@ async function isCached(filePath: string): Promise<boolean> {
   }
 }
 
-// Fetch from npm registry
 async function fetchFromNpm(packagePath: string, originalHeaders: Record<string, string> = {}): Promise<{ data: Buffer; headers: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
     const client = npmUrl.protocol === 'https:' ? https : http;
     
-    // Forward important headers from the original request
     const forwardedHeaders: Record<string, string> = {
       'User-Agent': 'npm-cache-proxy/1.0',
       'Accept': '*/*',
     };
     
-    // Forward authentication and authorization headers
     const authHeaders = ['authorization', 'x-npm-auth-token', 'x-npm-session', 'x-npm-auth-type'];
     for (const header of authHeaders) {
       if (originalHeaders[header]) {
@@ -60,7 +52,6 @@ async function fetchFromNpm(packagePath: string, originalHeaders: Record<string,
       }
     }
     
-    // Forward other relevant headers (but not accept-encoding to avoid compression)
     const otherHeaders = ['if-none-match', 'if-modified-since', 'range'];
     for (const header of otherHeaders) {
       if (originalHeaders[header]) {
@@ -90,23 +81,17 @@ async function fetchFromNpm(packagePath: string, originalHeaders: Record<string,
               const headers: Record<string, string> = {};
 
 
-              // Handle decompression if needed
               const contentEncoding = res.headers['content-encoding'];
               if (contentEncoding === 'gzip') {
                 try {
                   data = Buffer.from(zlib.gunzipSync(data));
-                } catch (error) {
-                  // Decompression failed, continue with original data
-                }
+                } catch (error) { }
               } else if (contentEncoding === 'deflate') {
                 try {
                   data = Buffer.from(zlib.inflateSync(data));
-                } catch (error) {
-                  // Decompression failed, continue with original data
-                }
+                } catch (error) { }
               }
 
-              // Copy relevant headers (excluding compression-related ones)
               const relevantHeaders = [
                 'content-type', 'etag', 'last-modified',
                 'cache-control', 'expires', 'age'
@@ -119,7 +104,6 @@ async function fetchFromNpm(packagePath: string, originalHeaders: Record<string,
                 }
               }
 
-              // Update content-length to reflect decompressed size
               headers['content-length'] = data.length.toString();
 
               resolve({ data, headers });
@@ -136,13 +120,10 @@ async function fetchFromNpm(packagePath: string, originalHeaders: Record<string,
   });
 }
 
-// Save to cache
 async function saveToCache(filePath: string, data: Buffer, headers: Record<string, string>) {
   try {
-    // Save the actual file
     await fs.writeFile(filePath, data);
     
-    // Save metadata
     const metaPath = filePath + '.meta';
     await fs.writeFile(metaPath, JSON.stringify({
       headers,
@@ -155,12 +136,10 @@ async function saveToCache(filePath: string, data: Buffer, headers: Record<strin
   }
 }
 
-// Load from cache
 async function loadFromCache(filePath: string): Promise<{ data: Buffer; headers: Record<string, string> }> {
   try {
     const data = await fs.readFile(filePath);
     
-    // Try to load metadata
     let headers: Record<string, string> = {};
     try {
       const metaPath = filePath + '.meta';
@@ -168,11 +147,9 @@ async function loadFromCache(filePath: string): Promise<{ data: Buffer; headers:
       const meta = JSON.parse(metaData);
       headers = meta.headers || {};
       
-      // Add cache-specific headers
       headers['x-cache'] = 'HIT';
       headers['x-cached-at'] = meta.cachedAt;
     } catch {
-      // No metadata, use defaults
       headers['x-cache'] = 'HIT';
     }
     
@@ -183,18 +160,15 @@ async function loadFromCache(filePath: string): Promise<{ data: Buffer; headers:
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
-  // Extract the path from the request URL
   const url = new URL(request.url);
   let packagePath = url.pathname;
   
-  // Remove /npm prefix if present
   if (packagePath.startsWith('/npm/')) {
-    packagePath = packagePath.substring(5); // Remove '/npm/'
+    packagePath = packagePath.substring(5);
   } else if (packagePath.startsWith('/npm')) {
-    packagePath = packagePath.substring(4); // Remove '/npm'
+    packagePath = packagePath.substring(4);
   }
   
-  // Remove leading slash
   packagePath = packagePath.replace(/^\/+/, '');
   
   if (!packagePath) {
@@ -207,7 +181,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     });
   }
   
-  // Handle OPTIONS preflight requests
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 200,
@@ -220,7 +193,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     });
   }
   
-  // Extract headers from the original request
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {
     originalHeaders[key.toLowerCase()] = value;
@@ -237,27 +209,21 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     let headers: Record<string, string>;
     
     if (isPackageCached) {
-      // Serve from cache
       const cached = await loadFromCache(cachePath);
       data = cached.data;
       headers = cached.headers;
     } else {
-      // Fetch from npm and cache
       const fetched = await fetchFromNpm(packagePath, originalHeaders);
       data = fetched.data;
       headers = fetched.headers;
       
-      // Save to cache
       await saveToCache(cachePath, data, headers);
       
-      // Add cache headers
       headers['x-cache'] = 'MISS';
     }
     
-    // Determine content type
     const contentType = headers['content-type'] || 'application/octet-stream';
     
-    // Create response headers, avoiding duplicates
     const responseHeaders: Record<string, string> = {
       'Content-Type': contentType,
       'Content-Length': data.length.toString(),
@@ -268,7 +234,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
     };
     
-    // Add other headers from upstream, excluding ones we've already set
     const excludeHeaders = ['content-type', 'content-length', 'x-cache', 'x-cached-at'];
     for (const [key, value] of Object.entries(headers)) {
       if (!excludeHeaders.includes(key.toLowerCase())) {
@@ -276,7 +241,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       }
     }
     
-    // Create response
     const response = new Response(new Uint8Array(data), {
       status: 200,
       headers: responseHeaders,
@@ -297,18 +261,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  // Handle POST requests (npm publish, etc.)
   const url = new URL(request.url);
   let packagePath = url.pathname;
   
-  // Remove /npm prefix if present
   if (packagePath.startsWith('/npm/')) {
-    packagePath = packagePath.substring(5); // Remove '/npm/'
+    packagePath = packagePath.substring(5);
   } else if (packagePath.startsWith('/npm')) {
-    packagePath = packagePath.substring(4); // Remove '/npm'
+    packagePath = packagePath.substring(4);
   }
   
-  // Remove leading slash
   packagePath = packagePath.replace(/^\/+/, '');
   
   if (!packagePath) {
@@ -321,7 +282,6 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
   
-  // Handle OPTIONS preflight requests
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 200,
@@ -334,7 +294,6 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
   
-  // Extract headers from the original request
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {
     originalHeaders[key.toLowerCase()] = value;
@@ -344,13 +303,11 @@ export async function action({ request }: ActionFunctionArgs) {
     const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
     const client = npmUrl.protocol === 'https:' ? https : http;
     
-    // Forward important headers from the original request
     const forwardedHeaders: Record<string, string> = {
       'User-Agent': 'npm-cache-proxy/1.0',
       'Content-Type': originalHeaders['content-type'] || 'application/json',
     };
     
-    // Forward authentication and authorization headers
     const authHeaders = ['authorization', 'x-npm-auth-token', 'x-npm-session', 'x-npm-auth-type'];
     for (const header of authHeaders) {
       if (originalHeaders[header]) {
@@ -358,7 +315,6 @@ export async function action({ request }: ActionFunctionArgs) {
       }
     }
     
-    // Forward other relevant headers (but not accept-encoding to avoid compression)
     const otherHeaders = ['if-none-match', 'if-modified-since', 'range', 'content-length'];
     for (const header of otherHeaders) {
       if (originalHeaders[header]) {
@@ -386,7 +342,6 @@ export async function action({ request }: ActionFunctionArgs) {
           let data = Buffer.concat(chunks);
           const responseHeaders: Record<string, string> = {};
           
-          // Handle decompression if needed
           const contentEncoding = res.headers['content-encoding'];
           if (contentEncoding === 'gzip') {
             try {
@@ -402,7 +357,6 @@ export async function action({ request }: ActionFunctionArgs) {
             }
           }
           
-          // Copy relevant headers from response (excluding compression-related ones)
           const relevantHeaders = [
             'content-type', 'etag', 'last-modified',
             'cache-control', 'expires', 'age', 'location'
@@ -415,10 +369,8 @@ export async function action({ request }: ActionFunctionArgs) {
             }
           }
           
-          // Update content-length to reflect decompressed size
           responseHeaders['content-length'] = data.length.toString();
           
-          // Add CORS headers
           responseHeaders['Access-Control-Allow-Origin'] = '*';
           responseHeaders['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, HEAD';
           responseHeaders['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With';
@@ -454,7 +406,6 @@ export async function action({ request }: ActionFunctionArgs) {
         }));
       });
       
-      // Forward the request body
       if (request.method !== 'GET' && request.method !== 'HEAD') {
         request.body?.pipeTo(new WritableStream({
           write(chunk) {

@@ -44,7 +44,6 @@ export default function DownloadImageModal({
         { action: '', method: 'post' },
       );
 
-      // Reset form and close modal
       setImageUrl('');
       setImageTag('latest');
       setArchitecture('amd64');

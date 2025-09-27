@@ -98,7 +98,7 @@ export default function Home() {
   };
 
   const handleSyncToggle = () => {
-    if (isActionInProgress) return; // Prevent multiple clicks
+    if (isActionInProgress) return;
 
     setIsActionInProgress(true);
     const formData = new FormData();
@@ -110,16 +110,11 @@ export default function Home() {
     setIsRepositoryConfigsExpanded(!isRepositoryConfigsExpanded);
   };
 
-  // Calculate number of hidden items based on screen size
   const calculateHiddenItems = () => {
     if (repositoryConfigs.length === 0) return 0;
-    
-    // On mobile: 1 item per row, on desktop: 2 items per row
-    // Each item has height of 148px + gap of 12px = 160px total per row
-    // With 180px max height, we can fit 1 row (160px) with 20px remaining
-    // So we can show 1 item on mobile, 2 items on desktop
-    const itemsPerRow = windowWidth >= 768 ? 2 : 1; // md breakpoint
-    const maxVisibleRows = 1; // Only 1 row fits in 180px
+
+    const itemsPerRow = windowWidth >= 768 ? 2 : 1;
+    const maxVisibleRows = 1;
     const maxVisibleItems = itemsPerRow * maxVisibleRows;
     
     return Math.max(0, repositoryConfigs.length - maxVisibleItems);
@@ -131,8 +126,7 @@ export default function Home() {
       const pagesAvalabilityState = await Promise.all(
         pages.map(async (page) => {
           try {
-            // Use /health endpoint for npm service, root for others
-            const healthEndpoint = page.id === 'npm' ? '/health' : '/';
+            const healthEndpoint = '/';
             const response = await fetch(getHostAddress(page.address) + healthEndpoint);
             return { [getHostAddress(page.address)]: response.ok };
           } catch (error) {
@@ -160,7 +154,6 @@ export default function Home() {
     };
   }, []);
 
-  // Auto-refresh sync status every 5 seconds
   useEffect(() => {
     const syncStatusInterval = setInterval(() => {
       revalidator.revalidate();
@@ -171,7 +164,6 @@ export default function Home() {
     };
   }, [revalidator]);
 
-  // Handle window resize for responsive calculations
   useEffect(() => {
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
@@ -183,7 +175,6 @@ export default function Home() {
 
   return (
     <PageLayoutFull>
-      {/* Fixed Main Title - Non-scrollable */}
       <div className="sticky top-0 z-10 bg-white">
         <div className="flex items-center justify-center gap-3">
           <Title
@@ -345,7 +336,6 @@ export default function Home() {
       </div>
       <div className="flex flex-row items-center md:gap-[16px] lg:gap-[24px] gap-[12px] flex-wrap px-[12px] md:px-0">
         {appConfig.hosts.filter((page) => {
-          // Filter out npm service if npm proxy is disabled
           if (page.id === 'npm' && !appConfig.isNpmProxyEnabled) {
             return false;
           }

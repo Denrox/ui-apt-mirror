@@ -470,7 +470,7 @@ export default function FileManager() {
                             <FormButton
                               type="secondary"
                               disabled={isOperationInProgress || isLoading}
-                              onClick={() => {}} // Empty handler to satisfy FormButton requirements
+                              onClick={() => {}}
                             >
                               <FontAwesomeIcon icon={faEllipsisV} />
                             </FormButton>
@@ -549,7 +549,6 @@ export default function FileManager() {
                             }
                             onClick={() => {
                               const link = document.createElement('a');
-                              // Determine the base path to replace based on the current view
                               const basePath =
                                 view === 'mirrored-packages'
                                   ? rootPath

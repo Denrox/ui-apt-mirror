@@ -41,13 +41,10 @@ export default function ResourceMonitor() {
   };
 
   useEffect(() => {
-    // Initial fetch
     fetchResourceData();
 
-    // Set up interval for auto-refresh every 5 seconds
     const interval = setInterval(fetchResourceData, 5000);
 
-    // Cleanup interval on unmount
     return () => clearInterval(interval);
   }, []);
 

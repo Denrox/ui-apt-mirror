@@ -42,9 +42,7 @@ async function cancelAndCleanupDownload(destPath: string): Promise<void> {
 
     try {
       await fs.unlink(destPath);
-    } catch (unlinkError) {
-      // File might not exist, which is fine
-    }
+    } catch (unlinkError) { }
   } catch (error) {
     console.error('Failed to cancel and cleanup download:', error);
   }
@@ -101,13 +99,10 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
     const dirPath = path.dirname(oldPath);
     const newPath = path.join(dirPath, newName);
 
-    // Check if the new name already exists
     try {
       await fs.access(newPath);
-      return false; // File/directory already exists
-    } catch (error) {
-      // File doesn't exist, we can proceed
-    }
+      return false;
+    } catch (error) { }
 
     await fs.rename(oldPath, newPath);
     return true;
@@ -124,23 +119,18 @@ async function moveFile(
     const fileName = path.basename(sourcePath);
     const newPath = path.join(destinationPath, fileName);
 
-    // Check if trying to move into itself
     if (sourcePath === newPath) {
       return false;
     }
 
-    // Check if destination is a subdirectory of source
     if (newPath.startsWith(sourcePath + path.sep)) {
       return false;
     }
 
-    // Check if the new name already exists in destination
     try {
       await fs.access(newPath);
-      return false; // File/directory already exists
-    } catch (error) {
-      // File doesn't exist, we can proceed
-    }
+      return false;
+    } catch (error) { }
 
     await fs.rename(sourcePath, newPath);
     return true;
@@ -283,9 +273,7 @@ async function handleChunkUpload(
 
       try {
         await fs.rm(fileInfo.tempDir, { recursive: true, force: true });
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
+      } catch (cleanupError) { }
 
       chunkStorage.delete(fileId);
 
@@ -305,22 +293,16 @@ async function downloadImage(
   architecture: string = 'amd64',
 ): Promise<boolean> {
   try {
-    // Ensure destination directory exists
     await fs.mkdir(destPath, { recursive: true });
 
-    // Create filename from image URL and tag
     const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
     const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
     const fullPath = path.join(destPath, fileName);
 
-    // Remove existing file if it exists to prevent modification errors
     try {
       await fs.unlink(fullPath);
-    } catch (unlinkError) {
-      // File doesn't exist, which is fine
-    }
+    } catch (unlinkError) { }
 
-    // Parse registry and image details
     const registryInfo = parseImageUrl(imageUrl);
     if (!registryInfo) {
       throw new Error(
@@ -328,7 +310,6 @@ async function downloadImage(
       );
     }
 
-    // Use skopeo to copy image to tar format
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
     const archFlag = `--override-arch ${architecture}`;
     const skopeoCommand = `skopeo copy ${archFlag} docker://${sourceImage} docker-archive:${fullPath}`;
@@ -337,14 +318,12 @@ async function downloadImage(
       await execAsync(skopeoCommand);
       return true;
     } catch (dockerError) {
-      // If Docker Hub fails, try GCR as fallback (only for single-word images)
       if (
         registryInfo.registry === 'docker.io' &&
         !imageUrl.includes('/') &&
         !imageUrl.startsWith('gcr.io/')
       ) {
 
-        // Try GCR with the same image name
         const gcrImage = `gcr.io/google-containers/${imageUrl}:${imageTag}`;
         const gcrCommand = `skopeo copy ${archFlag} docker://${gcrImage} docker-archive:${fullPath}`;
 
@@ -355,14 +334,12 @@ async function downloadImage(
           throw dockerError;
         }
       } else {
-        // Re-throw the original error for other cases
         throw dockerError;
       }
     }
   } catch (error) {
     console.error('Failed to download image:', error);
 
-    // Clean up any empty or partial file that might have been created
     try {
       const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
       const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
@@ -372,11 +349,8 @@ async function downloadImage(
       if (stats.size === 0) {
         await fs.unlink(fullPath);
       }
-    } catch (cleanupError) {
-      // Ignore cleanup errors
-    }
+    } catch (cleanupError) { }
 
-    // Check for specific error messages and provide user-friendly responses
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (
@@ -408,15 +382,13 @@ interface RegistryInfo {
 }
 
 function parseImageUrl(imageUrl: string): RegistryInfo | null {
-  // Handle Google Container Registry
   if (imageUrl.startsWith('gcr.io/')) {
     return {
       registry: 'gcr.io',
-      repository: imageUrl.substring(8), // Remove 'gcr.io/'
+      repository: imageUrl.substring(8),
     };
   }
 
-  // Handle regional GCR formats (us.gcr.io, eu.gcr.io, etc.)
   if (imageUrl.includes('.gcr.io/')) {
     const parts = imageUrl.split('/');
     if (parts.length >= 2) {
@@ -427,15 +399,13 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
     }
   }
 
-  // Handle Docker Hub registry
   if (imageUrl.startsWith('docker.io/')) {
     return {
       registry: 'docker.io',
-      repository: imageUrl.substring(11), // Remove 'docker.io/'
+      repository: imageUrl.substring(11),
     };
   }
 
-  // Handle single-word image names (e.g., "nginx" -> "library/nginx")
   if (!imageUrl.includes('/')) {
     return {
       registry: 'docker.io',
@@ -443,7 +413,6 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
     };
   }
 
-  // Auto-prepend docker.io for images without explicit registry
   return {
     registry: 'docker.io',
     repository: imageUrl,
@@ -632,7 +601,6 @@ export async function action({
         const dataDirs = [appConfig.filesDir, appConfig.mirroredPackagesDir];
         const healthFile = appConfig.healthReportFile;
 
-        // Create initial health report with "inProgress" status
         const initialHealthReport = {
           timestamp: new Date().toISOString(),
           status: 'inProgress',
@@ -644,7 +612,6 @@ export async function action({
           scan_errors: [],
         };
 
-        // Ensure directory exists and write initial report
         const healthDir = path.dirname(healthFile);
         await fs.mkdir(healthDir, { recursive: true });
         await fs.writeFile(
@@ -652,7 +619,6 @@ export async function action({
           JSON.stringify(initialHealthReport, null, 2),
         );
 
-        // Start background scanning process
         (async () => {
           try {
             const invalidFiles: Array<{

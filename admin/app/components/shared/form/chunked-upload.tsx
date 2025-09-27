@@ -16,7 +16,7 @@ interface UploadChunk {
   fileId: string;
 }
 
-const CHUNK_SIZE = 10240 * 1024; // 10MB chunks
+const CHUNK_SIZE = 10240 * 1024;
 
 export default function ChunkedUpload({
   currentPath,
