@@ -28,7 +28,16 @@ import DownloadFile from '~/components/shared/form/download-file';
 import { getHostAddress } from '~/utils/url';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faEllipsisV, faSync, faTrash, faCut, faEdit, faSearch, faFolder, faFile } from '@fortawesome/free-solid-svg-icons';
+import {
+  faEllipsisV,
+  faSync,
+  faTrash,
+  faCut,
+  faEdit,
+  faSearch,
+  faFolder,
+  faFile,
+} from '@fortawesome/free-solid-svg-icons';
 
 export { action, loader };
 
@@ -71,15 +80,17 @@ export default function FileManager() {
     error: loaderError,
   } = useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [view, setView] = useState<'user-uploads' | 'mirrored-packages'>(
-    'user-uploads',
-  );
+  const [view, setView] = useState<
+    'user-uploads' | 'mirrored-packages' | 'npm-packages'
+  >('user-uploads');
   const revalidator = useRevalidator();
   const previousViewRef = useRef(view);
 
   const rootPath = useMemo(() => {
     if (view === 'mirrored-packages') {
       return appConfig.mirroredPackagesDir;
+    } else if (view === 'npm-packages') {
+      return appConfig.npmPackagesDir;
     } else {
       return appConfig.filesDir;
     }
@@ -299,9 +310,16 @@ export default function FileManager() {
               }
               onClick={handleHealthCheck}
             >
-              {healthReport && healthReport.status === 'inProgress'
-                ? <><FontAwesomeIcon icon={faSearch} /> File System check in progress</>
-                : <><FontAwesomeIcon icon={faSearch} /> Health Check</>}
+              {healthReport && healthReport.status === 'inProgress' ? (
+                <>
+                  <FontAwesomeIcon icon={faSearch} /> File System check in
+                  progress
+                </>
+              ) : (
+                <>
+                  <FontAwesomeIcon icon={faSearch} /> Health Check
+                </>
+              )}
             </FormButton>
           </div>
         </div>
@@ -312,11 +330,16 @@ export default function FileManager() {
             label=""
             value={view}
             onChange={(value) =>
-              setView(value as 'user-uploads' | 'mirrored-packages')
+              setView(
+                value as 'user-uploads' | 'mirrored-packages' | 'npm-packages',
+              )
             }
             options={[
               { value: 'user-uploads', label: 'User Uploads' },
               { value: 'mirrored-packages', label: 'Mirrored Packages' },
+              ...(appConfig.isNpmProxyEnabled
+                ? [{ value: 'npm-packages', label: 'Npm Packages' }]
+                : []),
             ]}
             disabled={
               isUploading ||
@@ -336,6 +359,13 @@ export default function FileManager() {
             <FileManagerWarning
               type="warning"
               message="Manual changes can break mirror functionality"
+            />
+          )}
+
+          {view === 'npm-packages' && (
+            <FileManagerWarning
+              type="warning"
+              message="Manual changes can break npm proxy functionality"
             />
           )}
 
@@ -460,7 +490,7 @@ export default function FileManager() {
                             <FormButton
                               type="secondary"
                               disabled={isOperationInProgress || isLoading}
-                              onClick={() => {}} // Empty handler to satisfy FormButton requirements
+                              onClick={() => {}}
                             >
                               <FontAwesomeIcon icon={faEllipsisV} />
                             </FormButton>
@@ -481,7 +511,9 @@ export default function FileManager() {
           <div className="border border-gray-200 rounded-md">
             {shouldShowSyncPlaceholder ? (
               <div className="p-8 text-center">
-                <div className="text-gray-500 text-lg mb-2"><FontAwesomeIcon icon={faSync} className="animate-spin" /></div>
+                <div className="text-gray-500 text-lg mb-2">
+                  <FontAwesomeIcon icon={faSync} className="animate-spin" />
+                </div>
                 <div className="text-gray-700 font-medium mb-2">
                   Automatic sync is performed
                 </div>
@@ -513,9 +545,11 @@ export default function FileManager() {
                       })}
                     >
                       <span className="text-lg">
-                        <FontAwesomeIcon 
-                          icon={item.isDirectory ? faFolder : faFile} 
-                          className={item.isDirectory ? 'text-gray-600' : 'text-gray-500'}
+                        <FontAwesomeIcon
+                          icon={item.isDirectory ? faFolder : faFile}
+                          className={
+                            item.isDirectory ? 'text-gray-600' : 'text-gray-500'
+                          }
                         />
                       </span>
                       <div className="flex align-center w-[180px] md:w-[240px] max-w-[auto] lg:max-w-[360px] flex-shrink-0 lg:w-auto font-medium">
@@ -535,11 +569,12 @@ export default function FileManager() {
                             type="secondary"
                             size="small"
                             disabled={
-                              isOperationInProgress || Boolean(fileToCut) || isLoading
+                              isOperationInProgress ||
+                              Boolean(fileToCut) ||
+                              isLoading
                             }
                             onClick={() => {
                               const link = document.createElement('a');
-                              // Determine the base path to replace based on the current view
                               const basePath =
                                 view === 'mirrored-packages'
                                   ? rootPath
@@ -559,7 +594,9 @@ export default function FileManager() {
                           type="secondary"
                           size="small"
                           disabled={
-                            isOperationInProgress || Boolean(fileToCut) || isLoading
+                            isOperationInProgress ||
+                            Boolean(fileToCut) ||
+                            isLoading
                           }
                           onClick={() =>
                             handleCutClick({ path: item.path, name: item.name })
@@ -571,7 +608,9 @@ export default function FileManager() {
                           type="secondary"
                           size="small"
                           disabled={
-                            isOperationInProgress || Boolean(fileToCut) || isLoading
+                            isOperationInProgress ||
+                            Boolean(fileToCut) ||
+                            isLoading
                           }
                           onClick={() =>
                             handleRenameClick({
@@ -586,7 +625,9 @@ export default function FileManager() {
                           type="secondary"
                           size="small"
                           disabled={
-                            isOperationInProgress || Boolean(fileToCut) || isLoading
+                            isOperationInProgress ||
+                            Boolean(fileToCut) ||
+                            isLoading
                           }
                           onClick={() => handleDelete(item.path)}
                         >

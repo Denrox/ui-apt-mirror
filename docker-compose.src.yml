@@ -12,14 +12,17 @@ services:
       - ./data/conf/nginx/sites-available/mirror.intra.conf:/etc/nginx/sites-available/mirror.intra.conf
       - ./data/conf/nginx/sites-available/admin.mirror.intra.conf:/etc/nginx/sites-available/admin.mirror.intra.conf
       - ./data/conf/nginx/sites-available/files.mirror.intra.conf:/etc/nginx/sites-available/files.mirror.intra.conf
+      - ./data/conf/nginx/sites-available/npm.mirror.intra.conf:/etc/nginx/sites-available/npm.mirror.intra.conf
       - ./data/conf/nginx/.htpasswd:/etc/nginx/.htpasswd
       - ./data/logs/nginx:/var/log/nginx
       - ./data/data/files:/var/www/files
+      - ./data/data/npm:/var/www/npm
     environment:
       - SYNC_FREQUENCY=${SYNC_FREQUENCY:-3600}
       - MIRROR_DOMAIN=${MIRROR_DOMAIN:-mirror.intra}
       - ADMIN_DOMAIN=${ADMIN_DOMAIN:-admin.mirror.intra}
       - FILES_DOMAIN=${FILES_DOMAIN:-files.mirror.intra}
+      - NPM_DOMAIN=${NPM_DOMAIN:-npm.mirror.intra}
       - TZ=${TZ:-UTC}
     networks:
       - mirror_network

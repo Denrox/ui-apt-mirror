@@ -20,7 +20,12 @@ import Dropdown from '~/components/shared/dropdown/dropdown';
 import DropdownItem from '~/components/shared/dropdown/dropdown-item';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSync, faPause, faTrash, faBox } from '@fortawesome/free-solid-svg-icons';
+import {
+  faSync,
+  faPause,
+  faTrash,
+  faBox,
+} from '@fortawesome/free-solid-svg-icons';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -39,8 +44,11 @@ export default function Home() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string>('');
   const [isActionInProgress, setIsActionInProgress] = useState(false);
-  const [isRepositoryConfigsExpanded, setIsRepositoryConfigsExpanded] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const [isRepositoryConfigsExpanded, setIsRepositoryConfigsExpanded] =
+    useState(false);
+  const [windowWidth, setWindowWidth] = useState(
+    typeof window !== 'undefined' ? window.innerWidth : 1024,
+  );
   const { repositoryConfigs, commentedSections, isLockFilePresent } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -98,7 +106,7 @@ export default function Home() {
   };
 
   const handleSyncToggle = () => {
-    if (isActionInProgress) return; // Prevent multiple clicks
+    if (isActionInProgress) return;
 
     setIsActionInProgress(true);
     const formData = new FormData();
@@ -110,18 +118,13 @@ export default function Home() {
     setIsRepositoryConfigsExpanded(!isRepositoryConfigsExpanded);
   };
 
-  // Calculate number of hidden items based on screen size
   const calculateHiddenItems = () => {
     if (repositoryConfigs.length === 0) return 0;
-    
-    // On mobile: 1 item per row, on desktop: 2 items per row
-    // Each item has height of 148px + gap of 12px = 160px total per row
-    // With 180px max height, we can fit 1 row (160px) with 20px remaining
-    // So we can show 1 item on mobile, 2 items on desktop
-    const itemsPerRow = windowWidth >= 768 ? 2 : 1; // md breakpoint
-    const maxVisibleRows = 1; // Only 1 row fits in 180px
+
+    const itemsPerRow = windowWidth >= 768 ? 2 : 1;
+    const maxVisibleRows = 1;
     const maxVisibleItems = itemsPerRow * maxVisibleRows;
-    
+
     return Math.max(0, repositoryConfigs.length - maxVisibleItems);
   };
 
@@ -131,7 +134,10 @@ export default function Home() {
       const pagesAvalabilityState = await Promise.all(
         pages.map(async (page) => {
           try {
-            const response = await fetch(getHostAddress(page.address));
+            const healthEndpoint = '/';
+            const response = await fetch(
+              getHostAddress(page.address) + healthEndpoint,
+            );
             return { [getHostAddress(page.address)]: response.ok };
           } catch (error) {
             return { [getHostAddress(page.address)]: false };
@@ -158,7 +164,6 @@ export default function Home() {
     };
   }, []);
 
-  // Auto-refresh sync status every 5 seconds
   useEffect(() => {
     const syncStatusInterval = setInterval(() => {
       revalidator.revalidate();
@@ -169,7 +174,6 @@ export default function Home() {
     };
   }, [revalidator]);
 
-  // Handle window resize for responsive calculations
   useEffect(() => {
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
@@ -181,7 +185,6 @@ export default function Home() {
 
   return (
     <PageLayoutFull>
-      {/* Fixed Main Title - Non-scrollable */}
       <div className="sticky top-0 z-10 bg-white">
         <div className="flex items-center justify-center gap-3">
           <Title
@@ -209,7 +212,11 @@ export default function Home() {
                     }
                   >
                     <span className={isLockFilePresent ? 'animate-spin' : ''}>
-                      {isLockFilePresent ? <FontAwesomeIcon icon={faSync} /> : <FontAwesomeIcon icon={faPause} />}
+                      {isLockFilePresent ? (
+                        <FontAwesomeIcon icon={faSync} />
+                      ) : (
+                        <FontAwesomeIcon icon={faPause} />
+                      )}
                     </span>
                     <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
                   </div>
@@ -226,155 +233,175 @@ export default function Home() {
                     isActionInProgress
                   }
                 >
-                  {commentedSections.map(
-                    (section: CommentedSection) => (
-                      <DropdownItem
-                        key={section.title}
-                        onClick={() => handleRestoreClick(section.title)}
-                      >
-                        Enable: {section.title}
-                      </DropdownItem>
-                    ),
-                  )}
+                  {commentedSections.map((section: CommentedSection) => (
+                    <DropdownItem
+                      key={section.title}
+                      onClick={() => handleRestoreClick(section.title)}
+                    >
+                      Enable: {section.title}
+                    </DropdownItem>
+                  ))}
                 </Dropdown>
               </div>
             }
           />
         </div>
       </div>
-
       {/* Scrollable Content Area */}
       <div className="overflow-y-auto max-h-[calc(100vh-200px)] flex flex-col gap-[32px]">
         <div className="relative">
-        <div 
-          className={`overflow-hidden transition-all duration-300 ease-in-out relative ${
-            isRepositoryConfigsExpanded ? 'max-h-none pb-[32px]' : 'max-h-[164px]'
-          }`}
-        >
-          <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
-            {repositoryConfigs.length > 0 ? (
-              repositoryConfigs.map((config: RepositoryConfig) => (
-                <div
-                  key={config.title}
-                  className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
-                >
-                  <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold">
-                    {config.title}
-                  </div>
-                  {config.content.map((line: string, lineIndex: number) => (
-                    <div key={lineIndex} className="text-[12px] text-gray-500">
-                      {line}
-                    </div>
-                  ))}
-                  <button
-                    onClick={() => handleDeleteClick(config.title)}
-                    className="absolute top-[12px] right-[12px] text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={
-                      isActionInProgress
-                        ? 'Action in progress...'
-                        : isLockFilePresent
-                          ? 'Cannot delete while sync is running'
-                          : 'Delete repository configuration'
-                    }
-                    disabled={isLockFilePresent || isActionInProgress}
+          <div
+            className={`overflow-hidden transition-all duration-300 ease-in-out relative ${
+              isRepositoryConfigsExpanded
+                ? 'max-h-none pb-[32px]'
+                : 'max-h-[164px]'
+            }`}
+          >
+            <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
+              {repositoryConfigs.length > 0 ? (
+                repositoryConfigs.map((config: RepositoryConfig) => (
+                  <div
+                    key={config.title}
+                    className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
                   >
-                    <FontAwesomeIcon icon={faTrash} />
-                  </button>
+                    <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold">
+                      {config.title}
+                    </div>
+                    {config.content.map((line: string, lineIndex: number) => (
+                      <div
+                        key={lineIndex}
+                        className="text-[12px] text-gray-500"
+                      >
+                        {line}
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => handleDeleteClick(config.title)}
+                      className="absolute top-[12px] right-[12px] text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={
+                        isActionInProgress
+                          ? 'Action in progress...'
+                          : isLockFilePresent
+                            ? 'Cannot delete while sync is running'
+                            : 'Delete repository configuration'
+                      }
+                      disabled={isLockFilePresent || isActionInProgress}
+                    >
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="w-full h-[148px] bg-gray-50 border-2 border-dashed border-gray-300 rounded-md flex flex-col items-center justify-center p-[12px]">
+                  <div className="text-gray-400 text-[48px] mb-2">
+                    <FontAwesomeIcon icon={faBox} />
+                  </div>
+                  <div className="text-gray-500 text-[14px] font-medium text-center">
+                    No repository configurations found
+                  </div>
+                  <div className="text-gray-400 text-[12px] text-center mt-1">
+                    Use the + button to add configurations
+                  </div>
                 </div>
-              ))
-            ) : (
-              <div className="w-full h-[148px] bg-gray-50 border-2 border-dashed border-gray-300 rounded-md flex flex-col items-center justify-center p-[12px]">
-                <div className="text-gray-400 text-[48px] mb-2"><FontAwesomeIcon icon={faBox} /></div>
-                <div className="text-gray-500 text-[14px] font-medium text-center">
-                  No repository configurations found
-                </div>
-                <div className="text-gray-400 text-[12px] text-center mt-1">
-                  Use the + button to add configurations
-                </div>
+              )}
+            </div>
+            {/* +x more / show less control */}
+            {calculateHiddenItems() > 0 && (
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent h-8'} flex items-end justify-center pb-1">
+                <button
+                  onClick={handleRepositoryConfigsToggle}
+                  className="text-sm text-gray-500 font-medium bg-white px-2 py-1 rounded-full shadow-sm border hover:bg-gray-50 hover:text-gray-700 transition-colors cursor-pointer"
+                  title={
+                    isRepositoryConfigsExpanded
+                      ? 'Click to collapse and show fewer repository configurations'
+                      : 'Click to expand and see all repository configurations'
+                  }
+                >
+                  {isRepositoryConfigsExpanded
+                    ? 'Show less'
+                    : `+${calculateHiddenItems()} more`}
+                </button>
               </div>
             )}
           </div>
-          {/* +x more / show less control */}
-          {calculateHiddenItems() > 0 && (
-            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent h-8'} flex items-end justify-center pb-1">
-              <button
-                onClick={handleRepositoryConfigsToggle}
-                className="text-sm text-gray-500 font-medium bg-white px-2 py-1 rounded-full shadow-sm border hover:bg-gray-50 hover:text-gray-700 transition-colors cursor-pointer"
-                title={isRepositoryConfigsExpanded ? "Click to collapse and show fewer repository configurations" : "Click to expand and see all repository configurations"}
-              >
-                {isRepositoryConfigsExpanded ? 'Show less' : `+${calculateHiddenItems()} more`}
-              </button>
-            </div>
-          )}
         </div>
-      </div>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={showDeleteModal}
-        onClose={handleDeleteCancel}
-        title="Confirm Deletion"
-      >
-        <p className="text-gray-600 mb-6">
-          Are you sure you want to delete the repository configuration "
-          {deleteTarget}"? This action cannot be undone.
-        </p>
-        <div className="flex justify-end gap-3">
-          <FormButton
-            onClick={handleDeleteCancel}
-            type="secondary"
-            disabled={isActionInProgress}
-          >
-            Cancel
-          </FormButton>
-          <FormButton
-            onClick={handleDeleteConfirm}
-            type="danger"
-            disabled={isActionInProgress}
-          >
-            Delete
-          </FormButton>
-        </div>
-      </Modal>
-
-      <Title title="Services Status" />
-      <div className="px-[12px] md:px-0">
-        <ResourceMonitor />
-      </div>
-      <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
-        {appConfig.hosts.map((page) => (
-          <div
-            key={page.address}
-            className={classNames(
-              'h-[120px] md:w-[calc(50%-18px)] w-full lg:w-[calc(33%-17px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]',
-              {},
-            )}
-          >
-              <a
-              href={getHostAddress(page.address)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={classNames(
-                'block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold hover:text-gray-900',
-                {},
-              )}
-            >{`${page.name} (${getHostAddress(page.address)})`}</a>
-            <div className="text-[12px] text-gray-500">{page.description}</div>
-            <div className="absolute top-[12px] right-[12px] leading-none">
-              {pagesAvalabilityState[getHostAddress(page.address)] ? (
-                <div className="font-semibold leading-[24px] text-[9px] text-emerald-500">
-                  Online
-                </div>
-              ) : (
-                <div className="font-semibold leading-[24px] text-[12px] text-rose-400">
-                  Offline
-                </div>
-              )}
-            </div>
+        {/* Delete Confirmation Modal */}
+        <Modal
+          isOpen={showDeleteModal}
+          onClose={handleDeleteCancel}
+          title="Confirm Deletion"
+        >
+          <p className="text-gray-600 mb-6">
+            Are you sure you want to delete the repository configuration "
+            {deleteTarget}"? This action cannot be undone.
+          </p>
+          <div className="flex justify-end gap-3">
+            <FormButton
+              onClick={handleDeleteCancel}
+              type="secondary"
+              disabled={isActionInProgress}
+            >
+              Cancel
+            </FormButton>
+            <FormButton
+              onClick={handleDeleteConfirm}
+              type="danger"
+              disabled={isActionInProgress}
+            >
+              Delete
+            </FormButton>
           </div>
-        ))}
-      </div>
-      </div> {/* Close scrollable content area */}
+        </Modal>
+
+        <Title title="Services Status" />
+        <div className="px-[12px] md:px-0">
+          <ResourceMonitor />
+        </div>
+        <div className="flex flex-row items-center md:gap-[16px] lg:gap-[24px] gap-[12px] flex-wrap px-[12px] md:px-0">
+          {appConfig.hosts
+            .filter((page) => {
+              if (page.id === 'npm' && !appConfig.isNpmProxyEnabled) {
+                return false;
+              }
+              return true;
+            })
+            .map((page) => (
+              <div
+                key={page.address}
+                className={classNames(
+                  'h-[120px] w-full md:w-[calc(50%-16px)] lg:w-[calc(25%-18px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]',
+                  {},
+                )}
+              >
+                <a
+                  href={getHostAddress(page.address)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={classNames(
+                    'block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold hover:text-gray-900',
+                    {},
+                  )}
+                >{`${page.name} (${getHostAddress(page.address)})`}</a>
+                <div className="text-[12px] text-gray-500">
+                  {page.description}
+                </div>
+                <div className="absolute top-[12px] right-[12px] leading-none">
+                  {pagesAvalabilityState[getHostAddress(page.address)] ? (
+                    <div className="font-semibold leading-[24px] text-[9px] text-emerald-500">
+                      Online
+                    </div>
+                  ) : (
+                    <div className="font-semibold leading-[24px] text-[12px] text-rose-400">
+                      Offline
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>{' '}
+      {/* Close scrollable content area */}
     </PageLayoutFull>
   );
 }

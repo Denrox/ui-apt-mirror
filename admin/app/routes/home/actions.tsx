@@ -57,7 +57,7 @@ export async function action({ request }: { request: Request }) {
           const title = startMatch[1].trim();
           if (title === sectionTitle) {
             inTargetSection = true;
-            newLines.push(line); // Keep the start marker
+            newLines.push(line);
             continue;
           } else {
             inTargetSection = false;
@@ -67,13 +67,13 @@ export async function action({ request }: { request: Request }) {
 
         if (line.trim() === '# Usage start' && inTargetSection) {
           inUsageSection = true;
-          newLines.push(line); // Keep the usage start marker
+          newLines.push(line);
           continue;
         }
 
         if (line.trim() === '# Usage end' && inTargetSection) {
           inUsageSection = false;
-          newLines.push(line); // Keep the usage end marker
+          newLines.push(line);
           continue;
         }
 
@@ -81,7 +81,7 @@ export async function action({ request }: { request: Request }) {
         if (endMatch && inTargetSection) {
           inTargetSection = false;
           inUsageSection = false;
-          newLines.push(line); // Keep the end marker
+          newLines.push(line);
           continue;
         }
 

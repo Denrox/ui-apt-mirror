@@ -3,7 +3,10 @@ interface FormSelectProps {
   readonly label: string;
   readonly value: string;
   readonly onChange: (value: string) => void;
-  readonly options: readonly { readonly value: string; readonly label: string }[];
+  readonly options: readonly {
+    readonly value: string;
+    readonly label: string;
+  }[];
   readonly disabled?: boolean;
   readonly placeholder?: string;
 }

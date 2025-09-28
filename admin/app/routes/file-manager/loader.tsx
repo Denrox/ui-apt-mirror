@@ -48,14 +48,17 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
 function isPathAllowed(requestedPath: string): boolean {
   const userUploadsDir = appConfig.filesDir;
   const mirroredPackagesDir = appConfig.mirroredPackagesDir;
+  const npmPackagesDir = appConfig.npmPackagesDir;
 
   const normalizedRequestedPath = path.resolve(requestedPath);
   const normalizedUserUploadsDir = path.resolve(userUploadsDir);
   const normalizedMirroredPackagesDir = path.resolve(mirroredPackagesDir);
+  const normalizedNpmPackagesDir = path.resolve(npmPackagesDir);
 
   return (
     normalizedRequestedPath.startsWith(normalizedUserUploadsDir) ||
-    normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir)
+    normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir) ||
+    normalizedRequestedPath.startsWith(normalizedNpmPackagesDir)
   );
 }
 

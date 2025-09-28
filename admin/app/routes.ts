@@ -13,4 +13,5 @@ export default [
     route('file-manager', 'routes/file-manager/file-manager.tsx'),
     route('api/resources', 'routes/api.resources.tsx'),
   ]),
+  route('npm/*', 'routes/npm/npm.tsx'),
 ] satisfies RouteConfig;

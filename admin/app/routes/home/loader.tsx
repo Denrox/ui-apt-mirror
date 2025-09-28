@@ -11,7 +11,6 @@ export interface CommentedSection {
   title: string;
 }
 
-// Function to parse repository configurations from mirror.list
 async function parseRepositoryConfigs(): Promise<{
   active: RepositoryConfig[];
   commented: CommentedSection[];
@@ -33,10 +32,8 @@ async function parseRepositoryConfigs(): Promise<{
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
 
-      // Check for start section
       const startMatch = /# ---start---(.+?)---/.exec(line);
       if (startMatch) {
-        // Reset for new section
         currentConfig = {
           title: startMatch[1].trim(),
           content: [],
@@ -49,28 +46,23 @@ async function parseRepositoryConfigs(): Promise<{
         continue;
       }
 
-      // Check for usage start
       if (line.trim() === '# Usage start' && inTargetSection) {
         inUsageSection = true;
         continue;
       }
 
-      // Check for usage end
       if (line.trim() === '# Usage end' && inTargetSection) {
         inUsageSection = false;
         continue;
       }
 
-      // Check for end section
       const endMatch = /# ---end---(.+?)---/.exec(line);
       if (endMatch && currentConfig && inTargetSection) {
-        // Check if all lines between start and usage start are commented out
         const hasNonCommentedLines = sectionLines.some(
           (sectionLine) =>
             sectionLine.trim() && !sectionLine.trim().startsWith('#'),
         );
 
-        // Add to appropriate list based on whether section is commented
         if (hasNonCommentedLines) {
           activeConfigs.push(currentConfig);
         } else {
@@ -86,7 +78,6 @@ async function parseRepositoryConfigs(): Promise<{
         continue;
       }
 
-      // Collect section lines between start and usage start for checking if all are commented
       if (
         currentConfig &&
         sectionStartIndex !== -1 &&
@@ -96,9 +87,7 @@ async function parseRepositoryConfigs(): Promise<{
         sectionLines.push(line);
       }
 
-      // Add usage content
       if (inUsageSection && currentConfig && line.trim()) {
-        // Remove comment symbol (#) from the beginning of the line
         const cleanLine = line.trim().replace(/^#\s*/, '');
         if (cleanLine) {
           currentConfig.content.push(cleanLine);

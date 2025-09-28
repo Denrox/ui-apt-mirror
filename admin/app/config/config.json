@@ -4,13 +4,16 @@
   "filesDir": "../data/data/files",
   "healthReportFile": "../data/data/health.json",
   "mirroredPackagesDir": "../data/data/apt-mirror",
+  "npmPackagesDir": "../data/data/npm",
   "resourceMonitorScriptPath": "../scripts/resource-monitor.sh",
   "mirrorListPath": "../data/conf/apt-mirror/mirror.list",
   "startMirrorScriptPath": "../scripts/start-mirror.sh",
   "stopMirrorScriptPath": "../scripts/stop-mirror.sh",
+  "isNpmProxyEnabled": true,
   "hosts": [
-    { "id": "mirror", "address": "domain", "name": "APT Mirror", "description": "APT Mirror" },
-    { "id": "admin", "address": "admin.domain", "name": "Admin", "description": "Admin UI for the mirror" },
-    { "id": "files", "address": "files.domain", "name": "Files", "description": "Files (user uploads)" }
+    { "id": "mirror", "address": "mirror.intra", "name": "APT Mirror", "description": "APT Mirror" },
+    { "id": "admin", "address": "admin.mirror.intra", "name": "Admin", "description": "Admin UI for the mirror" },
+    { "id": "files", "address": "files.mirror.intra", "name": "Files", "description": "Files (user uploads)" },
+    { "id": "npm", "address": "npm.mirror.intra", "name": "NPM Mirror", "description": "NPM Registry Cache" }
   ]
 }
