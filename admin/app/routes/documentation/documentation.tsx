@@ -266,32 +266,8 @@ export default function Documentation() {
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>Transparent caching of npm packages</li>
                 <li>Automatic package metadata fetching</li>
-                <li>Support for all npm registry operations</li>
                 <li>Bandwidth optimization for repeated installs</li>
                 <li>Offline package availability</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-lg font-semibold mb-4">Configuration File</h3>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h4 className="font-semibold text-sky-500 mb-2">
-              npm.mirror.intra.conf
-            </h4>
-            <p className="text-gray-700 mb-3">
-              Nginx configuration for the npm proxy service. Routes npm requests
-              to the admin application's npm endpoint.
-            </p>
-            <div className="bg-white p-3 rounded border-l-4 border-green-300">
-              <h5 className="font-semibold mb-2">Key Features:</h5>
-              <ul className="list-disc list-inside space-y-1 text-sm">
-                <li>Proxy pass to admin app /npm/ endpoint</li>
-                <li>Header forwarding for authentication</li>
-                <li>CORS support for web requests</li>
-                <li>Timeout and buffer configuration</li>
-                <li>Request/response size limits</li>
               </ul>
             </div>
           </div>
