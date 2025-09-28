@@ -1,10 +1,10 @@
 import FormButton from '~/components/shared/form/form-button';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faExclamationTriangle, 
-  faTimesCircle, 
+import {
+  faExclamationTriangle,
+  faTimesCircle,
   faInfoCircle,
-  faTrash
+  faTrash,
 } from '@fortawesome/free-solid-svg-icons';
 
 interface WarningProps {

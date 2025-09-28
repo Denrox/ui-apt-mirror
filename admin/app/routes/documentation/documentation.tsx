@@ -74,8 +74,8 @@ export default function Documentation() {
             <h4 className="font-semibold text-sky-500">data/</h4>
             <p className="text-gray-700">
               Main data storage directory. apt-mirror/ contains downloaded
-              package repositories, files/ contains custom file repository,
-              npm/ contains cached npm packages.
+              package repositories, files/ contains custom file repository, npm/
+              contains cached npm packages.
             </p>
           </div>
           <div>
@@ -252,9 +252,9 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">NPM Proxy Overview</h3>
         <div className="bg-gray-50 p-4 rounded-lg">
           <p className="text-gray-700 mb-3">
-            The NPM Proxy provides a local caching layer for npm packages, 
-            speeding up installations and reducing bandwidth usage. It acts as 
-            a transparent proxy to the official npm registry.
+            The NPM Proxy provides a local caching layer for npm packages,
+            speeding up installations and reducing bandwidth usage. It acts as a
+            transparent proxy to the official npm registry.
           </p>
           <div className="bg-white p-3 rounded border-l-4 border-blue-300">
             <h5 className="font-semibold mb-2">Features:</h5>
@@ -272,9 +272,11 @@ export default function Documentation() {
       <div>
         <h3 className="text-lg font-semibold mb-4">Configuration File</h3>
         <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-semibold text-sky-500 mb-2">npm.mirror.intra.conf</h4>
+          <h4 className="font-semibold text-sky-500 mb-2">
+            npm.mirror.intra.conf
+          </h4>
           <p className="text-gray-700 mb-3">
-            Nginx configuration for the npm proxy service. Routes npm requests 
+            Nginx configuration for the npm proxy service. Routes npm requests
             to the admin application's npm endpoint.
           </p>
           <div className="bg-white p-3 rounded border-l-4 border-green-300">
@@ -293,7 +295,9 @@ export default function Documentation() {
       <div>
         <h3 className="text-lg font-semibold mb-4">Usage</h3>
         <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-semibold text-sky-500 mb-2">Configure npm to use the proxy</h4>
+          <h4 className="font-semibold text-sky-500 mb-2">
+            Configure npm to use the proxy
+          </h4>
           <div className="bg-white p-3 rounded border-l-4 border-amber-300">
             <h5 className="font-semibold mb-2">Commands:</h5>
             <div className="space-y-2 text-sm font-mono">
@@ -305,17 +309,15 @@ export default function Documentation() {
               </div>
             </div>
           </div>
-          
-          <h4 className="font-semibold text-sky-500 mb-2 mt-4">Verify Configuration</h4>
+
+          <h4 className="font-semibold text-sky-500 mb-2 mt-4">
+            Verify Configuration
+          </h4>
           <div className="bg-white p-3 rounded border-l-4 border-purple-300">
             <h5 className="font-semibold mb-2">Test Commands:</h5>
             <div className="space-y-2 text-sm font-mono">
-              <div className="bg-gray-100 p-2 rounded">
-                npm view react
-              </div>
-              <div className="bg-gray-100 p-2 rounded">
-                npm install react
-              </div>
+              <div className="bg-gray-100 p-2 rounded">npm view react</div>
+              <div className="bg-gray-100 p-2 rounded">npm install react</div>
               <div className="bg-gray-100 p-2 rounded">
                 curl http://npm.mirror.intra/react
               </div>
@@ -328,7 +330,7 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">File Management</h3>
         <div className="bg-gray-50 p-4 rounded-lg">
           <p className="text-gray-700 mb-3">
-            Cached npm packages are stored in the data/npm/ directory and can be 
+            Cached npm packages are stored in the data/npm/ directory and can be
             viewed and managed through the File Manager in the admin interface.
           </p>
           <div className="bg-white p-3 rounded border-l-4 border-indigo-300">
@@ -361,7 +363,8 @@ export default function Documentation() {
         <div className="lg:-translate-x-[132px]">
           <Title
             title={
-              sections.find((section) => section.id === activeSection)?.title ?? 'Documentation'
+              sections.find((section) => section.id === activeSection)?.title ??
+              'Documentation'
             }
           />
         </div>

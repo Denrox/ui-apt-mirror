@@ -71,7 +71,10 @@ export default function DownloadImageModal({
     >
       <div className="space-y-4">
         <div>
-          <label htmlFor="image-url" className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="image-url"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Image URL
           </label>
           <FormInput
@@ -88,7 +91,10 @@ export default function DownloadImageModal({
         </div>
 
         <div>
-          <label htmlFor="image-tag" className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="image-tag"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Tag
           </label>
           <FormInput

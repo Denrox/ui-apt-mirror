@@ -49,7 +49,10 @@ export default function RenameForm({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <label htmlFor="new-name" className="block text-sm font-medium text-gray-700 mb-2">
+        <label
+          htmlFor="new-name"
+          className="block text-sm font-medium text-gray-700 mb-2"
+        >
           New Name
         </label>
         <FormInput

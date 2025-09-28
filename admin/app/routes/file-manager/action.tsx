@@ -42,7 +42,7 @@ async function cancelAndCleanupDownload(destPath: string): Promise<void> {
 
     try {
       await fs.unlink(destPath);
-    } catch (unlinkError) { }
+    } catch (unlinkError) {}
   } catch (error) {
     console.error('Failed to cancel and cleanup download:', error);
   }
@@ -102,7 +102,7 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
     try {
       await fs.access(newPath);
       return false;
-    } catch (error) { }
+    } catch (error) {}
 
     await fs.rename(oldPath, newPath);
     return true;
@@ -130,7 +130,7 @@ async function moveFile(
     try {
       await fs.access(newPath);
       return false;
-    } catch (error) { }
+    } catch (error) {}
 
     await fs.rename(sourcePath, newPath);
     return true;
@@ -273,7 +273,7 @@ async function handleChunkUpload(
 
       try {
         await fs.rm(fileInfo.tempDir, { recursive: true, force: true });
-      } catch (cleanupError) { }
+      } catch (cleanupError) {}
 
       chunkStorage.delete(fileId);
 
@@ -301,7 +301,7 @@ async function downloadImage(
 
     try {
       await fs.unlink(fullPath);
-    } catch (unlinkError) { }
+    } catch (unlinkError) {}
 
     const registryInfo = parseImageUrl(imageUrl);
     if (!registryInfo) {
@@ -323,7 +323,6 @@ async function downloadImage(
         !imageUrl.includes('/') &&
         !imageUrl.startsWith('gcr.io/')
       ) {
-
         const gcrImage = `gcr.io/google-containers/${imageUrl}:${imageTag}`;
         const gcrCommand = `skopeo copy ${archFlag} docker://${gcrImage} docker-archive:${fullPath}`;
 
@@ -349,7 +348,7 @@ async function downloadImage(
       if (stats.size === 0) {
         await fs.unlink(fullPath);
       }
-    } catch (cleanupError) { }
+    } catch (cleanupError) {}
 
     const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -419,9 +418,7 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   };
 }
 
-export async function action({
-  request,
-}: Route.ActionArgs): Promise<{
+export async function action({ request }: Route.ActionArgs): Promise<{
   success: boolean;
   message?: string;
   error?: string;
