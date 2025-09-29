@@ -4,5 +4,17 @@ import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
-  plugins: [tailwindcss(), reactRouter(), tsconfigPaths()]
+  plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
+  build: {
+    rollupOptions: {
+      external: (id) => {
+        if (id.includes('server-auth')) return true;
+        if (id === 'jsonwebtoken') return true;
+        return false;
+      }
+    }
+  },
+  ssr: {
+    noExternal: ['jsonwebtoken']
+  }
 });

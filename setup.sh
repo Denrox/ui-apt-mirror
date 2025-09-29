@@ -194,13 +194,8 @@ generate_htpasswd() {
     
     mkdir -p data/auth
     
-    if command -v htpasswd >/dev/null 2>&1; then
-        local pass_hash=$(htpasswd -nbB admin "$admin_pass" | cut -d: -f2)
-    else
-        local pass_hash="\$2b\$10\$6SSXpEDMs0aCQu10mAzMsOi6RdLQ1gzZigSzRVH.3PyESHl.mt8Je"
-        print_warning "htpasswd not available. Using pre-generated hash for 'admin' password."
-        print_warning "For custom passwords, install apache2-utils: sudo apt-get install apache2-utils"
-    fi
+    # Generate SHA-512 hash using openssl
+    local pass_hash=$(openssl passwd -6 "$admin_pass")
     echo "admin:$pass_hash" > data/auth/.htpasswd
     
     print_success "htpasswd file generated successfully."
@@ -211,6 +206,10 @@ update_admin_config() {
     local domain=$1
     
     print_status "Updating admin app configuration files..."
+    
+    # Generate a random JWT secret
+    local jwt_secret=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
+    print_status "Generated JWT secret: ${jwt_secret:0:8}..."
     
     # Determine npm proxy enabled status
     local npm_enabled="false"
@@ -225,6 +224,8 @@ update_admin_config() {
         # Replace npm proxy enabled status
         sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
         sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
+        # Replace JWT secret
+        sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.json
     fi
     
     # Update config.build.json
@@ -234,9 +235,12 @@ update_admin_config() {
         # Replace npm proxy enabled status
         sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
         sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
+        # Replace JWT secret
+        sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.build.json
     fi
     
     print_success "Admin app configuration files updated successfully."
+    print_success "JWT secret generated and configured in both config files."
 }
 
 # Function to generate docker-compose.yml from template

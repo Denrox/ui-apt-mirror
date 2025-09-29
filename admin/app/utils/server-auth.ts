@@ -1,10 +1,9 @@
-import bcrypt from 'bcryptjs';
+import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
 
-const JWT_SECRET =
-  process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const JWT_SECRET = appConfig.jwtSecret;
 const COOKIE_NAME = 'auth_token';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
 
@@ -31,15 +30,17 @@ export function validateCredentials(
       for (const line of lines) {
         const [username, hash] = line.split(':');
         if (username === credentials.username) {
-          if (hash.startsWith('$2')) {
-            bcrypt.compare(
-              credentials.password,
-              hash,
-              (err: Error | undefined, result: boolean) => {
-                resolve(result === true);
-              },
-            );
-            return;
+          if (hash.startsWith('$6$')) {
+            const parts = hash.split('$');
+            if (parts.length === 4) {
+              const salt = parts[2];
+              const storedHash = parts[3];
+              
+              const expectedHash = createHash('sha512').update(credentials.password + salt).digest('base64');
+              
+              resolve(storedHash === expectedHash);
+              return;
+            }
           }
           resolve(false);
           return;
