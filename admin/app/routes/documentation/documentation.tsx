@@ -159,7 +159,7 @@ export default function Documentation() {
                 Prompts for custom configuration (domain, sync frequency, admin
                 password)
               </li>
-              <li>Generates nginx htpasswd file for authentication</li>
+              <li>Generates htpasswd file for authentication</li>
               <li>Cleans up previous installations</li>
               <li>Creates data directories structure</li>
               <li>Generates apt-mirror configuration</li>

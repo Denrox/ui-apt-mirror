@@ -40,13 +40,6 @@ else
     echo "⚠️  Nginx configuration not found. Please ensure nginx config volume is mounted."
 fi
 
-if [ ! -f /etc/nginx/.htpasswd ]; then
-    echo "❌ htpasswd file not found. Please ensure data/conf/nginx/.htpasswd is mounted."
-    exit 1
-fi
-
-echo "✅ htpasswd file found"
-
 echo "🌐 Starting admin server..."
 cd /var/admin && npm run start &
 ADMIN_PID=$!
