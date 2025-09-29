@@ -13,3 +13,5 @@ data/conf/nginx/.htpasswd
 dist/*
 !dist/.gitkeep
 .scannerwork
+data/auth/*
+!data/auth/.gitkeep

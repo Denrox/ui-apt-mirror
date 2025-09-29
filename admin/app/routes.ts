@@ -6,6 +6,8 @@ import {
 } from '@react-router/dev/routes';
 
 export default [
+  route('login', 'routes/login/login.tsx'),
+  route('logout', 'routes/logout.tsx'),
   layout('components/shared/layout/app-layout.tsx', [
     index('routes/home/home.tsx'),
     route('logs/:log', 'routes/logs/logs.tsx'),

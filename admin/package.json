@@ -15,8 +15,10 @@
     "@fortawesome/react-fontawesome": "^3.0.2",
     "@react-router/node": "^7.5.3",
     "@react-router/serve": "^7.5.3",
+    "bcrypt": "^5.1.1",
     "classnames": "^2.5.1",
     "isbot": "^5.1.27",
+    "jsonwebtoken": "^9.0.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router": "^7.5.3",
@@ -25,6 +27,8 @@
   "devDependencies": {
     "@react-router/dev": "^7.5.3",
     "@tailwindcss/vite": "^4.1.4",
+    "@types/bcrypt": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.6",
     "@types/node": "^20",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
@@ -32,6 +36,8 @@
     "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3",
     "vite": "^6.3.3",
+    "vite-plugin-commonjs": "^0.10.4",
+    "vite-plugin-node-polyfills": "^0.24.0",
     "vite-tsconfig-paths": "^5.1.4"
   }
 }

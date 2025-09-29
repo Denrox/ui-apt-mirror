@@ -1,10 +1,13 @@
-import { Link, useLocation } from 'react-router';
+import { Link, useLocation, useSubmit } from 'react-router';
 import classNames from 'classnames';
 import { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
 
 export default function Header() {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const submit = useSubmit();
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
@@ -12,6 +15,10 @@ export default function Header() {
 
   const closeMenu = () => {
     setIsMenuOpen(false);
+  };
+
+  const handleLogout = () => {
+    submit(null, { action: '/logout', method: 'post' });
   };
 
   const navItems = [
@@ -57,6 +64,14 @@ export default function Header() {
               {item.label}
             </Link>
           ))}
+          <button
+            onClick={handleLogout}
+            className="text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold"
+            title="Logout"
+          >
+            <FontAwesomeIcon icon={faSignOutAlt} className="mr-2" />
+            Logout
+          </button>
         </div>
 
         {/* Mobile Menu Button - Visible on screens below 1024px */}
@@ -100,7 +115,7 @@ export default function Header() {
                 to={item.to}
                 onClick={closeMenu}
                 className={classNames(
-                  'block px-[16px] py-[12px] text-[16px] font-semibold border-b border-gray-100 last:border-b-0',
+                  'block px-[16px] py-[12px] text-[16px] font-semibold border-b border-gray-100',
                   {
                     'text-gray-800 bg-gray-200': item.isActive,
                     'text-gray-700 hover:text-gray-800 hover:bg-gray-100':
@@ -111,6 +126,16 @@ export default function Header() {
                 {item.label}
               </Link>
             ))}
+            <button
+              onClick={() => {
+                closeMenu();
+                handleLogout();
+              }}
+              className="block px-[16px] py-[12px] text-[16px] font-semibold text-gray-700 hover:text-gray-800 hover:bg-gray-100 w-full text-left"
+            >
+              <FontAwesomeIcon icon={faSignOutAlt} className="mr-2" />
+              Logout
+            </button>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
 export interface RepositoryConfig {
   title: string;
@@ -102,7 +103,9 @@ async function parseRepositoryConfigs(): Promise<{
   }
 }
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
+  await requireAuthMiddleware(request);
+
   const [{ active, commented }, isLockFilePresent] = await Promise.all([
     parseRepositoryConfigs(),
     checkLockFile(),

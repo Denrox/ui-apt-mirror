@@ -1,8 +1,11 @@
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import type { Route } from './+types/logs';
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
-export async function loader({ params }: Route.LoaderArgs) {
+export async function loader({ params, request }: Route.LoaderArgs) {
+  await requireAuthMiddleware(request);
+
   const log = (params as { log: string }).log;
 
   let logs: string[] = [];
