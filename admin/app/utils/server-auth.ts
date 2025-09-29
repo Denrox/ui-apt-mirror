@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { readFileSync } from 'fs';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';

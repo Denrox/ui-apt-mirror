@@ -31,7 +31,6 @@ function getCachePath(packagePath: string): string {
     );
 
     const dir = path.dirname(cachePath);
-    console.log('Creating tarball directory:', dir);
     fs.mkdir(dir, { recursive: true }).catch((error) => {
       console.error('Failed to create tarball directory:', dir, error);
     });
@@ -41,7 +40,6 @@ function getCachePath(packagePath: string): string {
     const cachePath = path.join(appConfig.npmPackagesDir, cleanPath);
 
     const dir = path.dirname(cachePath);
-    console.log('Creating metadata directory:', dir);
     fs.mkdir(dir, { recursive: true }).catch((error) => {
       console.error('Failed to create metadata directory:', dir, error);
     });

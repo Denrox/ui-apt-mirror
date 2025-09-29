@@ -66,7 +66,7 @@ export default function Header() {
           ))}
           <button
             onClick={handleLogout}
-            className="text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold"
+            className="text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold cursor-pointer"
             title="Logout"
           >
             <FontAwesomeIcon icon={faSignOutAlt} className="mr-2" />
@@ -131,7 +131,7 @@ export default function Header() {
                 closeMenu();
                 handleLogout();
               }}
-              className="block px-[16px] py-[12px] text-[16px] font-semibold text-gray-700 hover:text-gray-800 hover:bg-gray-100 w-full text-left"
+              className="block px-[16px] py-[12px] text-[16px] font-semibold text-gray-700 hover:text-gray-800 hover:bg-gray-100 w-full text-left cursor-pointer"
             >
               <FontAwesomeIcon icon={faSignOutAlt} className="mr-2" />
               Logout

@@ -12,11 +12,6 @@ export async function action({ request }: { request: Request }) {
   const username = formData.get('username') as string;
   const password = formData.get('password') as string;
 
-  console.log('Form data received:', {
-    username,
-    password: password ? '***' : 'empty',
-  });
-
   if (!username || !password) {
     return {
       error: 'Username and password are required',
