@@ -187,18 +187,21 @@ get_user_config() {
     print_success "Configuration completed."
 }
 
-# Function to generate nginx htpasswd file
 generate_htpasswd() {
     local admin_pass=$1
     
-    print_status "Generating nginx htpasswd file..."
+    print_status "Generating htpasswd file..."
     
-    # Create nginx conf directory if it doesn't exist
-    mkdir -p data/conf/nginx
+    mkdir -p data/auth
     
-    # Generate password hash and create htpasswd file
-    local pass_hash=$(openssl passwd -apr1 "$admin_pass")
-    echo "admin:$pass_hash" > data/conf/nginx/.htpasswd
+    if command -v htpasswd >/dev/null 2>&1; then
+        local pass_hash=$(htpasswd -nbB admin "$admin_pass" | cut -d: -f2)
+    else
+        local pass_hash="\$2b\$10\$6SSXpEDMs0aCQu10mAzMsOi6RdLQ1gzZigSzRVH.3PyESHl.mt8Je"
+        print_warning "htpasswd not available. Using pre-generated hash for 'admin' password."
+        print_warning "For custom passwords, install apache2-utils: sudo apt-get install apache2-utils"
+    fi
+    echo "admin:$pass_hash" > data/auth/.htpasswd
     
     print_success "htpasswd file generated successfully."
 }
@@ -512,7 +515,8 @@ show_usage() {
     echo "Prerequisites:"
     echo "  - Docker installed and running"
     echo "  - Built images in dist/ directory (run ./build.sh first)"
-    echo "  - openssl for password hashing"
+    echo "  - htpasswd command (apache2-utils package) for custom passwords"
+    echo "    Install with: sudo apt-get install apache2-utils"
 }
 
 # Function to update nginx configuration files with custom domain
