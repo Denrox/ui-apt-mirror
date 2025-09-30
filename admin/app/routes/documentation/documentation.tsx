@@ -51,11 +51,12 @@ export default function Documentation() {
         <div className="bg-gray-50 p-4 rounded-lg font-mono text-sm">
           <pre className="whitespace-pre-wrap">
             {`data/
+├── auth/
+│   └── .htpasswd                # Admin authentication file
 ├── conf/
 │   ├── apt-mirror/
 │   │   └── mirror.list          # apt-mirror2 configuration
 │   └── nginx/
-│       ├── .htpasswd            # Admin authentication file
 │       └── sites-available/     # Nginx site configurations
 │           ├── mirror.intra.conf
 │           ├── admin.mirror.intra.conf
@@ -88,10 +89,17 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">Description</h3>
         <div className="space-y-4">
           <div>
+            <h4 className="font-semibold text-sky-500">auth/</h4>
+            <p className="text-gray-700">
+              Authentication files. Contains the .htpasswd file with admin
+              credentials for accessing the admin panel and protected areas.
+            </p>
+          </div>
+          <div>
             <h4 className="font-semibold text-sky-500">conf/</h4>
             <p className="text-gray-700">
               Configuration files for apt-mirror and nginx. Contains mirror
-              settings, authentication, and web server configurations.
+              settings and web server configurations.
             </p>
           </div>
           <div>
@@ -159,7 +167,9 @@ export default function Documentation() {
                 Prompts for custom configuration (domain, sync frequency, admin
                 password)
               </li>
-              <li>Generates htpasswd file for authentication</li>
+              <li>
+                Generates .htpasswd file in auth/ directory for authentication
+              </li>
               <li>Cleans up previous installations</li>
               <li>Creates data directories structure</li>
               <li>Generates apt-mirror configuration</li>
