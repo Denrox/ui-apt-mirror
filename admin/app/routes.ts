@@ -13,6 +13,7 @@ export default [
     route('logs/:log', 'routes/logs/logs.tsx'),
     route('documentation/:section', 'routes/documentation/documentation.tsx'),
     route('file-manager', 'routes/file-manager/file-manager.tsx'),
+    route('users', 'routes/users/users.tsx'),
     route('api/resources', 'routes/api.resources.tsx'),
   ]),
   route('npm/*', 'routes/npm/npm.tsx'),

@@ -38,6 +38,11 @@ export default function Header() {
       label: 'File Manager',
       isActive: location.pathname === '/file-manager',
     },
+    {
+      to: '/users',
+      label: 'Users',
+      isActive: location.pathname === '/users',
+    },
   ];
 
   const navLinkClasses =

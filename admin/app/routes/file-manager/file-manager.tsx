@@ -12,6 +12,8 @@ import Dropdown from '~/components/shared/dropdown/dropdown';
 import DropdownItem from '~/components/shared/dropdown/dropdown-item';
 import DownloadImageModal from '~/components/file-manager/download-image-modal';
 import FileManagerWarning from '~/components/shared/filemanager-warning/filemanager-warning';
+import TableRow from '~/components/shared/table-row/table-row';
+import TableWrapper from '~/components/shared/table-wrapper/table-wrapper';
 import {
   useActionData,
   useLoaderData,
@@ -526,43 +528,34 @@ export default function FileManager() {
                 No files found
               </div>
             ) : (
-              <div className="divide-y divide-gray-200 w-full overflow-x-auto">
+              <TableWrapper>
                 {currentPathFiles.map((item) => (
-                  <div
+                  <TableRow
                     key={item.path}
-                    className="flex w-auto items-center justify-between p-3 hover:bg-gray-50"
-                  >
-                    <div
-                      onClick={() =>
-                        item.isDirectory &&
-                        !isOperationInProgress &&
-                        !isLoading &&
-                        setSearchParams({ path: item.path })
-                      }
-                      className={classNames('flex items-center gap-2', {
-                        'cursor-pointer': item.isDirectory && !isLoading,
-                        'cursor-default': !item.isDirectory || isLoading,
-                      })}
-                    >
-                      <span className="text-lg">
-                        <FontAwesomeIcon
-                          icon={item.isDirectory ? faFolder : faFile}
-                          className={
-                            item.isDirectory ? 'text-gray-600' : 'text-gray-500'
-                          }
-                        />
-                      </span>
+                    icon={
+                      <FontAwesomeIcon
+                        icon={item.isDirectory ? faFolder : faFile}
+                        className={
+                          item.isDirectory ? 'text-gray-600' : 'text-gray-500'
+                        }
+                      />
+                    }
+                    title={
                       <div className="flex align-center w-[180px] md:w-[240px] max-w-[auto] lg:max-w-[360px] flex-shrink-0 lg:w-auto font-medium">
                         <Ellipsis>{item.name}</Ellipsis>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm text-gray-500 text-right w-[96px] flex-shrink-0">
-                        {item.isDirectory ? '' : formatFileSize(item.size ?? 0)}
-                      </div>
-                      <div className="text-sm text-gray-500 w-[120px] flex-shrink-0">
-                        {item.modified && formatDate(item.modified)}
-                      </div>
+                    }
+                    metadata={
+                      <>
+                        <div className="text-sm text-gray-500 text-right w-[96px] flex-shrink-0">
+                          {item.isDirectory ? '' : formatFileSize(item.size ?? 0)}
+                        </div>
+                        <div className="text-sm text-gray-500 w-[120px] flex-shrink-0">
+                          {item.modified && formatDate(item.modified)}
+                        </div>
+                      </>
+                    }
+                    actions={
                       <div className="flex items-center justify-end gap-2 w-[176px] flex-shrink-0">
                         {!item.isDirectory && (
                           <FormButton
@@ -634,10 +627,20 @@ export default function FileManager() {
                           <FontAwesomeIcon icon={faTrash} />
                         </FormButton>
                       </div>
-                    </div>
-                  </div>
+                    }
+                    onClick={() =>
+                      item.isDirectory &&
+                      !isOperationInProgress &&
+                      !isLoading &&
+                      setSearchParams({ path: item.path })
+                    }
+                    cursorClass={classNames({
+                      'cursor-pointer': item.isDirectory && !isLoading,
+                      'cursor-default': !item.isDirectory || isLoading,
+                    })}
+                  />
                 ))}
-              </div>
+              </TableWrapper>
             )}
           </div>
         </div>
