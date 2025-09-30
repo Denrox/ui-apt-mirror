@@ -29,7 +29,7 @@ export default function Modal({
             <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 focus:outline-none focus:text-gray-600"
+              className="text-gray-400 hover:text-gray-600 focus:outline-none focus:text-gray-600 cursor-pointer"
             >
               <span className="sr-only">Close</span>
               <svg
