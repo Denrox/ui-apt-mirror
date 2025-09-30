@@ -1,8 +1,9 @@
 import type { PropsWithChildren } from 'react';
 
 interface FormButtonProps {
-  readonly onClick: () => void;
+  readonly onClick?: () => void;
   readonly type?: 'primary' | 'secondary' | 'danger';
+  readonly buttonType?: 'button' | 'submit' | 'reset';
   readonly disabled?: boolean;
   readonly size?: 'small' | 'medium' | 'large';
 }
@@ -11,6 +12,7 @@ export default function FormButton({
   children,
   onClick,
   type = 'primary',
+  buttonType = 'button',
   disabled = false,
   size = 'medium',
 }: PropsWithChildren<FormButtonProps>) {
@@ -32,6 +34,7 @@ export default function FormButton({
 
   return (
     <button
+      type={buttonType}
       onClick={onClick}
       disabled={disabled}
       className={`${baseClasses} ${typeClasses[type]} ${sizeClasses[size]}`}

@@ -1,10 +1,13 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
 const execAsync = promisify(exec);
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
+  await requireAuthMiddleware(request);
+
   try {
     const { stdout } = await execAsync(appConfig.resourceMonitorScriptPath);
 

@@ -187,18 +187,16 @@ get_user_config() {
     print_success "Configuration completed."
 }
 
-# Function to generate nginx htpasswd file
 generate_htpasswd() {
     local admin_pass=$1
     
-    print_status "Generating nginx htpasswd file..."
+    print_status "Generating htpasswd file..."
     
-    # Create nginx conf directory if it doesn't exist
-    mkdir -p data/conf/nginx
+    mkdir -p data/auth
     
-    # Generate password hash and create htpasswd file
-    local pass_hash=$(openssl passwd -apr1 "$admin_pass")
-    echo "admin:$pass_hash" > data/conf/nginx/.htpasswd
+    # Generate SHA-512 hash using openssl
+    local pass_hash=$(openssl passwd -6 "$admin_pass")
+    echo "admin:$pass_hash" > data/auth/.htpasswd
     
     print_success "htpasswd file generated successfully."
 }
@@ -208,6 +206,10 @@ update_admin_config() {
     local domain=$1
     
     print_status "Updating admin app configuration files..."
+    
+    # Generate a random JWT secret
+    local jwt_secret=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
+    print_status "Generated JWT secret: ${jwt_secret:0:8}..."
     
     # Determine npm proxy enabled status
     local npm_enabled="false"
@@ -222,6 +224,8 @@ update_admin_config() {
         # Replace npm proxy enabled status
         sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
         sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
+        # Replace JWT secret
+        sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.json
     fi
     
     # Update config.build.json
@@ -231,9 +235,12 @@ update_admin_config() {
         # Replace npm proxy enabled status
         sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
         sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
+        # Replace JWT secret
+        sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.build.json
     fi
     
     print_success "Admin app configuration files updated successfully."
+    print_success "JWT secret generated and configured in both config files."
 }
 
 # Function to generate docker-compose.yml from template
@@ -512,7 +519,8 @@ show_usage() {
     echo "Prerequisites:"
     echo "  - Docker installed and running"
     echo "  - Built images in dist/ directory (run ./build.sh first)"
-    echo "  - openssl for password hashing"
+    echo "  - htpasswd command (apache2-utils package) for custom passwords"
+    echo "    Install with: sudo apt-get install apache2-utils"
 }
 
 # Function to update nginx configuration files with custom domain

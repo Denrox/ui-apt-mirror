@@ -19,33 +19,31 @@ async function ensureCacheDir() {
 
 function getCachePath(packagePath: string): string {
   const cleanPath = packagePath.replace(/^\/+/, '').replace(/\/+$/, '');
-  
-  // Check if this is a tarball request (contains /-/)
+
   if (cleanPath.includes('/-/')) {
-    // For tarball requests, use a different cache structure
-    // e.g., glob/-/glob-11.0.3.tgz -> glob-tarballs/-/glob-11.0.3.tgz
     const parts = cleanPath.split('/');
     const packageName = parts[0];
     const tarballPath = parts.slice(1).join('/');
-    const cachePath = path.join(appConfig.npmPackagesDir, `${packageName}-tarballs`, tarballPath);
-    
+    const cachePath = path.join(
+      appConfig.npmPackagesDir,
+      `${packageName}-tarballs`,
+      tarballPath,
+    );
+
     const dir = path.dirname(cachePath);
-    console.log('Creating tarball directory:', dir);
     fs.mkdir(dir, { recursive: true }).catch((error) => {
       console.error('Failed to create tarball directory:', dir, error);
     });
-    
+
     return cachePath;
   } else {
-    // For package metadata requests, use the original structure
     const cachePath = path.join(appConfig.npmPackagesDir, cleanPath);
-    
+
     const dir = path.dirname(cachePath);
-    console.log('Creating metadata directory:', dir);
     fs.mkdir(dir, { recursive: true }).catch((error) => {
       console.error('Failed to create metadata directory:', dir, error);
     });
-    
+
     return cachePath;
   }
 }
@@ -117,7 +115,6 @@ async function fetchFromNpm(
             data = Buffer.from(zlib.gunzipSync(data));
           } catch (error) {
             console.error('Failed to decompress gzip data:', error);
-            // If decompression fails, reject the promise instead of continuing with compressed data
             reject(new Error('Failed to decompress gzip data'));
             return;
           }
@@ -126,7 +123,6 @@ async function fetchFromNpm(
             data = Buffer.from(zlib.inflateSync(data));
           } catch (error) {
             console.error('Failed to decompress deflate data:', error);
-            // If decompression fails, reject the promise instead of continuing with compressed data
             reject(new Error('Failed to decompress deflate data'));
             return;
           }
@@ -235,20 +231,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       status: 404,
       headers: {
         'Content-Type': 'text/plain',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
-  }
-
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
-        'Access-Control-Allow-Headers':
-          'Content-Type, Authorization, X-Requested-With, X-NPM-Auth-Token, X-NPM-Session, X-NPM-OTP',
-        'Access-Control-Max-Age': '86400',
       },
     });
   }
@@ -266,7 +248,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     let data: Buffer;
     let headers: Record<string, string>;
-
 
     if (isPackageCached) {
       const cached = await loadFromCache(cachePath);
@@ -289,10 +270,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       'Content-Length': data.length.toString(),
       'X-Cache': headers['x-cache'] || 'UNKNOWN',
       'X-Cached-At': headers['x-cached-at'] || '',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
-      'Access-Control-Allow-Headers':
-        'Content-Type, Authorization, X-Requested-With',
     };
 
     const excludeHeaders = [
@@ -318,7 +295,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       status: 500,
       headers: {
         'Content-Type': 'text/plain',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   }
@@ -341,20 +317,6 @@ export async function action({ request }: ActionFunctionArgs) {
       status: 404,
       headers: {
         'Content-Type': 'text/plain',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
-  }
-
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
-        'Access-Control-Allow-Headers':
-          'Content-Type, Authorization, X-Requested-With, X-NPM-Auth-Token, X-NPM-Session, X-NPM-OTP',
-        'Access-Control-Max-Age': '86400',
       },
     });
   }
@@ -451,12 +413,6 @@ export async function action({ request }: ActionFunctionArgs) {
 
           responseHeaders['content-length'] = data.length.toString();
 
-          responseHeaders['Access-Control-Allow-Origin'] = '*';
-          responseHeaders['Access-Control-Allow-Methods'] =
-            'GET, POST, OPTIONS, HEAD';
-          responseHeaders['Access-Control-Allow-Headers'] =
-            'Content-Type, Authorization, X-Requested-With';
-
           const response = new Response(new Uint8Array(data), {
             status: res.statusCode || 200,
             headers: responseHeaders,
@@ -473,7 +429,6 @@ export async function action({ request }: ActionFunctionArgs) {
             status: 500,
             headers: {
               'Content-Type': 'text/plain',
-              'Access-Control-Allow-Origin': '*',
             },
           }),
         );
@@ -486,7 +441,6 @@ export async function action({ request }: ActionFunctionArgs) {
             status: 408,
             headers: {
               'Content-Type': 'text/plain',
-              'Access-Control-Allow-Origin': '*',
             },
           }),
         );
@@ -513,7 +467,6 @@ export async function action({ request }: ActionFunctionArgs) {
       status: 500,
       headers: {
         'Content-Type': 'text/plain',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   }

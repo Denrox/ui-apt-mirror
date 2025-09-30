@@ -9,6 +9,8 @@
   "mirrorListPath": "/etc/apt/mirror.list",
   "startMirrorScriptPath": "/usr/local/bin/start-mirror.sh",
   "stopMirrorScriptPath": "/usr/local/bin/stop-mirror.sh",
+  "htpasswdPath": "/var/auth/.htpasswd",
+  "jwtSecret": "your-secret-key-change-in-production",
   "isNpmProxyEnabled": true,
   "hosts": [
     { "id": "mirror", "address": "mirror.intra", "name": "APT Mirror", "description": "APT Mirror" },

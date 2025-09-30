@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
 interface FileItem {
   name: string;
@@ -63,6 +64,8 @@ function isPathAllowed(requestedPath: string): boolean {
 }
 
 export async function loader({ request }: { request: Request }) {
+  await requireAuthMiddleware(request);
+
   const url = new URL(request.url);
   const searchParams = url.searchParams;
   const rootPath = appConfig.filesDir;

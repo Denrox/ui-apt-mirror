@@ -13,7 +13,7 @@ services:
       - ./data/conf/nginx/sites-available/admin.mirror.intra.conf:/etc/nginx/sites-available/admin.mirror.intra.conf
       - ./data/conf/nginx/sites-available/files.mirror.intra.conf:/etc/nginx/sites-available/files.mirror.intra.conf
       - ./data/conf/nginx/sites-available/npm.mirror.intra.conf:/etc/nginx/sites-available/npm.mirror.intra.conf
-      - ./data/conf/nginx/.htpasswd:/etc/nginx/.htpasswd
+      - ./data/auth:/var/auth
       - ./data/logs/nginx:/var/log/nginx
       - ./data/data/files:/var/www/files
       - ./data/data/npm:/var/www/npm
