@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useLoaderData, useActionData, useRevalidator, useSubmit } from 'react-router';
+import {
+  useLoaderData,
+  useActionData,
+  useRevalidator,
+  useSubmit,
+} from 'react-router';
 import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
@@ -13,27 +18,36 @@ import { loader } from './loader';
 import { action } from './actions';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faUser, faUserPlus, faTrash, faEdit } from '@fortawesome/free-solid-svg-icons';
+import {
+  faUser,
+  faUserPlus,
+  faTrash,
+  faEdit,
+} from '@fortawesome/free-solid-svg-icons';
 
 export { loader, action };
 
 export function meta() {
   return [
-    { title: 'Users' },
-    { name: 'description', content: 'User list for apt-mirror2' },
+    { title: 'Settings' },
+    {
+      name: 'description',
+      content: 'User settings and management for apt-mirror2',
+    },
   ];
 }
 
 export default function Users() {
-  const { users, currentUser, error } = useLoaderData<typeof loader>();
+  const { users, currentUser, isAdmin, error } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const revalidator = useRevalidator();
   const submit = useSubmit();
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [userToChangePassword, setUserToChangePassword] = useState<string | null>(null);
-
+  const [userToChangePassword, setUserToChangePassword] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     if (actionData?.success) {
@@ -70,7 +84,7 @@ export default function Users() {
     try {
       await submit(
         { intent: 'deleteUser', username: userToDelete },
-        { action: '/users', method: 'post' }
+        { action: '/users', method: 'post' },
       );
       setUserToDelete(null);
       setIsDeleting(false);
@@ -98,15 +112,17 @@ export default function Users() {
     <PageLayoutFull>
       <div className="flex items-center justify-between mb-4 px-[12px]">
         <div className="flex items-center gap-4">
-          <Title title="Users" />
-          <div className="hidden md:block">
-            <FormButton
-              type="secondary"
-              onClick={() => setIsAddUserModalOpen(true)}
-            >
-              <FontAwesomeIcon icon={faUserPlus} /> Add User
-            </FormButton>
-          </div>
+          <Title title={isAdmin ? 'Users' : 'Settings'} />
+          {isAdmin && (
+            <div className="hidden md:block">
+              <FormButton
+                type="secondary"
+                onClick={() => setIsAddUserModalOpen(true)}
+              >
+                <FontAwesomeIcon icon={faUserPlus} /> Add User
+              </FormButton>
+            </div>
+          )}
         </div>
       </div>
 
@@ -120,14 +136,19 @@ export default function Users() {
 
           <div className="border border-gray-200 rounded-md">
             {users.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">No users found</div>
+              <div className="p-4 text-center text-gray-500">
+                No users found
+              </div>
             ) : (
               <TableWrapper>
                 {users.map((user) => (
                   <TableRow
                     key={user.username}
                     icon={
-                      <FontAwesomeIcon icon={faUser} className="text-gray-600" />
+                      <FontAwesomeIcon
+                        icon={faUser}
+                        className="text-gray-600"
+                      />
                     }
                     title={
                       <div className="flex align-center font-medium">
@@ -139,12 +160,14 @@ export default function Users() {
                         <FormButton
                           type="secondary"
                           size="small"
-                          onClick={() => handleChangePasswordClick(user.username)}
+                          onClick={() =>
+                            handleChangePasswordClick(user.username)
+                          }
                           disabled={isDeleting}
                         >
                           <FontAwesomeIcon icon={faEdit} />
                         </FormButton>
-                        {user.username !== 'admin' && (
+                        {isAdmin && user.username !== 'admin' && (
                           <FormButton
                             type="secondary"
                             size="small"
@@ -164,19 +187,23 @@ export default function Users() {
         </div>
       </ContentBlock>
 
-      <AddUserModal
-        isOpen={isAddUserModalOpen}
-        onClose={() => setIsAddUserModalOpen(false)}
-        onSuccess={handleAddUserSuccess}
-      />
+      {isAdmin && (
+        <AddUserModal
+          isOpen={isAddUserModalOpen}
+          onClose={() => setIsAddUserModalOpen(false)}
+          onSuccess={handleAddUserSuccess}
+        />
+      )}
 
-      <DeleteUserModal
-        isOpen={!!userToDelete}
-        username={userToDelete || ''}
-        onClose={handleDeleteCancel}
-        onConfirm={handleDeleteConfirm}
-        isDeleting={isDeleting}
-      />
+      {isAdmin && (
+        <DeleteUserModal
+          isOpen={!!userToDelete}
+          username={userToDelete || ''}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          isDeleting={isDeleting}
+        />
+      )}
 
       <ChangePasswordModal
         isOpen={!!userToChangePassword}

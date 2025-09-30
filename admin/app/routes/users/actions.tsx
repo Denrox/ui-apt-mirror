@@ -13,23 +13,36 @@ export async function action({ request }: { request: Request }) {
     });
   }
 
-  if (user.username !== 'admin') {
-    return { success: false, error: 'Only admin can add users' };
-  }
-
   const formData = await request.formData();
   const intent = formData.get('intent') as string;
+
+  // Check if user is admin for admin-only actions
+  const isAdmin = user.username === 'admin';
 
   if (intent === 'changePassword') {
     const username = formData.get('username') as string;
     const newPassword = formData.get('newPassword') as string;
 
     if (!username || !newPassword) {
-      return { success: false, error: 'Username and new password are required' };
+      return {
+        success: false,
+        error: 'Username and new password are required',
+      };
+    }
+
+    // Non-admin users can only change their own password
+    if (!isAdmin && username !== user.username) {
+      return {
+        success: false,
+        error: 'You can only change your own password',
+      };
     }
 
     if (newPassword.length < 4) {
-      return { success: false, error: 'Password must be at least 4 characters long' };
+      return {
+        success: false,
+        error: 'Password must be at least 4 characters long',
+      };
     }
 
     try {
@@ -40,7 +53,7 @@ export async function action({ request }: { request: Request }) {
       const escapedPassword = newPassword.replace(/'/g, "'\\''");
       const passwordHash = execSync(
         `printf '%s' '${escapedPassword}' | openssl passwd -6 -stdin`,
-        { encoding: 'utf-8' }
+        { encoding: 'utf-8' },
       ).trim();
 
       let userFound = false;
@@ -67,7 +80,10 @@ export async function action({ request }: { request: Request }) {
       const { writeFileSync } = await import('fs');
       writeFileSync(htpasswdPath, updatedLines.join('\n'));
 
-      return { success: true, message: `Password changed successfully for ${username}` };
+      return {
+        success: true,
+        message: `Password changed successfully for ${username}`,
+      };
     } catch (error) {
       console.error('Error changing password:', error);
       return { success: false, error: 'Failed to change password' };
@@ -75,6 +91,10 @@ export async function action({ request }: { request: Request }) {
   }
 
   if (intent === 'deleteUser') {
+    if (!isAdmin) {
+      return { success: false, error: 'Only admin can delete users' };
+    }
+
     const username = formData.get('username') as string;
 
     if (!username) {
@@ -93,7 +113,7 @@ export async function action({ request }: { request: Request }) {
       const filteredLines = lines.filter((line) => {
         if (!line.trim() || line.startsWith('#')) return true;
         if (!line.includes(':')) return true;
-        
+
         const colonIndex = line.indexOf(':');
         const existingUsername = line.substring(0, colonIndex);
         return existingUsername !== username;
@@ -102,7 +122,10 @@ export async function action({ request }: { request: Request }) {
       const { writeFileSync } = await import('fs');
       writeFileSync(htpasswdPath, filteredLines.join('\n'));
 
-      return { success: true, message: `User ${username} deleted successfully` };
+      return {
+        success: true,
+        message: `User ${username} deleted successfully`,
+      };
     } catch (error) {
       console.error('Error deleting user:', error);
       return { success: false, error: 'Failed to delete user' };
@@ -110,6 +133,10 @@ export async function action({ request }: { request: Request }) {
   }
 
   if (intent === 'addUser') {
+    if (!isAdmin) {
+      return { success: false, error: 'Only admin can add users' };
+    }
+
     const username = formData.get('username') as string;
     const password = formData.get('password') as string;
 
@@ -120,7 +147,8 @@ export async function action({ request }: { request: Request }) {
     if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
       return {
         success: false,
-        error: 'Username can only contain letters, numbers, hyphens, and underscores',
+        error:
+          'Username can only contain letters, numbers, hyphens, and underscores',
       };
     }
 
@@ -143,12 +171,15 @@ export async function action({ request }: { request: Request }) {
       const escapedPassword = password.replace(/'/g, "'\\''");
       const passwordHash = execSync(
         `printf '%s' '${escapedPassword}' | openssl passwd -6 -stdin`,
-        { encoding: 'utf-8' }
+        { encoding: 'utf-8' },
       ).trim();
 
       appendFileSync(htpasswdPath, `${username}:${passwordHash}\n`);
 
-      return { success: true, message: `User ${username} created successfully` };
+      return {
+        success: true,
+        message: `User ${username} created successfully`,
+      };
     } catch (error) {
       console.error('Error creating user:', error);
       return { success: false, error: 'Failed to create user' };

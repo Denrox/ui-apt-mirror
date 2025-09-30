@@ -48,7 +48,7 @@ export default function ChangePasswordModal({
     try {
       await submit(
         { intent: 'changePassword', username, newPassword },
-        { action: '/users', method: 'post' }
+        { action: '/users', method: 'post' },
       );
 
       setNewPassword('');
@@ -76,7 +76,11 @@ export default function ChangePasswordModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={`Change Password for ${username}`}>
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={`Change Password for ${username}`}
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 bg-red-100 text-red-700 rounded-md text-sm">
@@ -117,7 +121,9 @@ export default function ChangePasswordModal({
           <FormButton
             type="primary"
             buttonType="submit"
-            disabled={!newPassword.trim() || !confirmPassword.trim() || isSubmitting}
+            disabled={
+              !newPassword.trim() || !confirmPassword.trim() || isSubmitting
+            }
           >
             {isSubmitting ? 'Changing...' : 'Change Password'}
           </FormButton>
@@ -126,4 +132,3 @@ export default function ChangePasswordModal({
     </Modal>
   );
 }
-

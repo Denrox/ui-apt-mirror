@@ -18,7 +18,9 @@ export default function TableRow({
   cursorClass,
 }: TableRowProps) {
   return (
-    <div className={`flex w-auto items-center justify-between p-3 hover:bg-gray-50 ${className}`}>
+    <div
+      className={`flex w-auto items-center justify-between p-3 hover:bg-gray-50 ${className}`}
+    >
       <div
         onClick={onClick}
         className={`flex items-center gap-2 ${cursorClass || ''}`}

@@ -23,27 +23,27 @@ export default function AddUserModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!username.trim() || !password.trim()) {
       return;
     }
 
     setIsSubmitting(true);
-    
+
     try {
       await submit(
         { intent: 'addUser', username, password },
-        { action: '/users', method: 'post' }
+        { action: '/users', method: 'post' },
       );
-      
+
       setUsername('');
       setPassword('');
       setIsSubmitting(false);
-      
+
       if (onSuccess) {
         onSuccess();
       }
-      
+
       onClose();
     } catch (error) {
       console.error('Error adding user:', error);

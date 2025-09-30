@@ -548,7 +548,9 @@ export default function FileManager() {
                     metadata={
                       <>
                         <div className="text-sm text-gray-500 text-right w-[96px] flex-shrink-0">
-                          {item.isDirectory ? '' : formatFileSize(item.size ?? 0)}
+                          {item.isDirectory
+                            ? ''
+                            : formatFileSize(item.size ?? 0)}
                         </div>
                         <div className="text-sm text-gray-500 w-[120px] flex-shrink-0">
                           {item.modified && formatDate(item.modified)}

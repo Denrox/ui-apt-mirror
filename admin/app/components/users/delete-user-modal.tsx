@@ -25,18 +25,10 @@ export default function DeleteUserModal({
         <p className="text-gray-600 text-sm">This action cannot be undone.</p>
 
         <div className="flex justify-end gap-2 mt-6">
-          <FormButton
-            type="secondary"
-            onClick={onClose}
-            disabled={isDeleting}
-          >
+          <FormButton type="secondary" onClick={onClose} disabled={isDeleting}>
             Cancel
           </FormButton>
-          <FormButton
-            type="primary"
-            onClick={onConfirm}
-            disabled={isDeleting}
-          >
+          <FormButton type="primary" onClick={onConfirm} disabled={isDeleting}>
             {isDeleting ? 'Deleting...' : 'Delete'}
           </FormButton>
         </div>

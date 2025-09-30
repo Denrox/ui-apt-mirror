@@ -2,7 +2,7 @@ import { Link, useLocation, useSubmit } from 'react-router';
 import classNames from 'classnames';
 import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSignOutAlt } from '@fortawesome/free-solid-svg-icons';
+import { faSignOutAlt, faUser } from '@fortawesome/free-solid-svg-icons';
 
 export default function Header() {
   const location = useLocation();
@@ -40,12 +40,14 @@ export default function Header() {
     },
     {
       to: '/users',
-      label: 'Users',
+      label: 'Settings',
       isActive: location.pathname === '/users',
     },
   ];
 
   const navLinkClasses =
+    'text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold';
+  const navLinkClassesWithMinWidth =
     'text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold';
   const activeLinkClasses =
     'border-b-2 border-gray-300 text-gray-800 bg-gray-200';
@@ -58,24 +60,36 @@ export default function Header() {
         </div>
         {/* Desktop Navigation - Hidden on screens below 1024px */}
         <div className="hidden h-full lg:flex flex-row items-center justify-center">
-          {navItems.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={classNames(navLinkClasses, {
-                [activeLinkClasses]: item.isActive,
-              })}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {navItems.map((item) => {
+            // Show icon for users/settings, text for others
+            const isUserSettings = item.to === '/users';
+
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={classNames(
+                  isUserSettings ? navLinkClasses : navLinkClassesWithMinWidth,
+                  {
+                    [activeLinkClasses]: item.isActive,
+                  },
+                )}
+                title={item.label}
+              >
+                {isUserSettings ? (
+                  <FontAwesomeIcon icon={faUser} className="text-[18px]" />
+                ) : (
+                  item.label
+                )}
+              </Link>
+            );
+          })}
           <button
             onClick={handleLogout}
-            className="text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] min-w-[152px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold cursor-pointer"
+            className="text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold cursor-pointer"
             title="Logout"
           >
-            <FontAwesomeIcon icon={faSignOutAlt} className="mr-2" />
-            Logout
+            <FontAwesomeIcon icon={faSignOutAlt} className="text-[18px]" />
           </button>
         </div>
 

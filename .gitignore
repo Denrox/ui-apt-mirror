@@ -9,7 +9,6 @@ data/logs/apt-mirror/*
 !data/logs/apt-mirror/.gitkeep
 data/logs/nginx/*
 !data/logs/nginx/.gitkeep
-data/conf/nginx/.htpasswd
 dist/*
 !dist/.gitkeep
 .scannerwork

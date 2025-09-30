@@ -12,26 +12,39 @@ export async function loader({ request }: { request: Request }) {
     });
   }
 
-  if (user.username !== 'admin') {
-    throw new Response('Forbidden', { status: 403 });
-  }
-
   try {
     const htpasswdPath = appConfig.htpasswdPath;
     const htpasswdContent = readFileSync(htpasswdPath, 'utf-8');
     const lines = htpasswdContent.split('\n').filter((line) => line.trim());
 
-    const users = lines
-      .filter((line) => !line.startsWith('#') && line.includes(':'))
-      .map((line) => {
-        const colonIndex = line.indexOf(':');
-        const username = line.substring(0, colonIndex);
-        return { username };
-      });
+    let users;
 
-    return { users, currentUser: user.username };
+    if (user.username === 'admin') {
+      // Admin can see all users
+      users = lines
+        .filter((line) => !line.startsWith('#') && line.includes(':'))
+        .map((line) => {
+          const colonIndex = line.indexOf(':');
+          const username = line.substring(0, colonIndex);
+          return { username };
+        });
+    } else {
+      // Non-admin users can only see themselves
+      users = [{ username: user.username }];
+    }
+
+    return {
+      users,
+      currentUser: user.username,
+      isAdmin: user.username === 'admin',
+    };
   } catch (error) {
     console.error('Error reading users:', error);
-    return { users: [], currentUser: user.username, error: 'Failed to load users' };
+    return {
+      users: [],
+      currentUser: user.username,
+      isAdmin: user.username === 'admin',
+      error: 'Failed to load users',
+    };
   }
 }

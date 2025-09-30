@@ -29,25 +29,28 @@ export function validateCredentials(
 
       for (const line of lines) {
         if (line.startsWith('#')) continue;
-        
+
         const colonIndex = line.indexOf(':');
         if (colonIndex === -1) continue;
-        
+
         const username = line.substring(0, colonIndex);
         const hash = line.substring(colonIndex + 1);
-        
+
         if (username === credentials.username) {
           if (hash.startsWith('$6$')) {
             try {
               const parts = hash.split('$');
               if (parts.length === 4) {
                 const salt = parts[2];
-                const escapedPassword = credentials.password.replace(/'/g, "'\\''");
+                const escapedPassword = credentials.password.replace(
+                  /'/g,
+                  "'\\''",
+                );
                 const result = execSync(
                   `printf '%s' '${escapedPassword}' | openssl passwd -6 -stdin -salt '${salt}'`,
-                  { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
+                  { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] },
                 ).trim();
-                
+
                 resolve(result === hash);
                 return;
               }
