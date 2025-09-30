@@ -84,7 +84,7 @@ The script will:
 ### Admin Panel (admin.mirror.intra)
 
 - **URL**: `http://admin.mirror.intra`
-- **Authentication**: Basic auth (admin/password)
+- **Authentication**: Auth (username/password)
 - **Features**:
   - Mirror status monitoring
   - Log viewing
