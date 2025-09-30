@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { execSync } from 'child_process';
 import { readFileSync } from 'fs';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
@@ -28,17 +28,32 @@ export function validateCredentials(
       const lines = htpasswdContent.split('\n').filter((line) => line.trim());
 
       for (const line of lines) {
-        const [username, hash] = line.split(':');
+        if (line.startsWith('#')) continue;
+        
+        const colonIndex = line.indexOf(':');
+        if (colonIndex === -1) continue;
+        
+        const username = line.substring(0, colonIndex);
+        const hash = line.substring(colonIndex + 1);
+        
         if (username === credentials.username) {
           if (hash.startsWith('$6$')) {
-            const parts = hash.split('$');
-            if (parts.length === 4) {
-              const salt = parts[2];
-              const storedHash = parts[3];
-              
-              const expectedHash = createHash('sha512').update(credentials.password + salt).digest('base64');
-              
-              resolve(storedHash === expectedHash);
+            try {
+              const parts = hash.split('$');
+              if (parts.length === 4) {
+                const salt = parts[2];
+                const escapedPassword = credentials.password.replace(/'/g, "'\\''");
+                const result = execSync(
+                  `printf '%s' '${escapedPassword}' | openssl passwd -6 -stdin -salt '${salt}'`,
+                  { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }
+                ).trim();
+                
+                resolve(result === hash);
+                return;
+              }
+            } catch (error) {
+              console.error('Error validating password with openssl:', error);
+              resolve(false);
               return;
             }
           }

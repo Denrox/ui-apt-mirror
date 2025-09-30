@@ -2,19 +2,19 @@ import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+import path from "path";
 
 export default defineConfig({
   plugins: [tailwindcss(), reactRouter(), tsconfigPaths()],
-  build: {
-    rollupOptions: {
-      external: (id) => {
-        if (id.includes('server-auth')) return true;
-        if (id === 'jsonwebtoken') return true;
-        return false;
-      }
-    }
+  resolve: {
+    alias: {
+      "~": path.resolve(__dirname, "./app"),
+    },
   },
   ssr: {
-    noExternal: ['jsonwebtoken']
+    resolve: {
+      externalConditions: ['node'],
+    },
+    target: 'node',
   }
 });
