@@ -83,11 +83,13 @@ The script will:
 ### NPM Proxy (npm.mirror.intra) - Optional
 
 - **URL**: `http://npm.mirror.intra`
-- **Purpose**: Local npm package registry cache
+- **Purpose**: Local npm package registry cache and private package hosting
 - **Features**:
   - Caches npm packages locally for faster installs
   - Reduces bandwidth usage
   - Transparent proxy to npmjs.org
+  - Private package publishing (requires authentication)
+  - Private packages stored separately and never forwarded to npmjs.org
 
 ## Usage
 
@@ -141,6 +143,50 @@ The npm proxy will:
 - Cache packages locally on first download
 - Serve cached packages for subsequent requests
 - Automatically fetch from npmjs.org if not cached
+
+### Publishing NPM Packages
+
+The npm proxy supports publishing private packages using standard npm commands.
+
+#### Authentication
+
+**Method 1: Using npm login (recommended)**
+
+For npm 9.x+, use the `--auth-type=legacy` flag:
+
+```bash
+npm login --registry=http://npm.mirror.intra --auth-type=legacy
+# Enter your username and password when prompted
+npm whoami --registry=http://npm.mirror.intra
+```
+
+**Method 2: Manual token configuration**
+
+If `npm login` doesn't work, you can manually obtain and configure the token:
+
+```bash
+TOKEN=$(curl -X PUT http://npm.mirror.intra/-/user/org.couchdb.user:admin \
+  -H "Content-Type: application/json" \
+  -d '{"name": "admin", "password": "your-password"}' \
+  | jq -r .token)
+echo "//npm.mirror.intra/:_authToken=$TOKEN" >> ~/.npmrc
+npm whoami --registry=http://npm.mirror.intra
+```
+
+#### Publishing Packages
+
+Once authenticated, publish packages normally:
+
+```bash
+npm publish
+```
+
+**Important Notes:**
+- All published packages are treated as private packages
+- Private packages are stored in `data/data/npm/private/`
+- Published packages are **NOT** forwarded to npmjs.org
+- Private packages take precedence over cached public packages
+- Authentication tokens for npm are JWT-based and valid for 1 year
 
 ### File Hosting
 
