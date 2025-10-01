@@ -171,25 +171,41 @@ The upgrade script will:
 ```
 ui-apt-mirror/
 ├── build.sh                 # Build script for Docker images
-├── setup.sh               # Deployment and configuration script
-├── upgrade.sh             # Upgrade script for latest version
-├── README.md               # This file
-├── .env                    # Configuration file (generated)
-├── docker-compose.src.yml  # Docker Compose template
-├── docker-compose.yml      # Generated Docker Compose file
-├── dist/                   # Built Docker images
+├── setup.sh                 # Deployment and configuration script
+├── start.sh                 # Start the container
+├── upgrade.sh               # Upgrade script for latest version
+├── README.md                # This file
+├── .env                     # Configuration file (generated)
+├── docker-compose.src.yml   # Docker Compose template
+├── docker-compose.yml       # Generated Docker Compose file
+├── Dockerfile               # Multi-stage Docker build
+├── entrypoint.sh            # Container startup script
+├── admin/                   # Admin panel React application source
+│   ├── app/                 # React Router application
+│   ├── build/               # Built admin panel assets
+│   ├── package.json         # Node.js dependencies
+│   └── vite.config.ts       # Vite build configuration
+├── scripts/                 # Service scripts
+│   ├── health-check.sh      # System health monitoring
+│   ├── mirror-sync.sh       # APT mirror synchronization
+│   ├── resource-monitor.sh  # Resource usage monitoring
+│   ├── start-mirror.sh      # Start mirror services
+│   └── stop-mirror.sh       # Stop mirror services
+├── dist/                    # Built Docker images
 │   ├── ui-apt-mirror-amd64.tar.gz
 │   └── ui-apt-mirror-arm64.tar.gz
-├── Dockerfile              # Multi-stage Docker build
-├── entrypoint.sh           # Container startup script
-├── scripts/                # Service scripts
-└── data/                   # Persistent data and configuration
-    ├── data/apt-mirror/    # APT mirror data
-    ├── data/files/         # File hosting data
-    ├── logs/apt-mirror/    # Application logs
-    ├── logs/nginx/         # Nginx logs
-    ├── conf/apt-mirror/    # APT mirror configuration
-    └── conf/nginx/         # Nginx configurations
+└── data/                    # Persistent data and configuration
+    ├── auth/                # User authentication data
+    ├── conf/                # Configuration files
+    │   ├── apt-mirror/      # APT mirror configuration
+    │   └── nginx/           # Nginx configurations
+    ├── data/                # Application data
+    │   ├── apt-mirror/      # APT mirror package data
+    │   ├── files/           # File hosting data
+    │   └── npm/             # NPM cache data
+    └── logs/                # Log files
+        ├── apt-mirror/      # APT mirror logs
+        └── nginx/           # Nginx logs
 ```
 
 ## License
