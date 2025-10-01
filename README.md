@@ -24,23 +24,6 @@ A containerized APT mirror solution with a web interface. This project provides 
 - Linux system
 - Complete Mirroring apt repos usually requires a lot of disk space (> 500G) 
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                              UI APT Mirror Container                                │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                  │
-│  │   nginx          │  │ apt-mirror2      │  │ health-check     │                  │
-│  │   (web)          │  │   (sync)         │  │  (monitor)       │                  │
-│  │                  │  │  (Python)        │  │                  │                  │
-│  └──────────────────┘  └──────────────────┘  └──────────────────┘                  │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│  mirror.intra  │  admin.mirror.intra  │  files.mirror.intra │  npm.mirror.intra │
-│  (packages)    │     (admin panel)    │   (file hosting)    │  (npm cache)      │
-└─────────────────────────────────────────────────────────────────────────────────────┘
-```
-
 ## Installation
 
 ### 1. Build the Images
@@ -200,10 +183,6 @@ ui-apt-mirror/
 ├── Dockerfile              # Multi-stage Docker build
 ├── entrypoint.sh           # Container startup script
 ├── scripts/                # Service scripts
-└── web/                    # Web content
-    ├── mirror.intra/
-    ├── admin.mirror.intra/
-    └── files.mirror.intra/
 └── data/                   # Persistent data and configuration
     ├── data/apt-mirror/    # APT mirror data
     ├── data/files/         # File hosting data
@@ -215,7 +194,7 @@ ui-apt-mirror/
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License.
 
 ## Acknowledgments
 
