@@ -74,7 +74,9 @@ export default function Documentation() {
 │   ├── files/                   # Custom file repository${
               appConfig.isNpmProxyEnabled
                 ? `
-│   └── npm/                     # NPM package cache`
+│   └── npm/                     # NPM packages
+│       ├── private/             # Private published packages
+│       └── public/              # Cached public packages from npmjs.org`
                 : ''
             }
 └── logs/
@@ -108,7 +110,7 @@ export default function Documentation() {
               Main data storage directory. apt-mirror/ contains downloaded
               package repositories, files/ contains custom file repository
               {appConfig.isNpmProxyEnabled
-                ? ', npm/ contains cached npm packages'
+                ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}
               .
             </p>
@@ -396,6 +398,7 @@ export default function Documentation() {
               <h5 className="font-semibold mb-2">Important Notes:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>All published packages are private and stored in data/npm/private/</li>
+                <li>Public packages (cached from npmjs.org) are stored in data/npm/public/</li>
                 <li>Published packages are never forwarded to npmjs.org</li>
                 <li>Private packages take precedence over cached public packages</li>
                 <li>Authentication tokens are JWT-based and valid for 1 year</li>
@@ -408,13 +411,13 @@ export default function Documentation() {
           <h3 className="text-lg font-semibold mb-4">File Management</h3>
           <div className="bg-gray-50 p-4 rounded-lg">
             <p className="text-gray-700 mb-3">
-              Cached npm packages are stored in the data/npm/ directory and private packages in data/npm/private/. Both can be viewed and managed through the File Manager.
+              NPM packages are organized in the data/npm/ directory: public packages (cached from npmjs.org) in data/npm/public/ and private packages (published locally) in data/npm/private/. Both can be viewed and managed through the File Manager.
             </p>
             <div className="bg-white p-3 rounded border-l-4 border-indigo-300">
               <h5 className="font-semibold mb-2">Access:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>Admin UI → File Manager → NPM Packages view</li>
-                <li>Browse cached and private packages by name</li>
+                <li>Browse cached public and private packages by name</li>
                 <li>View package metadata and tarballs</li>
                 <li>Monitor cache usage and growth</li>
               </ul>

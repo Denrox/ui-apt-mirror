@@ -14,11 +14,13 @@ import {
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org';
 const PRIVATE_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'private');
+const PUBLIC_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'public');
 
 async function ensureCacheDir() {
   try {
     await fs.mkdir(appConfig.npmPackagesDir, { recursive: true });
     await fs.mkdir(PRIVATE_PACKAGES_DIR, { recursive: true });
+    await fs.mkdir(PUBLIC_PACKAGES_DIR, { recursive: true });
   } catch (error) {
     console.error('Failed to create cache directory:', error);
   }
@@ -47,7 +49,7 @@ function getCachePath(packagePath: string): string {
     const packageName = parts[0];
     const tarballPath = parts.slice(1).join('/');
     const cachePath = path.join(
-      appConfig.npmPackagesDir,
+      PUBLIC_PACKAGES_DIR,
       `${packageName}-tarballs`,
       tarballPath,
     );
@@ -59,7 +61,7 @@ function getCachePath(packagePath: string): string {
 
     return cachePath;
   } else {
-    const cachePath = path.join(appConfig.npmPackagesDir, cleanPath);
+    const cachePath = path.join(PUBLIC_PACKAGES_DIR, cleanPath);
 
     const dir = path.dirname(cachePath);
     fs.mkdir(dir, { recursive: true }).catch((error) => {

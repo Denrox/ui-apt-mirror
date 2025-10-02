@@ -184,6 +184,7 @@ npm publish
 **Important Notes:**
 - All published packages are treated as private packages
 - Private packages are stored in `data/data/npm/private/`
+- Public packages (cached from npmjs.org) are stored in `data/data/npm/public/`
 - Published packages are **NOT** forwarded to npmjs.org
 - Private packages take precedence over cached public packages
 - Authentication tokens for npm are JWT-based and valid for 1 year
