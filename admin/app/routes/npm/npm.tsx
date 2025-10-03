@@ -124,13 +124,26 @@ async function fetchFromNpm(
 
     const req = client.request(options, (res) => {
       const chunks: Buffer[] = [];
-
       res.on('data', (chunk) => {
         chunks.push(chunk);
       });
 
       res.on('end', () => {
         let data = Buffer.concat(chunks);
+        
+        if (res.statusCode === 304) {
+          console.log(`304 Not Modified for ${packagePath} - using cached version`);
+          reject(new Error('304_NOT_MODIFIED'));
+          return;
+        }
+        
+        if (data.length === 0 && res.statusCode !== 304) {
+          console.error('Empty response received from npm registry for:', packagePath);
+          console.error('Response status:', res.statusCode);
+          reject(new Error(`Empty response from npm registry (status: ${res.statusCode})`));
+          return;
+        }
+        
         const headers: Record<string, string> = {};
 
         const contentEncoding = res.headers['content-encoding'];
@@ -150,6 +163,11 @@ async function fetchFromNpm(
             reject(new Error('Failed to decompress deflate data'));
             return;
           }
+        }
+
+        if (data.length === 0) {
+          reject(new Error('Empty response after decompression'));
+          return;
         }
 
         const relevantHeaders = [
@@ -193,6 +211,11 @@ async function saveToCache(
   headers: Record<string, string>,
 ) {
   try {
+    if (!data || data.length === 0) {
+      console.error('Attempted to save empty data to cache:', filePath);
+      return;
+    }
+
     await fs.writeFile(filePath, data);
 
     const metaPath = filePath + '.meta';
@@ -218,6 +241,10 @@ async function loadFromCache(
 ): Promise<{ data: Buffer; headers: Record<string, string> }> {
   try {
     const data = await fs.readFile(filePath);
+
+    if (!data || data.length === 0) {
+      throw new Error('Empty cached file');
+    }
 
     let headers: Record<string, string> = {};
     try {
@@ -346,17 +373,51 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       const isPackageCached = await isCached(cachePath);
 
       if (isPackageCached) {
-        const cached = await loadFromCache(cachePath);
-        data = cached.data;
-        headers = cached.headers;
+        try {
+          const cached = await loadFromCache(cachePath);
+          data = cached.data;
+          headers = cached.headers;
+        } catch (error) {
+          const fetched = await fetchFromNpm(packagePath, originalHeaders);
+          data = fetched.data;
+          headers = fetched.headers;
+
+          await saveToCache(cachePath, data, headers);
+
+          headers['x-cache'] = 'MISS';
+        }
       } else {
-        const fetched = await fetchFromNpm(packagePath, originalHeaders);
-        data = fetched.data;
-        headers = fetched.headers;
+        try {
+          const fetched = await fetchFromNpm(packagePath, originalHeaders);
+          data = fetched.data;
+          headers = fetched.headers;
 
-        await saveToCache(cachePath, data, headers);
+          await saveToCache(cachePath, data, headers);
 
-        headers['x-cache'] = 'MISS';
+          headers['x-cache'] = 'MISS';
+        } catch (error) {
+          if (error instanceof Error && error.message === '304_NOT_MODIFIED') {
+            // If we get 304, try to use cached version
+            try {
+              const cached = await loadFromCache(cachePath);
+              data = cached.data;
+              headers = cached.headers;
+              console.log('Using cached version due to 304 response');
+            } catch (cacheError) {
+              console.log('304 received but no cached version available, fetching fresh copy...');
+              // If no cache available, fetch without conditional headers
+              const freshFetched = await fetchFromNpm(packagePath, {});
+              data = freshFetched.data;
+              headers = freshFetched.headers;
+
+              await saveToCache(cachePath, data, headers);
+              headers['x-cache'] = 'MISS';
+              console.log('Fresh copy fetched and cached due to missing cache');
+            }
+          } else {
+            throw error;
+          }
+        }
       }
     }
 
