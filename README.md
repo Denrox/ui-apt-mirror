@@ -1,11 +1,12 @@
 # UI APT Mirror
 
-A containerized APT mirror solution with a web interface. This project provides a complete local Ubuntu / Debian package repository with an admin panel, file hosting capabilities, and optional npm package caching.
+A containerized APT mirror solution with a web interface. This project provides a complete local Ubuntu / Debian package repository with an admin panel, file hosting capabilities, optional npm package caching, and developer cheatsheets. Perfect for organizations that need to work in a totally offline environment while maintaining access to essential development resources.
 
 ## Features
 
 - **APT Mirror**: Local Ubuntu package repository with automatic synchronization using apt-mirror2 (Python/asyncio version) from PyPI
 - **NPM Proxy**: Optional local npm package registry cache for faster npm installs and reduced bandwidth usage
+- **Developer Cheatsheets**: Built-in command reference with tldr-pages integration for offline access to programming and system administration guides
 - **Web Interface**: web UI for all services
 - **Multi-Host Setup**: Four distinct web services:
   - `mirror.intra` - DEB packages repository
@@ -73,6 +74,7 @@ The script will:
   - Log viewing
   - Documentation
   - Files management
+  - Developer cheatsheets and command references
   - User management and settings
 
 ### File Repository (files.mirror.intra)
@@ -264,3 +266,4 @@ This project is licensed under the MIT License.
 - [apt-mirror2](https://gitlab.com/apt-mirror2/apt-mirror2) - The Python/asyncio APT mirroring tool from PyPI
 - [nginx](https://nginx.org/) - Web server
 - [skopeo](https://github.com/containers/skopeo) - For container image management
+- [tldr-pages](https://github.com/tldr-pages/tldr) - Collaborative cheatsheets for console commands used in the admin panel
