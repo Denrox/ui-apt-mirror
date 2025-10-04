@@ -74,7 +74,9 @@ export default function Documentation() {
 │   ├── files/                   # Custom file repository${
               appConfig.isNpmProxyEnabled
                 ? `
-│   └── npm/                     # NPM package cache`
+│   └── npm/                     # NPM packages
+│       ├── private/             # Private published packages
+│       └── public/              # Cached public packages from npmjs.org`
                 : ''
             }
 └── logs/
@@ -108,7 +110,7 @@ export default function Documentation() {
               Main data storage directory. apt-mirror/ contains downloaded
               package repositories, files/ contains custom file repository
               {appConfig.isNpmProxyEnabled
-                ? ', npm/ contains cached npm packages'
+                ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}
               .
             </p>
@@ -295,8 +297,9 @@ export default function Documentation() {
           <div className="bg-gray-50 p-4 rounded-lg">
             <p className="text-gray-700 mb-3">
               The NPM Proxy provides a local caching layer for npm packages,
-              speeding up installations and reducing bandwidth usage. It acts as
-              a transparent proxy to the official npm registry.
+              speeding up installations and reducing bandwidth usage. It also supports
+              publishing private packages that are stored locally and never forwarded
+              to the public npm registry.
             </p>
             <div className="bg-white p-3 rounded border-l-4 border-blue-300">
               <h5 className="font-semibold mb-2">Features:</h5>
@@ -305,6 +308,8 @@ export default function Documentation() {
                 <li>Automatic package metadata fetching</li>
                 <li>Bandwidth optimization for repeated installs</li>
                 <li>Offline package availability</li>
+                <li>Private package publishing (requires authentication)</li>
+                <li>Private packages stored separately and never forwarded to npmjs.org</li>
               </ul>
             </div>
           </div>
@@ -345,18 +350,74 @@ export default function Documentation() {
         </div>
 
         <div>
+          <h3 className="text-lg font-semibold mb-4">Publishing Private Packages</h3>
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <p className="text-gray-700 mb-3">
+              You can publish private npm packages to this registry. All packages are stored locally and never forwarded to npmjs.org.
+            </p>
+            
+            <div className="bg-white p-3 rounded border-l-4 border-green-400 mb-4">
+              <h5 className="font-semibold mb-2">Method 1: Using npm login</h5>
+              <p className="text-sm text-gray-600 mb-2">For npm 9.x+, use the --auth-type=legacy flag:</p>
+              <div className="space-y-2 text-sm">
+                <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+                  npm login --registry=http://npm.mirror.intra --auth-type=legacy
+                </div>
+                <p className="text-gray-600">Enter your username and password when prompted, then verify:</p>
+                <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+                  npm whoami --registry=http://npm.mirror.intra
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-3 rounded border-l-4 border-blue-400 mb-4">
+              <h5 className="font-semibold mb-2">Method 2: Manual token configuration</h5>
+              <p className="text-sm text-gray-600 mb-2">If npm login doesn't work, get a token manually:</p>
+              <div className="space-y-2 text-sm">
+                <div className="bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto">
+                  TOKEN=$(curl -X PUT http://npm.mirror.intra/-/user/org.couchdb.user:admin \<br />
+                  &nbsp;&nbsp;-H "Content-Type: application/json" \<br />
+                  &nbsp;&nbsp;-d '&#123;"name": "admin", "password": "your-password"&#125;' \<br />
+                  &nbsp;&nbsp;| jq -r .token)
+                </div>
+                <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+                  echo "//npm.mirror.intra/:_authToken=$TOKEN" &gt;&gt; ~/.npmrc
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-3 rounded border-l-4 border-purple-400 mb-4">
+              <h5 className="font-semibold mb-2">Publishing:</h5>
+              <p className="text-sm text-gray-600 mb-2">Once authenticated, publish normally:</p>
+              <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+                npm publish
+              </div>
+            </div>
+
+            <div className="bg-white p-3 rounded border-l-4 border-amber-400">
+              <h5 className="font-semibold mb-2">Important Notes:</h5>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>All published packages are private and stored in data/npm/private/</li>
+                <li>Public packages (cached from npmjs.org) are stored in data/npm/public/</li>
+                <li>Published packages are never forwarded to npmjs.org</li>
+                <li>Private packages take precedence over cached public packages</li>
+                <li>Authentication tokens are JWT-based and valid for 1 year</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div>
           <h3 className="text-lg font-semibold mb-4">File Management</h3>
           <div className="bg-gray-50 p-4 rounded-lg">
             <p className="text-gray-700 mb-3">
-              Cached npm packages are stored in the data/npm/ directory and can
-              be viewed and managed through the File Manager in the admin
-              interface.
+              NPM packages are organized in the data/npm/ directory: public packages (cached from npmjs.org) in data/npm/public/ and private packages (published locally) in data/npm/private/. Both can be viewed and managed through the File Manager.
             </p>
             <div className="bg-white p-3 rounded border-l-4 border-indigo-300">
               <h5 className="font-semibold mb-2">Access:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>Admin UI → File Manager → NPM Packages view</li>
-                <li>Browse cached packages by name</li>
+                <li>Browse cached public and private packages by name</li>
                 <li>View package metadata and tarballs</li>
                 <li>Monitor cache usage and growth</li>
               </ul>
