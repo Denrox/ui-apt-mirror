@@ -10,7 +10,7 @@ const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
 export interface AuthUser {
   username: string;
   exp: number;
-  type?: 'web' | 'npm'; // Token type
+  type?: 'web' | 'npm';
 }
 
 export interface LoginCredentials {
@@ -77,7 +77,7 @@ export function validateCredentials(
 export async function createAuthToken(username: string): Promise<string> {
   const payload: AuthUser = {
     username,
-    exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60, // 24 hours from now
+    exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
     type: 'web',
   };
 
@@ -87,7 +87,7 @@ export async function createAuthToken(username: string): Promise<string> {
 export async function createNpmAuthToken(username: string): Promise<string> {
   const payload: AuthUser = {
     username,
-    exp: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60, // 1 year from now (npm tokens are long-lived)
+    exp: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
     type: 'npm',
   };
 
@@ -144,8 +144,6 @@ export async function requireAuth(request: Request): Promise<AuthUser | null> {
   return await validateAuthToken(token);
 }
 
-// Validate NPM token (Bearer token from Authorization header)
 export async function validateNpmAuthToken(token: string): Promise<AuthUser | null> {
-  // NPM tokens are just JWT tokens, validate them the same way
   return await validateAuthToken(token);
 }

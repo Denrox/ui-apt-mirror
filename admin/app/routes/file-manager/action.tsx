@@ -731,7 +731,6 @@ export async function action({ request }: Route.ActionArgs): Promise<{
                       fileCount++;
                     }
                   } catch {
-                    // Skip items we can't stat
                   }
                 }
 

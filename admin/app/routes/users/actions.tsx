@@ -16,7 +16,6 @@ export async function action({ request }: { request: Request }) {
   const formData = await request.formData();
   const intent = formData.get('intent') as string;
 
-  // Check if user is admin for admin-only actions
   const isAdmin = user.username === 'admin';
 
   if (intent === 'changePassword') {
@@ -30,7 +29,6 @@ export async function action({ request }: { request: Request }) {
       };
     }
 
-    // Non-admin users can only change their own password
     if (!isAdmin && username !== user.username) {
       return {
         success: false,

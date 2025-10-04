@@ -10,6 +10,7 @@
   "startMirrorScriptPath": "/usr/local/bin/start-mirror.sh",
   "stopMirrorScriptPath": "/usr/local/bin/stop-mirror.sh",
   "htpasswdPath": "/var/auth/.htpasswd",
+  "cheatsheetsDir": "/var/www/cheatsheets",
   "jwtSecret": "your-secret-key-change-in-production",
   "isNpmProxyEnabled": true,
   "hosts": [

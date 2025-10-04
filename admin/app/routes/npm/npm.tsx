@@ -397,7 +397,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
           headers['x-cache'] = 'MISS';
         } catch (error) {
           if (error instanceof Error && error.message === '304_NOT_MODIFIED') {
-            // If we get 304, try to use cached version
             try {
               const cached = await loadFromCache(cachePath);
               data = cached.data;
@@ -405,7 +404,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
               console.log('Using cached version due to 304 response');
             } catch (cacheError) {
               console.log('304 received but no cached version available, fetching fresh copy...');
-              // If no cache available, fetch without conditional headers
               const freshFetched = await fetchFromNpm(packagePath, {});
               data = freshFetched.data;
               headers = freshFetched.headers;
