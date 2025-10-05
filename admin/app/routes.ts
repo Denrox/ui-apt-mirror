@@ -8,7 +8,7 @@ import {
 export default [
   route('login', 'routes/login/login.tsx'),
   route('logout', 'routes/logout.tsx'),
-  route('public-cheatsheets', 'routes/cheatsheets/cheatsheets.tsx'),
+  route('public-cheatsheets', 'routes/cheatsheets/public-cheatsheets.tsx'),
   layout('components/shared/layout/app-layout.tsx', [
     index('routes/home/home.tsx'),
     route('logs/:log', 'routes/logs/logs.tsx'),
