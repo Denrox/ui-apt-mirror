@@ -8,11 +8,12 @@ A containerized APT mirror solution with a web interface. This project provides 
 - **NPM Proxy**: Optional local npm package registry cache for faster npm installs and reduced bandwidth usage
 - **Developer Cheatsheets**: Built-in command reference with tldr-pages integration for offline access to programming and system administration guides
 - **Web Interface**: web UI for all services
-- **Multi-Host Setup**: Four distinct web services:
+- **Multi-Host Setup**: Five distinct web services:
   - `mirror.intra` - DEB packages repository
   - `admin.mirror.intra` - Admin panel with authentication
   - `files.mirror.intra` - File hosting service
   - `npm.mirror.intra` - NPM registry cache (optional)
+  - `cheatsheets.mirror.intra` - Public developer cheatsheets (no authentication)
 - **Advanced File Manager**: File upload/download, directory management, and container image downloads from Docker Hub and GCR
 - **Multi-Architecture Support**: Builds for both AMD64 and ARM64
 - **Easy Deployment**: Simple scripts for building and deployment
@@ -81,6 +82,17 @@ The script will:
 
 - **URL**: `http://files.mirror.intra`
 - **Purpose**: File hosting and sharing
+
+### Public Cheatsheets (cheatsheets.mirror.intra)
+
+- **URL**: `http://cheatsheets.mirror.intra`
+- **Authentication**: None (public access)
+- **Purpose**: Developer command references and cheatsheets
+- **Features**:
+  - Browse developer cheatsheets by category
+  - Search command references
+  - View detailed command examples
+  - Offline access to tldr-pages content
 
 ### NPM Proxy (npm.mirror.intra) - Optional
 

@@ -4,7 +4,11 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import appConfig from '~/config/config.json';
 
 export async function loader({ request, params }: { request: Request; params: { filename: string } }) {
-  await requireAuthMiddleware(request);
+  const isPublicRoute = request.url.includes('/public-cheatsheets');
+  
+  if (!isPublicRoute) {
+    await requireAuthMiddleware(request);
+  }
 
   try {
     const { filename } = params;

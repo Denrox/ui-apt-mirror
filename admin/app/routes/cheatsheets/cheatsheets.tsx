@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { useLoaderData, useSubmit, useRevalidator } from 'react-router';
+import { useLoaderData, useSubmit, useRevalidator, useLocation } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileAlt, faTags, faSearch, faEye, faTrash, faSync, faTimes } from '@fortawesome/free-solid-svg-icons';
 import Title from '~/components/shared/title/title';
@@ -44,6 +44,8 @@ export default function Cheatsheets() {
   const { files, categories, error } = useLoaderData<typeof loader>();
   const submit = useSubmit();
   const revalidator = useRevalidator();
+  const location = useLocation();
+  const isPublicRoute = location.pathname === '/public-cheatsheets';
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -172,23 +174,25 @@ export default function Cheatsheets() {
   return (
     <PageLayoutFull>
       <div className="flex items-center gap-4 mb-4 px-[12px]">
-        <Title title="Cheatsheets" />
-        <FormButton
-          type="secondary"
-          size="small"
-          disabled={isUpdating}
-          onClick={handleUpdate}
-        >
-          {isUpdating ? (
-            <>
-              <FontAwesomeIcon icon={faSync} className="animate-spin" /> Updating...
-            </>
-          ) : (
-            <>
-              <FontAwesomeIcon icon={faSync} /> Update
-            </>
-          )}
-        </FormButton>
+        <Title title={isPublicRoute ? "Public Cheatsheets" : "Cheatsheets"} />
+        {!isPublicRoute && (
+          <FormButton
+            type="secondary"
+            size="small"
+            disabled={isUpdating}
+            onClick={handleUpdate}
+          >
+            {isUpdating ? (
+              <>
+                <FontAwesomeIcon icon={faSync} className="animate-spin" /> Updating...
+              </>
+            ) : (
+              <>
+                <FontAwesomeIcon icon={faSync} /> Update
+              </>
+            )}
+          </FormButton>
+        )}
       </div>
 
       <ContentBlock>
@@ -301,13 +305,15 @@ export default function Cheatsheets() {
                     }
                     actions={
                       <div className="flex items-center gap-2">
-                              <FormButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => handleDeleteClick(file.name)}
-                              >
-                                <FontAwesomeIcon icon={faTrash} />
-                              </FormButton>
+                        {!isPublicRoute && (
+                          <FormButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => handleDeleteClick(file.name)}
+                          >
+                            <FontAwesomeIcon icon={faTrash} />
+                          </FormButton>
+                        )}
                         <FormButton
                           type="secondary"
                           size="small"
@@ -333,17 +339,19 @@ export default function Cheatsheets() {
         />
       )}
 
-      <ConfirmationModal
-        isOpen={deleteModal.isOpen}
-        onClose={handleDeleteCancel}
-        onConfirm={handleDeleteConfirm}
-        title="Delete Cheatsheet"
-        message={`Are you sure you want to delete "${deleteModal.filename}"? This action cannot be undone.`}
-        confirmText="Delete"
-        cancelText="Cancel"
-        variant="danger"
-        isLoading={deleteModal.isLoading}
-      />
+      {!isPublicRoute && (
+        <ConfirmationModal
+          isOpen={deleteModal.isOpen}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          title="Delete Cheatsheet"
+          message={`Are you sure you want to delete "${deleteModal.filename}"? This action cannot be undone.`}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
+          isLoading={deleteModal.isLoading}
+        />
+      )}
     </PageLayoutFull>
   );
 }

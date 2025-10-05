@@ -35,7 +35,7 @@ export default function CheatsheetModal({ file, isOpen, onClose }: CheatsheetMod
     setError(null);
     
     try {
-      const response = await fetch(`/api/cheatsheet/${file.name}`);
+              const response = await fetch(`/api/cheatsheet/${file.name}`);
       if (!response.ok) {
         throw new Error('Failed to load cheatsheet');
       }
