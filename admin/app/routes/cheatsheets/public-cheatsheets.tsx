@@ -1,6 +1,6 @@
 import Cheatsheets from './cheatsheets';
 
-export { loader } from './cheatsheets';
+export { loader, action } from './cheatsheets';
 
 export function meta() {
   return [

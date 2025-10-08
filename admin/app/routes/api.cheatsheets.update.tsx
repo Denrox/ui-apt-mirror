@@ -22,8 +22,8 @@ export async function action({ request }: { request: Request }) {
       throw new Response('Invalid intent', { status: 400 });
     }
 
-    const tempDir = path.join(process.cwd(), 'temp-tldr-update');
-    const cheatsheetsDir = path.join(process.cwd(), appConfig.cheatsheetsDir);
+    const tempDir = path.join(appConfig.cheatsheetsDir, 'temp-tldr-update');
+    const cheatsheetsDir = appConfig.cheatsheetsDir;
 
     console.log('Starting cheatsheets update...');
     try {

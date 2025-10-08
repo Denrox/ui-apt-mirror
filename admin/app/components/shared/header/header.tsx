@@ -22,7 +22,7 @@ export default function Header() {
   };
 
   const navItems = [
-    { to: '/', label: 'Home', isActive: location.pathname === '/' },
+    { to: '/home', label: 'Home', isActive: location.pathname === '/home' || location.pathname === '/' },
     {
       to: '/file-manager',
       label: 'File Manager',

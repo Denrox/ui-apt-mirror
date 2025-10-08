@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { useLoaderData, useSubmit, useRevalidator, useLocation } from 'react-router';
+import { useLoaderData, useSubmit, useRevalidator } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileAlt, faTags, faSearch, faEye, faTrash, faSync, faTimes } from '@fortawesome/free-solid-svg-icons';
 import Title from '~/components/shared/title/title';
@@ -32,20 +32,11 @@ export function meta() {
   ];
 }
 
-interface FileItem {
-  name: string;
-  path: string;
-  size: number;
-  isDirectory: boolean;
-  categories: string[];
-}
-
 export default function Cheatsheets() {
   const { files, categories, error } = useLoaderData<typeof loader>();
   const submit = useSubmit();
   const revalidator = useRevalidator();
-  const location = useLocation();
-  const isPublicRoute = location.pathname === '/public-cheatsheets';
+  const isPublicRoute = typeof window !== 'undefined' && window.location.hostname.startsWith('cheatsheets');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);

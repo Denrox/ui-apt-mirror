@@ -4,7 +4,18 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import appConfig from '~/config/config.json';
 
 export async function loader({ request, params }: { request: Request; params: { filename: string } }) {
-  const isPublicRoute = request.url.includes('/public-cheatsheets');
+  const referer = request.headers.get('referer') || '';
+  let isPublicRoute = false;
+  
+  if (referer) {
+    try {
+      const refererUrl = new URL(referer);
+      isPublicRoute = refererUrl.hostname.startsWith('cheatsheets');
+    } catch {
+      // Invalid referer URL, treat as non-public
+      isPublicRoute = false;
+    }
+  }
   
   if (!isPublicRoute) {
     await requireAuthMiddleware(request);
@@ -22,7 +33,7 @@ export async function loader({ request, params }: { request: Request; params: { 
       throw new Response('Invalid filename', { status: 400 });
     }
 
-    const cheatsheetPath = path.join(process.cwd(), appConfig.cheatsheetsDir, filename);
+    const cheatsheetPath = path.join(appConfig.cheatsheetsDir, filename);
     
     const content = await readFile(cheatsheetPath, 'utf-8');
     

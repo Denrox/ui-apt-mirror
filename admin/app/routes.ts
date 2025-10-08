@@ -6,11 +6,11 @@ import {
 } from '@react-router/dev/routes';
 
 export default [
+  index('routes/index.tsx'),
   route('login', 'routes/login/login.tsx'),
   route('logout', 'routes/logout.tsx'),
-  route('public-cheatsheets', 'routes/cheatsheets/public-cheatsheets.tsx'),
   layout('components/shared/layout/app-layout.tsx', [
-    index('routes/home/home.tsx'),
+    route('home', 'routes/home/home.tsx'),
     route('logs/:log', 'routes/logs/logs.tsx'),
     route('documentation/:section', 'routes/documentation/documentation.tsx'),
     route('file-manager', 'routes/file-manager/file-manager.tsx'),

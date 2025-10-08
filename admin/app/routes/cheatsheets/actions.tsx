@@ -35,14 +35,14 @@ export async function action({ request }: { request: Request }) {
         };
       }
 
-      const cheatsheetPath = path.join(process.cwd(), appConfig.cheatsheetsDir, filename);
+      const cheatsheetPath = path.join(appConfig.cheatsheetsDir, filename);
 
       try {
         await readFile(cheatsheetPath);
         
         await unlink(cheatsheetPath);
 
-        const categoriesPath = path.join(process.cwd(), appConfig.cheatsheetsDir, 'categories.json');
+        const categoriesPath = path.join(appConfig.cheatsheetsDir, 'categories.json');
         try {
           const categoriesContent = await readFile(categoriesPath, 'utf-8');
           const categories = JSON.parse(categoriesContent);
