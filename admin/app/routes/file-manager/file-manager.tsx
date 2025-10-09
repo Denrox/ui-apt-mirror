@@ -75,12 +75,12 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const {
-    files,
-    isLockFilePresent,
-    healthReport,
-    error: loaderError,
-  } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const files = data?.files || [];
+  const isLockFilePresent = data?.isLockFilePresent || false;
+  const healthReport = data?.healthReport;
+  const loaderError = data?.error;
+  const isPublicRoute = data?.__domain === 'files';
   const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<
     'user-uploads' | 'mirrored-packages' | 'npm-packages'
@@ -143,7 +143,7 @@ export default function FileManager() {
   }, [loaderError, rootPath, setSearchParams]);
 
   const currentPathFiles = useMemo(() => {
-    return files.filter((file) => isChildPath(file.path, currentPath));
+    return files.filter((file: any) => isChildPath(file.path, currentPath));
   }, [files, currentPath]);
 
   const handleDelete = async (filePath: string) => {
@@ -301,29 +301,31 @@ export default function FileManager() {
     <PageLayoutFull>
       <div className="flex items-center justify-between mb-4 px-[12px]">
         <div className="flex items-center gap-4">
-          <Title title="File Manager" />
-          <div className="hidden md:block">
-            <FormButton
-              type="secondary"
-              disabled={
-                isOperationInProgress ||
-                isLoading ||
-                (healthReport && healthReport.status === 'inProgress')
-              }
-              onClick={handleHealthCheck}
-            >
-              {healthReport && healthReport.status === 'inProgress' ? (
-                <>
-                  <FontAwesomeIcon icon={faSearch} /> File System check in
-                  progress
-                </>
-              ) : (
-                <>
-                  <FontAwesomeIcon icon={faSearch} /> Health Check
-                </>
-              )}
-            </FormButton>
-          </div>
+          <Title title={isPublicRoute ? "Files" : "File Manager"} />
+          {!isPublicRoute && (
+            <div className="hidden md:block">
+              <FormButton
+                type="secondary"
+                disabled={
+                  isOperationInProgress ||
+                  isLoading ||
+                  (healthReport && healthReport.status === 'inProgress')
+                }
+                onClick={handleHealthCheck}
+              >
+                {healthReport && healthReport.status === 'inProgress' ? (
+                  <>
+                    <FontAwesomeIcon icon={faSearch} /> File System check in
+                    progress
+                  </>
+                ) : (
+                  <>
+                    <FontAwesomeIcon icon={faSearch} /> Health Check
+                  </>
+                )}
+              </FormButton>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600 hidden md:block">View:</span>
@@ -430,81 +432,85 @@ export default function FileManager() {
                     </FormButton>
                   </div>
                 )}
-                <div className="flex items-center gap-2">
-                  <FormInput
-                    value={newFolderName}
-                    onChange={setNewFolderName}
-                    placeholder="New folder name"
-                    disabled={isLoading}
-                  />
-                  <FormButton
-                    onClick={handleCreateFolder}
-                    disabled={
-                      !newFolderName.trim() ||
-                      isOperationInProgress ||
-                      isLoading
-                    }
-                  >
-                    Create Folder
-                  </FormButton>
-                </div>
-                {fileToCut ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600">
-                      Moving:{' '}
-                      <span className="font-medium">{fileToCut.name}</span>
-                    </span>
-                    <FormButton
-                      onClick={handlePasteClick}
-                      disabled={isOperationInProgress || isLoading}
-                    >
-                      Paste
-                    </FormButton>
-                    <FormButton
-                      type="secondary"
-                      onClick={handleCutCancel}
-                      disabled={isOperationInProgress || isLoading}
-                    >
-                      Cancel
-                    </FormButton>
-                  </div>
-                ) : (
+                {!isPublicRoute && (
                   <>
-                    {!isDownloading && (
-                      <ChunkedUpload
-                        onSelectedFile={setIsUploading}
-                        currentPath={currentPath}
-                        onChunkUploaded={handleChunkUploaded}
+                    <div className="flex items-center gap-2">
+                      <FormInput
+                        value={newFolderName}
+                        onChange={setNewFolderName}
+                        placeholder="New folder name"
+                        disabled={isLoading}
                       />
-                    )}
-                    {!isUploading && (
-                      <DownloadFile
-                        onDownloadInput={setIsDownloading}
-                        currentPath={currentPath}
-                      />
-                    )}
-                    {!isUploading &&
-                      !isDownloading &&
-                      view === 'user-uploads' && (
-                        <Dropdown
+                      <FormButton
+                        onClick={handleCreateFolder}
+                        disabled={
+                          !newFolderName.trim() ||
+                          isOperationInProgress ||
+                          isLoading
+                        }
+                      >
+                        Create Folder
+                      </FormButton>
+                    </div>
+                    {fileToCut ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-600">
+                          Moving:{' '}
+                          <span className="font-medium">{fileToCut.name}</span>
+                        </span>
+                        <FormButton
+                          onClick={handlePasteClick}
                           disabled={isOperationInProgress || isLoading}
-                          trigger={
-                            <FormButton
-                              type="secondary"
-                              disabled={isOperationInProgress || isLoading}
-                              onClick={() => {}}
-                            >
-                              <FontAwesomeIcon icon={faEllipsisV} />
-                            </FormButton>
-                          }
                         >
-                          <DropdownItem
-                            onClick={() => setIsDownloadImageModalOpen(true)}
-                          >
-                            Download Container Image
-                          </DropdownItem>
-                        </Dropdown>
-                      )}
+                          Paste
+                        </FormButton>
+                        <FormButton
+                          type="secondary"
+                          onClick={handleCutCancel}
+                          disabled={isOperationInProgress || isLoading}
+                        >
+                          Cancel
+                        </FormButton>
+                      </div>
+                    ) : (
+                      <>
+                        {!isDownloading && (
+                          <ChunkedUpload
+                            onSelectedFile={setIsUploading}
+                            currentPath={currentPath}
+                            onChunkUploaded={handleChunkUploaded}
+                          />
+                        )}
+                        {!isUploading && (
+                          <DownloadFile
+                            onDownloadInput={setIsDownloading}
+                            currentPath={currentPath}
+                          />
+                        )}
+                        {!isUploading &&
+                          !isDownloading &&
+                          view === 'user-uploads' && (
+                            <Dropdown
+                              disabled={isOperationInProgress || isLoading}
+                              trigger={
+                                <FormButton
+                                  type="secondary"
+                                  disabled={isOperationInProgress || isLoading}
+                                  onClick={() => {}}
+                                >
+                                  <FontAwesomeIcon icon={faEllipsisV} />
+                                </FormButton>
+                              }
+                            >
+                              <DropdownItem
+                                onClick={() => setIsDownloadImageModalOpen(true)}
+                              >
+                                Download Container Image
+                              </DropdownItem>
+                            </Dropdown>
+                          )}
+                      </>
+                    )}
                   </>
                 )}
               </>
@@ -529,7 +535,7 @@ export default function FileManager() {
               </div>
             ) : (
               <TableWrapper>
-                {currentPathFiles.map((item) => (
+                {currentPathFiles.map((item: any) => (
                   <TableRow
                     key={item.path}
                     icon={
@@ -558,7 +564,10 @@ export default function FileManager() {
                       </>
                     }
                     actions={
-                      <div className="flex items-center justify-end gap-2 w-[176px] flex-shrink-0">
+                      <div className={classNames("flex items-center justify-end gap-2 flex-shrink-0", {
+                        "w-[176px]": !isPublicRoute,
+                        "w-[48px]": isPublicRoute
+                      })}>
                         {!item.isDirectory && (
                           <FormButton
                             type="secondary"
@@ -585,49 +594,53 @@ export default function FileManager() {
                             ↓
                           </FormButton>
                         )}
-                        <FormButton
-                          type="secondary"
-                          size="small"
-                          disabled={
-                            isOperationInProgress ||
-                            Boolean(fileToCut) ||
-                            isLoading
-                          }
-                          onClick={() =>
-                            handleCutClick({ path: item.path, name: item.name })
-                          }
-                        >
-                          <FontAwesomeIcon icon={faCut} />
-                        </FormButton>
-                        <FormButton
-                          type="secondary"
-                          size="small"
-                          disabled={
-                            isOperationInProgress ||
-                            Boolean(fileToCut) ||
-                            isLoading
-                          }
-                          onClick={() =>
-                            handleRenameClick({
-                              path: item.path,
-                              name: item.name,
-                            })
-                          }
-                        >
-                          <FontAwesomeIcon icon={faEdit} />
-                        </FormButton>
-                        <FormButton
-                          type="secondary"
-                          size="small"
-                          disabled={
-                            isOperationInProgress ||
-                            Boolean(fileToCut) ||
-                            isLoading
-                          }
-                          onClick={() => handleDelete(item.path)}
-                        >
-                          <FontAwesomeIcon icon={faTrash} />
-                        </FormButton>
+                        {!isPublicRoute && (
+                          <>
+                            <FormButton
+                              type="secondary"
+                              size="small"
+                              disabled={
+                                isOperationInProgress ||
+                                Boolean(fileToCut) ||
+                                isLoading
+                              }
+                              onClick={() =>
+                                handleCutClick({ path: item.path, name: item.name })
+                              }
+                            >
+                              <FontAwesomeIcon icon={faCut} />
+                            </FormButton>
+                            <FormButton
+                              type="secondary"
+                              size="small"
+                              disabled={
+                                isOperationInProgress ||
+                                Boolean(fileToCut) ||
+                                isLoading
+                              }
+                              onClick={() =>
+                                handleRenameClick({
+                                  path: item.path,
+                                  name: item.name,
+                                })
+                              }
+                            >
+                              <FontAwesomeIcon icon={faEdit} />
+                            </FormButton>
+                            <FormButton
+                              type="secondary"
+                              size="small"
+                              disabled={
+                                isOperationInProgress ||
+                                Boolean(fileToCut) ||
+                                isLoading
+                              }
+                              onClick={() => handleDelete(item.path)}
+                            >
+                              <FontAwesomeIcon icon={faTrash} />
+                            </FormButton>
+                          </>
+                        )}
                       </div>
                     }
                     onClick={() =>

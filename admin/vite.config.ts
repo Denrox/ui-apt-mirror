@@ -11,6 +11,9 @@ export default defineConfig({
       "~": path.resolve(__dirname, "./app"),
     },
   },
+  server: {
+    allowedHosts: ['admin.mirror.intra', 'files.mirror.intra', 'cheatsheets.mirror.intra'],
+  },
   ssr: {
     resolve: {
       externalConditions: ['node'],

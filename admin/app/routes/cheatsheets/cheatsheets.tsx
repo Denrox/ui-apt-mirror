@@ -33,10 +33,13 @@ export function meta() {
 }
 
 export default function Cheatsheets() {
-  const { files, categories, error } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const files = data?.files || [];
+  const categories = data?.categories || [];
+  const error = data?.error;
+  const isPublicRoute = data?.__domain === 'cheatsheets';
   const submit = useSubmit();
   const revalidator = useRevalidator();
-  const isPublicRoute = typeof window !== 'undefined' && window.location.hostname.startsWith('cheatsheets');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);

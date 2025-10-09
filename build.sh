@@ -98,6 +98,7 @@ build_images() {
         
         # Build the image
         docker buildx build \
+            --no-cache \
             --platform "$arch" \
             --tag "${IMAGE_NAME}:${VERSION}" \
             --file "Dockerfile" \
