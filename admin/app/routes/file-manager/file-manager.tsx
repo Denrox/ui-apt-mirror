@@ -107,6 +107,10 @@ export default function FileManager() {
 
   const currentPath = searchParams.get('path') ?? rootPath;
 
+  const displayPath = useMemo(() => {
+    return currentPath.replace(rootPath, '') || '/';
+  }, [currentPath, rootPath]);
+
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState('');
   const submit = useSubmit();
@@ -412,7 +416,7 @@ export default function FileManager() {
 
           <div className="flex items-center gap-2 px-0 bg-gray-50 rounded-md">
             <span className="font-semibold">Current Path:</span>
-            <span className="font-mono text-sm">{currentPath}</span>
+            <span className="font-mono text-sm">{displayPath}</span>
           </div>
 
           <div
@@ -583,7 +587,7 @@ export default function FileManager() {
                                 view === 'mirrored-packages'
                                   ? rootPath
                                   : appConfig.filesDir;
-                              link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}${item.path.replace(basePath, '')}`;
+                              link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
                               link.target = '_blank';
                               link.rel = 'noopener noreferrer';
                               document.body.appendChild(link);
