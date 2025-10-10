@@ -2,7 +2,7 @@ import { Link, useLocation, useSubmit } from 'react-router';
 import classNames from 'classnames';
 import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faSignOutAlt, faUser } from '@fortawesome/free-solid-svg-icons';
+import { faSignOutAlt, faUser, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
 
 export default function Header() {
   const location = useLocation();
@@ -22,7 +22,17 @@ export default function Header() {
   };
 
   const navItems = [
-    { to: '/', label: 'Status', isActive: location.pathname === '/' },
+    { to: '/home', label: 'Home', isActive: location.pathname === '/home' || location.pathname === '/' },
+    {
+      to: '/file-manager',
+      label: 'File Manager',
+      isActive: location.pathname === '/file-manager',
+    },
+    {
+      to: '/cheatsheets',
+      label: 'Cheatsheets',
+      isActive: location.pathname === '/cheatsheets',
+    },
     {
       to: '/logs/mirror',
       label: 'Logs',
@@ -32,11 +42,7 @@ export default function Header() {
       to: '/documentation/file-structure',
       label: 'Documentation',
       isActive: location.pathname.startsWith('/documentation'),
-    },
-    {
-      to: '/file-manager',
-      label: 'File Manager',
-      isActive: location.pathname === '/file-manager',
+      icon: faInfoCircle,
     },
     {
       to: '/users',
@@ -44,6 +50,8 @@ export default function Header() {
       isActive: location.pathname === '/users',
     },
   ];
+
+  const iconNavItems: any[] = [];
 
   const navLinkClasses =
     'text-[16px] hover:border-b-2 hover:border-gray-300 flex h-full items-center justify-center block px-[16px] hover:bg-gray-200 hover:text-gray-800 text-center font-semibold';
@@ -61,15 +69,15 @@ export default function Header() {
         {/* Desktop Navigation - Hidden on screens below 1024px */}
         <div className="hidden h-full lg:flex flex-row items-center justify-center">
           {navItems.map((item) => {
-            // Show icon for users/settings, text for others
             const isUserSettings = item.to === '/users';
+            const hasIcon = 'icon' in item;
 
             return (
               <Link
                 key={item.to}
                 to={item.to}
                 className={classNames(
-                  isUserSettings ? navLinkClasses : navLinkClassesWithMinWidth,
+                  (isUserSettings || hasIcon) ? navLinkClasses : navLinkClassesWithMinWidth,
                   {
                     [activeLinkClasses]: item.isActive,
                   },
@@ -78,6 +86,8 @@ export default function Header() {
               >
                 {isUserSettings ? (
                   <FontAwesomeIcon icon={faUser} className="text-[18px]" />
+                ) : hasIcon ? (
+                  <FontAwesomeIcon icon={item.icon} className="text-[18px]" />
                 ) : (
                   item.label
                 )}
@@ -128,7 +138,7 @@ export default function Header() {
         {/* Mobile Dropdown Menu */}
         {isMenuOpen && (
           <div className="lg:hidden absolute top-full left-0 right-0 bg-white shadow-lg border border-gray-200 z-50">
-            {navItems.map((item) => (
+            {[...navItems, ...iconNavItems].map((item) => (
               <Link
                 key={item.to}
                 to={item.to}

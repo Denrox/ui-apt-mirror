@@ -179,6 +179,7 @@ get_user_config() {
     ADMIN_DOMAIN="admin.$custom_domain"
     FILES_DOMAIN="files.$custom_domain"
     NPM_DOMAIN="npm.$custom_domain"
+    CHEATSHEETS_DOMAIN="cheatsheets.$custom_domain"
     SYNC_FREQUENCY="$sync_freq"
     ADMIN_PASSWORD="$admin_pass"
     HOST_TIMEZONE="$custom_timezone"
@@ -266,6 +267,7 @@ generate_docker_compose() {
     sed -i "s/\${ADMIN_DOMAIN:-admin.mirror.intra}/admin.$domain/g" docker-compose.yml
     sed -i "s/\${FILES_DOMAIN:-files.mirror.intra}/files.$domain/g" docker-compose.yml
     sed -i "s/\${NPM_DOMAIN:-npm.mirror.intra}/npm.$domain/g" docker-compose.yml
+    sed -i "s/\${CHEATSHEETS_DOMAIN:-cheatsheets.mirror.intra}/cheatsheets.$domain/g" docker-compose.yml
     
     # Escape timezone for sed (replace / with \/)
     local escaped_timezone=$(echo "$timezone" | sed 's/\//\\\//g')
@@ -299,7 +301,7 @@ cleanup_previous() {
 create_data_dirs() {
     print_status "Creating data directories..."
     
-    mkdir -p data/{data/apt-mirror,data/files,data/npm,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/sites-available}
+    mkdir -p data/{data/apt-mirror,data/files,data/npm,data/cheatsheets,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/sites-available}
     
     # Set proper permissions
     chmod 755 data/
@@ -466,10 +468,12 @@ show_status() {
         local mirror_domain=$(grep "MIRROR_DOMAIN" docker-compose.yml | sed 's/.*MIRROR_DOMAIN: //')
         local admin_domain=$(grep "ADMIN_DOMAIN" docker-compose.yml | sed 's/.*ADMIN_DOMAIN: //')
         local files_domain=$(grep "FILES_DOMAIN" docker-compose.yml | sed 's/.*FILES_DOMAIN: //')
+        local cheatsheets_domain=$(grep "CHEATSHEETS_DOMAIN" docker-compose.yml | sed 's/.*CHEATSHEETS_DOMAIN: //')
         
         echo "  Main Repository: http://$mirror_domain"
         echo "  Admin Panel: http://$admin_domain (admin/[password])"
         echo "  File Repository: http://$files_domain"
+        echo "  Cheatsheets: http://$cheatsheets_domain"
         
         # Show npm proxy URL if enabled
         if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
@@ -480,6 +484,7 @@ show_status() {
         echo "  Main Repository: http://mirror.intra"
         echo "  Admin Panel: http://admin.mirror.intra (admin/[password])"
         echo "  File Repository: http://files.mirror.intra"
+        echo "  Cheatsheets: http://cheatsheets.mirror.intra"
         
         # Show npm proxy URL if enabled
         if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
@@ -543,6 +548,8 @@ update_nginx_configs() {
             sed -i "s/files\.mirror\.intra/files.$domain/g" "$config_file"
             # Replace npm.mirror.intra with npm.customdomain
             sed -i "s/npm\.mirror\.intra/npm.$domain/g" "$config_file"
+            # Replace cheatsheets.mirror.intra with cheatsheets.customdomain
+            sed -i "s/cheatsheets\.mirror\.intra/cheatsheets.$domain/g" "$config_file"
         fi
     done
     

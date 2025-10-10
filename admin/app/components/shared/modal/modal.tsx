@@ -4,6 +4,7 @@ interface ModalProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly title?: string;
+  readonly maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '6xl';
 }
 
 export default function Modal({
@@ -11,7 +12,29 @@ export default function Modal({
   isOpen,
   onClose,
   title,
+  maxWidth = 'md',
 }: PropsWithChildren<ModalProps>) {
+  const getMaxWidthClass = (width: string) => {
+    switch (width) {
+      case 'sm':
+        return 'max-w-sm';
+      case 'md':
+        return 'max-w-md';
+      case 'lg':
+        return 'max-w-lg';
+      case 'xl':
+        return 'max-w-xl';
+      case '2xl':
+        return 'max-w-2xl';
+      case '4xl':
+        return 'max-w-4xl';
+      case '6xl':
+        return 'max-w-6xl';
+      default:
+        return 'max-w-md';
+    }
+  };
+
   if (!isOpen) {
     return null;
   }
@@ -22,7 +45,7 @@ export default function Modal({
       <div className="absolute inset-0 bg-black opacity-60" onClick={onClose} />
 
       {/* Modal Content */}
-      <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className={`relative bg-white rounded-lg shadow-xl ${getMaxWidthClass(maxWidth)} w-full mx-4 max-h-[90vh] overflow-y-auto`}>
         {/* Header */}
         {title && (
           <div className="flex items-center justify-between p-4 border-b border-gray-200">

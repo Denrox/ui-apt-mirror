@@ -10,7 +10,8 @@
   "startMirrorScriptPath": "../scripts/start-mirror.sh",
   "stopMirrorScriptPath": "../scripts/stop-mirror.sh",
   "htpasswdPath": "../data/auth/.htpasswd",
-  "jwtSecret": "your-secret-key-change-in-production",
+  "cheatsheetsDir": "../data/data/cheatsheets",
+  "jwtSecret": "HMwZM9EQJBsOQEBwWQLNtBxJqo6SHIFa",
   "isNpmProxyEnabled": true,
   "hosts": [
     { "id": "mirror", "address": "mirror.intra", "name": "APT Mirror", "description": "APT Mirror" },

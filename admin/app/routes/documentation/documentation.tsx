@@ -60,25 +60,27 @@ export default function Documentation() {
 │       └── sites-available/     # Nginx site configurations
 │           ├── mirror.intra.conf
 │           ├── admin.mirror.intra.conf
-│           ├── files.mirror.intra.conf${
-              appConfig.isNpmProxyEnabled
-                ? `
+│           ├── files.mirror.intra.conf
+│           ├── cheatsheets.mirror.intra.conf${
+                appConfig.isNpmProxyEnabled
+                  ? `
 │           └── npm.mirror.intra.conf`
-                : ''
-            }
+                  : ''
+              }
 ├── data/
 │   ├── apt-mirror/              # apt-mirror2 working directory
 │   │   ├── mirror/              # Downloaded package mirrors
 │   │   ├── skel/                # Skeleton files
 │   │   └── var/                 # Variable data
-│   ├── files/                   # Custom file repository${
-              appConfig.isNpmProxyEnabled
-                ? `
+│   ├── files/                   # Custom file repository
+│   ├── cheatsheets/             # Developer cheatsheets and command references${
+                appConfig.isNpmProxyEnabled
+                  ? `
 │   └── npm/                     # NPM packages
 │       ├── private/             # Private published packages
 │       └── public/              # Cached public packages from npmjs.org`
-                : ''
-            }
+                  : ''
+              }
 └── logs/
     ├── apt-mirror/              # apt-mirror2 logs
     │   └── apt-mirror.log       # Main apt-mirror2 log file
@@ -108,7 +110,8 @@ export default function Documentation() {
             <h4 className="font-semibold text-sky-500">data/</h4>
             <p className="text-gray-700">
               Main data storage directory. apt-mirror/ contains downloaded
-              package repositories, files/ contains custom file repository
+              package repositories, files/ contains custom file repository,
+              cheatsheets/ contains developer command references and cheatsheets
               {appConfig.isNpmProxyEnabled
                 ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}

@@ -20,7 +20,6 @@ export async function loader({ request }: { request: Request }) {
     let users;
 
     if (user.username === 'admin') {
-      // Admin can see all users
       users = lines
         .filter((line) => !line.startsWith('#') && line.includes(':'))
         .map((line) => {
@@ -29,7 +28,6 @@ export async function loader({ request }: { request: Request }) {
           return { username };
         });
     } else {
-      // Non-admin users can only see themselves
       users = [{ username: user.username }];
     }
 

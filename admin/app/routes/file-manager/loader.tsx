@@ -64,9 +64,13 @@ function isPathAllowed(requestedPath: string): boolean {
 }
 
 export async function loader({ request }: { request: Request }) {
-  await requireAuthMiddleware(request);
-
   const url = new URL(request.url);
+  const isPublicRoute = url.hostname.startsWith('files');
+  
+  if (!isPublicRoute) {
+    await requireAuthMiddleware(request);
+  }
+
   const searchParams = url.searchParams;
   const rootPath = appConfig.filesDir;
   const currentPath = searchParams.get('path') ?? rootPath;
