@@ -14,7 +14,7 @@ A containerized APT mirror solution with a web interface. This project provides 
   - `files.mirror.intra` - File hosting service
   - `npm.mirror.intra` - NPM registry cache (optional)
   - `cheatsheets.mirror.intra` - Public developer cheatsheets (no authentication)
-- **Advanced File Manager**: File upload/download, directory management, and container image downloads from Docker Hub and GCR
+- **Advanced File Manager**: File upload/download, directory management, built-in media player for video/audio files, and container image downloads from Docker Hub and GCR
 - **Multi-Architecture Support**: Builds for both AMD64 and ARM64
 - **Easy Deployment**: Simple scripts for building and deployment
 - **Configurable**: Custom domains, sync frequency, admin passwords, and optional npm proxy
@@ -82,6 +82,11 @@ The script will:
 
 - **URL**: `http://files.mirror.intra`
 - **Purpose**: File hosting and sharing
+- **Features**:
+  - Built-in video/audio player supporting MP4, WebM, AVI, MKV, MP3, WAV, FLAC, and more
+  - Stream large files (optimized for 8GB+ videos) with HTTP range requests
+  - Horizontal media gallery for quick browsing of files in the same folder
+  - Autoplay when selecting media files
 
 ### Public Cheatsheets (cheatsheets.mirror.intra)
 
