@@ -4,7 +4,7 @@ interface ModalProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly title?: string;
-  readonly maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '6xl';
+  readonly maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '6xl' | 'custom-1000';
 }
 
 export default function Modal({
@@ -30,6 +30,8 @@ export default function Modal({
         return 'max-w-4xl';
       case '6xl':
         return 'max-w-6xl';
+      case 'custom-1000':
+        return 'max-w-[1000px]';
       default:
         return 'max-w-md';
     }

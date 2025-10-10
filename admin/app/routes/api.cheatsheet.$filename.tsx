@@ -12,7 +12,6 @@ export async function loader({ request, params }: { request: Request; params: { 
       const refererUrl = new URL(referer);
       isPublicRoute = refererUrl.hostname.startsWith('cheatsheets');
     } catch {
-      // Invalid referer URL, treat as non-public
       isPublicRoute = false;
     }
   }
