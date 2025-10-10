@@ -11,6 +11,7 @@ import Ellipsis from '~/components/shared/ellipsis/ellipsis';
 import Dropdown from '~/components/shared/dropdown/dropdown';
 import DropdownItem from '~/components/shared/dropdown/dropdown-item';
 import DownloadImageModal from '~/components/file-manager/download-image-modal';
+import MediaPlayerModal from '~/components/file-manager/media-player-modal';
 import FileManagerWarning from '~/components/shared/filemanager-warning/filemanager-warning';
 import TableRow from '~/components/shared/table-row/table-row';
 import TableWrapper from '~/components/shared/table-wrapper/table-wrapper';
@@ -39,6 +40,7 @@ import {
   faSearch,
   faFolder,
   faFile,
+  faPlay,
 } from '@fortawesome/free-solid-svg-icons';
 
 export { action, loader };
@@ -128,6 +130,18 @@ export default function FileManager() {
     path: string;
     name: string;
   } | null>(null);
+
+  const [mediaPlayer, setMediaPlayer] = useState<{
+    isOpen: boolean;
+    fileUrl: string;
+    fileName: string;
+    mediaType: 'video' | 'audio';
+  }>({
+    isOpen: false,
+    fileUrl: '',
+    fileName: '',
+    mediaType: 'video',
+  });
 
   const isRootPath = useMemo(() => {
     return currentPath === rootPath;
@@ -279,6 +293,68 @@ export default function FileManager() {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const isMediaFile = (fileName: string): 'video' | 'audio' | null => {
+    const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v'];
+    const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma'];
+    
+    const lowerFileName = fileName.toLowerCase();
+    
+    if (videoExtensions.some(ext => lowerFileName.endsWith(ext))) {
+      return 'video';
+    }
+    if (audioExtensions.some(ext => lowerFileName.endsWith(ext))) {
+      return 'audio';
+    }
+    return null;
+  };
+
+  const currentFolderMediaFiles = useMemo(() => {
+    const basePath = view === 'mirrored-packages' ? rootPath : appConfig.filesDir;
+    const filesHost = getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '');
+    
+    return currentPathFiles
+      .filter((file: any) => !file.isDirectory && isMediaFile(file.name))
+      .map((file: any) => ({
+        name: file.name,
+        url: `${filesHost}/downloads${file.path.replace(basePath, '')}`,
+        type: isMediaFile(file.name) as 'video' | 'audio',
+        size: file.size,
+      }));
+  }, [currentPathFiles, view, rootPath]);
+
+  const handlePlayMedia = (item: any) => {
+    const basePath = view === 'mirrored-packages' ? rootPath : appConfig.filesDir;
+    const fileUrl = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+    const mediaType = isMediaFile(item.name);
+    
+    if (mediaType) {
+      setMediaPlayer({
+        isOpen: true,
+        fileUrl,
+        fileName: item.name,
+        mediaType,
+      });
+    }
+  };
+
+  const handleSelectMediaFile = (file: { name: string; url: string; type: 'video' | 'audio' }) => {
+    setMediaPlayer({
+      isOpen: true,
+      fileUrl: file.url,
+      fileName: file.name,
+      mediaType: file.type,
+    });
+  };
+
+  const handleCloseMediaPlayer = () => {
+    setMediaPlayer({
+      isOpen: false,
+      fileUrl: '',
+      fileName: '',
+      mediaType: 'video',
+    });
   };
 
   const formatDate = (date: Date): string => {
@@ -569,9 +645,23 @@ export default function FileManager() {
                     }
                     actions={
                       <div className={classNames("flex items-center justify-end gap-2 flex-shrink-0", {
-                        "w-[176px]": !isPublicRoute,
-                        "w-[48px]": isPublicRoute
+                        "w-[224px]": !isPublicRoute,
+                        "w-[96px]": isPublicRoute
                       })}>
+                        {!item.isDirectory && isMediaFile(item.name) && (
+                          <FormButton
+                            type="secondary"
+                            size="small"
+                            disabled={
+                              isOperationInProgress ||
+                              Boolean(fileToCut) ||
+                              isLoading
+                            }
+                            onClick={() => handlePlayMedia(item)}
+                          >
+                            <FontAwesomeIcon icon={faPlay} />
+                          </FormButton>
+                        )}
                         {!item.isDirectory && (
                           <FormButton
                             type="secondary"
@@ -683,6 +773,16 @@ export default function FileManager() {
         isOpen={isDownloadImageModalOpen}
         onClose={() => setIsDownloadImageModalOpen(false)}
         currentPath={currentPath}
+      />
+
+      <MediaPlayerModal
+        isOpen={mediaPlayer.isOpen}
+        onClose={handleCloseMediaPlayer}
+        fileUrl={mediaPlayer.fileUrl}
+        fileName={mediaPlayer.fileName}
+        mediaType={mediaPlayer.mediaType}
+        mediaFiles={currentFolderMediaFiles}
+        onSelectMedia={handleSelectMediaFile}
       />
     </PageLayoutFull>
   );
