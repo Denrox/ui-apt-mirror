@@ -16,6 +16,13 @@ interface UploadChunk {
   fileId: string;
 }
 
+interface FileUploadStatus {
+  file: File;
+  progress: number;
+  status: 'pending' | 'uploading' | 'completed' | 'error';
+  error?: string;
+}
+
 const CHUNK_SIZE = 10240 * 1024;
 
 export default function ChunkedUpload({
@@ -24,8 +31,7 @@ export default function ChunkedUpload({
   onSelectedFile,
 }: ChunkedUploadProps) {
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<FileUploadStatus[]>([]);
   const fetcher = useFetcher();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -34,8 +40,7 @@ export default function ChunkedUpload({
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    setSelectedFile(null);
-    setProgress(0);
+    setSelectedFiles([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -102,74 +107,145 @@ export default function ChunkedUpload({
   );
 
   useEffect(() => {
-    onSelectedFile(Boolean(selectedFile));
-  }, [selectedFile, onSelectedFile]);
+    onSelectedFile(selectedFiles.length > 0);
+  }, [selectedFiles, onSelectedFile]);
 
   const handleFileSelect = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) {
-        setSelectedFile(file);
+      const files = event.target.files;
+      if (files && files.length > 0) {
+        const fileStatuses: FileUploadStatus[] = Array.from(files).map(file => ({
+          file,
+          progress: 0,
+          status: 'pending' as const,
+        }));
+        setSelectedFiles(fileStatuses);
       }
     },
     [],
   );
 
   const handleUpload = useCallback(async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
     setUploading(true);
-    setProgress(0);
-
     abortControllerRef.current = new AbortController();
 
     try {
-      const chunks = splitFileIntoChunks(selectedFile);
-
-      for (let i = 0; i < chunks.length; i++) {
+      for (let fileIndex = 0; fileIndex < selectedFiles.length; fileIndex++) {
         if (abortControllerRef.current?.signal.aborted) {
           break;
         }
 
-        const chunk = chunks[i];
-        const success = await uploadChunk(chunk);
+        const fileStatus = selectedFiles[fileIndex];
+        
+        setSelectedFiles(prev => 
+          prev.map((f, i) => 
+            i === fileIndex ? { ...f, status: 'uploading' as const } : f
+          )
+        );
 
-        if (!success) {
-          throw new Error(
-            `Failed to upload chunk ${i + 1} of ${chunks.length} after retries`,
+        const chunks = splitFileIntoChunks(fileStatus.file);
+
+        try {
+          for (let i = 0; i < chunks.length; i++) {
+            if (abortControllerRef.current?.signal.aborted) {
+              break;
+            }
+
+            const chunk = chunks[i];
+            const success = await uploadChunk(chunk);
+
+            if (!success) {
+              throw new Error(
+                `Failed to upload chunk ${i + 1} of ${chunks.length} after retries`,
+              );
+            }
+
+            onChunkUploaded?.(chunk.index, chunk.total);
+
+            const newProgress = Math.round(((i + 1) / chunks.length) * 100);
+            setSelectedFiles(prev => 
+              prev.map((f, idx) => 
+                idx === fileIndex ? { ...f, progress: newProgress } : f
+              )
+            );
+          }
+
+          setSelectedFiles(prev => 
+            prev.map((f, i) => 
+              i === fileIndex ? { ...f, status: 'completed' as const, progress: 100 } : f
+            )
+          );
+        } catch (error) {
+          console.error('Upload failed for file:', fileStatus.file.name, error);
+          setSelectedFiles(prev => 
+            prev.map((f, i) => 
+              i === fileIndex ? { 
+                ...f, 
+                status: 'error' as const, 
+                error: error instanceof Error ? error.message : 'Upload failed' 
+              } : f
+            )
           );
         }
-
-        onChunkUploaded?.(chunk.index, chunk.total);
-
-        const newProgress = Math.round(((i + 1) / chunks.length) * 100);
-        setProgress(newProgress);
       }
 
-      setSelectedFile(null);
-      setProgress(0);
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      setTimeout(() => {
+        setSelectedFiles([]);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }, 2000);
     } catch (error) {
-      console.error('Upload failed:', error);
+      console.error('Upload process failed:', error);
     } finally {
       setUploading(false);
     }
-  }, [selectedFile, currentPath, uploadChunk, onChunkUploaded]);
+  }, [selectedFiles, currentPath, uploadChunk, onChunkUploaded]);
+
+  const getStatusIcon = (status: FileUploadStatus['status']) => {
+    switch (status) {
+      case 'completed':
+        return '✓';
+      case 'error':
+        return '✗';
+      case 'uploading':
+        return '↻';
+      default:
+        return '⋯';
+    }
+  };
+
+  const getStatusColor = (status: FileUploadStatus['status']) => {
+    switch (status) {
+      case 'completed':
+        return 'text-green-600';
+      case 'error':
+        return 'text-red-600';
+      case 'uploading':
+        return 'text-blue-600';
+      default:
+        return 'text-gray-400';
+    }
+  };
+
+  const completedCount = selectedFiles.filter(f => f.status === 'completed').length;
+  const currentUploadingIndex = selectedFiles.findIndex(f => f.status === 'uploading');
+  const currentProgress = currentUploadingIndex >= 0 ? selectedFiles[currentUploadingIndex].progress : 0;
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       <input
         ref={fileInputRef}
         type="file"
+        multiple
         onChange={handleFileSelect}
         className="hidden"
         id="chunked-file-upload"
         disabled={uploading}
       />
-      {!selectedFile && (
+      {selectedFiles.length === 0 && (
         <label htmlFor="chunked-file-upload">
           <FormButton
             onClick={() =>
@@ -177,32 +253,40 @@ export default function ChunkedUpload({
             }
             disabled={uploading}
           >
-            Upload File
+            Upload Files
           </FormButton>
         </label>
       )}
-      {selectedFile && (
+      {selectedFiles.length > 0 && !uploading && (
         <>
-          <span className="text-sm">{selectedFile.name}</span>
           <FormButton onClick={handleUpload} disabled={uploading}>
-            Upload
+            Upload All
           </FormButton>
+          <span className="text-sm text-gray-600">
+            {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
+          </span>
           <FormButton type="secondary" onClick={() => cancelUpload()}>
             Cancel
           </FormButton>
         </>
       )}
-
       {uploading && (
-        <div className="flex items-center gap-2">
-          <div className="w-32 bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            ></div>
+        <>
+          <span className="text-sm text-gray-600">
+            Uploading ({completedCount + 1}/{selectedFiles.length})
+          </span>
+          <div className="flex items-center gap-2">
+            <div className="w-32 bg-gray-200 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${currentProgress}%` }}
+              ></div>
+            </div>
+            <span className="text-xs text-gray-600 w-10 text-right">
+              {currentProgress}%
+            </span>
           </div>
-          <span className="text-sm text-gray-600">{progress}%</span>
-        </div>
+        </>
       )}
     </div>
   );
