@@ -6,6 +6,7 @@ import FormButton from '~/components/shared/form/form-button';
 import FormInput from '~/components/shared/form/form-input';
 import FormSelect from '~/components/shared/form/form-select';
 import Modal from '~/components/shared/modal/modal';
+import DeleteConfirmationModal from '~/components/shared/delete-confirmation-modal';
 import RenameForm from '~/components/file-manager/rename-form';
 import Ellipsis from '~/components/shared/ellipsis/ellipsis';
 import Dropdown from '~/components/shared/dropdown/dropdown';
@@ -126,6 +127,12 @@ export default function FileManager() {
     name: string;
   } | null>(null);
 
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    path: string;
+    name: string;
+  } | null>(null);
+
   const [fileToCut, setFileToCut] = useState<{
     path: string;
     name: string;
@@ -164,17 +171,29 @@ export default function FileManager() {
     return files.filter((file: any) => isChildPath(file.path, currentPath));
   }, [files, currentPath]);
 
-  const handleDelete = async (filePath: string) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
+  const handleDelete = (filePath: string, fileName: string) => {
+    setDeleteTarget({ path: filePath, name: fileName });
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
 
     try {
       await submit(
-        { intent: 'deleteFile', filePath: filePath },
+        { intent: 'deleteFile', filePath: deleteTarget.path },
         { action: '', method: 'post' },
       );
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
     } catch (error) {
       console.error(error);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteModal(false);
+    setDeleteTarget(null);
   };
 
   const actionMessage = useMemo(() => {
@@ -379,7 +398,7 @@ export default function FileManager() {
 
   return (
     <PageLayoutFull>
-      <div className="flex items-center justify-between mb-4 px-[12px]">
+      <div className="flex items-center justify-between px-[12px]">
         <div className="flex items-center gap-4">
           <Title title={isPublicRoute ? "Files" : "File Manager"} />
           {!isPublicRoute && (
@@ -729,7 +748,7 @@ export default function FileManager() {
                                 Boolean(fileToCut) ||
                                 isLoading
                               }
-                              onClick={() => handleDelete(item.path)}
+                              onClick={() => handleDelete(item.path, item.name)}
                             >
                               <FontAwesomeIcon icon={faTrash} />
                             </FormButton>
@@ -783,6 +802,16 @@ export default function FileManager() {
         mediaType={mediaPlayer.mediaType}
         mediaFiles={currentFolderMediaFiles}
         onSelectMedia={handleSelectMediaFile}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={handleDeleteCancel}
+        onConfirm={handleDeleteConfirm}
+        title="Confirm Deletion"
+        itemName={deleteTarget?.name || ''}
+        itemType="file/folder"
       />
     </PageLayoutFull>
   );

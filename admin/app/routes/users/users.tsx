@@ -110,7 +110,7 @@ export default function Users() {
 
   return (
     <PageLayoutFull>
-      <div className="flex items-center justify-between mb-4 px-[12px]">
+      <div className="flex items-center justify-between px-[12px]">
         <div className="flex items-center gap-4">
           <Title title={isAdmin ? 'Users' : 'Settings'} />
           {isAdmin && (

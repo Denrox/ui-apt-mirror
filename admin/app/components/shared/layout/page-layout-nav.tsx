@@ -15,7 +15,7 @@ export default function PageLayoutNav({
           {nav}
         </div>
       </div>
-      <div className="hidden lg:flex flex-col w-[200px] gap-[2px] max-h-[calc(100%-64px)] mt-[64px] rounded border border-gray-300 overflow-hidden h-fit">
+      <div className="hidden lg:flex flex-col w-[200px] gap-[2px] max-h-[calc(100%-64px)] mt-[76px] rounded border border-gray-300 overflow-hidden h-fit">
         {nav}
       </div>
       <div className="flex flex-col gap-[32px] flex-1 h-full overflow-y-auto md:px-[0px] px-[12px]">
