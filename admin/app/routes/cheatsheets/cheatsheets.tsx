@@ -167,8 +167,8 @@ export default function Cheatsheets() {
 
   return (
     <PageLayoutFull>
-      <div className="flex items-center gap-4 mb-4 px-[12px]">
-        <Title title={isPublicRoute ? "Public Cheatsheets" : "Cheatsheets"} />
+      <div className="flex items-center gap-4 px-[12px]">
+        <Title title={"Cheatsheets"} />
         {!isPublicRoute && (
           <FormButton
             type="secondary"

@@ -15,6 +15,7 @@ import {
 import { loader, type RepositoryConfig, type CommentedSection } from './loader';
 import { action } from './actions';
 import Modal from '~/components/shared/modal/modal';
+import DeleteConfirmationModal from '~/components/shared/delete-confirmation-modal';
 import FormButton from '~/components/shared/form/form-button';
 import Dropdown from '~/components/shared/dropdown/dropdown';
 import DropdownItem from '~/components/shared/dropdown/dropdown-item';
@@ -327,32 +328,15 @@ export default function Home() {
         </div>
 
         {/* Delete Confirmation Modal */}
-        <Modal
+        <DeleteConfirmationModal
           isOpen={showDeleteModal}
           onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
           title="Confirm Deletion"
-        >
-          <p className="text-gray-600 mb-6">
-            Are you sure you want to delete the repository configuration "
-            {deleteTarget}"? This action cannot be undone.
-          </p>
-          <div className="flex justify-end gap-3">
-            <FormButton
-              onClick={handleDeleteCancel}
-              type="secondary"
-              disabled={isActionInProgress}
-            >
-              Cancel
-            </FormButton>
-            <FormButton
-              onClick={handleDeleteConfirm}
-              type="danger"
-              disabled={isActionInProgress}
-            >
-              Delete
-            </FormButton>
-          </div>
-        </Modal>
+          itemName={deleteTarget}
+          itemType="repository configuration"
+          isLoading={isActionInProgress}
+        />
 
         <Title title="Services Status" />
         <div className="px-[12px] md:px-0">
