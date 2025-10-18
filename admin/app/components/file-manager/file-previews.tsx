@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface PreviewFile {
   name: string;
   url: string;

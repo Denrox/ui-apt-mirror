@@ -14,7 +14,6 @@ import {
 } from 'react-router';
 import { loader, type RepositoryConfig, type CommentedSection } from './loader';
 import { action } from './actions';
-import Modal from '~/components/shared/modal/modal';
 import DeleteConfirmationModal from '~/components/shared/delete-confirmation-modal';
 import FormButton from '~/components/shared/form/form-button';
 import Dropdown from '~/components/shared/dropdown/dropdown';

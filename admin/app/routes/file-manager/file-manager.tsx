@@ -3,7 +3,6 @@ import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import FormButton from '~/components/shared/form/form-button';
-import FormInput from '~/components/shared/form/form-input';
 import FormSelect from '~/components/shared/form/form-select';
 import Modal from '~/components/shared/modal/modal';
 import DeleteConfirmationModal from '~/components/shared/delete-confirmation-modal';
@@ -81,7 +80,7 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const data = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader & { __domain: string }>();
   const files = data?.files || [];
   const isLockFilePresent = data?.isLockFilePresent || false;
   const healthReport = data?.healthReport;
@@ -118,9 +117,7 @@ export default function FileManager() {
   }, [currentPath, rootPath]);
 
   const actionData = useActionData<typeof action>();
-  const [newFolderName, setNewFolderName] = useState('');
   const submit = useSubmit();
-  // removed local upload/download UI blockers; handled inside modals
   const [isDownloadImageModalOpen, setIsDownloadImageModalOpen] =
     useState(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -222,24 +219,6 @@ export default function FileManager() {
       revalidator.revalidate();
     }
   }, [actionData?.success, revalidator]);
-
-  // search removed
-
-  const handleCreateFolder = async () => {
-    try {
-      await submit(
-        {
-          intent: 'createFolder',
-          folderName: newFolderName,
-          currentPath: currentPath,
-        },
-        { action: '', method: 'post' },
-      );
-      setNewFolderName('');
-    } catch (error) {
-      toast.error('Failed to create folder');
-    }
-  };
 
   const handleRenameClick = (item: { path: string; name: string }) => {
     setItemToRename(item);
@@ -482,7 +461,6 @@ export default function FileManager() {
             disabled={
               Boolean(itemToRename) ||
               Boolean(fileToCut) ||
-              Boolean(newFolderName.trim()) ||
               isLoading
             }
           />

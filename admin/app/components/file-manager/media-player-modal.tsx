@@ -34,7 +34,6 @@ export default function MediaPlayerModal({
   filesHost = '',
 }: MediaPlayerModalProps) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null);
-  const [hasAudioTrack, setHasAudioTrack] = useState<boolean | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
 
   const isMediaFile = (fileName: string): 'video' | 'audio' | null => {
@@ -67,7 +66,6 @@ export default function MediaPlayerModal({
 
   useEffect(() => {
     if (isOpen && mediaRef.current) {
-      setHasAudioTrack(null);
       setMediaError(null);
       mediaRef.current.load();
       mediaRef.current.play().catch(() => {
@@ -85,16 +83,7 @@ export default function MediaPlayerModal({
     }
   };
 
-  const handleLoadedMetadata = () => {
-    if (mediaRef.current && 'audioTracks' in mediaRef.current) {
-      const videoEl = mediaRef.current as any;
-      const hasAudio = videoEl.audioTracks?.length > 0 || 
-                       videoEl.mozHasAudio || 
-                       !!videoEl.webkitAudioDecodedByteCount ||
-                       videoEl.volume !== undefined;
-      setHasAudioTrack(hasAudio);
-    }
-  };
+  // removed unused audio track detection
 
   const handleError = () => {
     if (mediaRef.current && mediaRef.current.error) {
@@ -118,15 +107,6 @@ export default function MediaPlayerModal({
     }
   };
 
-  const formatFileSize = (bytes?: number): string => {
-    if (!bytes) return '';
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={fileName} maxWidth="custom-1000">
       <div className="flex flex-col gap-6">
@@ -144,7 +124,6 @@ export default function MediaPlayerModal({
             controls
             className="w-full max-h-[60vh] bg-black rounded"
             preload="metadata"
-            onLoadedMetadata={handleLoadedMetadata}
             onError={handleError}
             onEnded={handleEnded}
           >

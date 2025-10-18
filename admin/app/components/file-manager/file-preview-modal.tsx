@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Modal from '~/components/shared/modal/modal';
 import FileManagerWarning from '~/components/shared/filemanager-warning/filemanager-warning';
 import FilePreviews from '~/components/file-manager/file-previews';

@@ -22,7 +22,7 @@ export default async function updateCategories(cheatsheetsDir: string) {
       'System Monitoring': [],
       'Linux Specific': [],
       'Miscellaneous': []
-    };
+    } as { [key: string]: string[] };
 
     for (const file of mdFiles) {
       const cmd = file.replace('.md', '');

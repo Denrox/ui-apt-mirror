@@ -38,7 +38,7 @@ export function meta() {
 }
 
 export default function Users() {
-  const { users, currentUser, isAdmin, error } = useLoaderData<typeof loader>();
+  const { users, isAdmin, error } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const revalidator = useRevalidator();
   const submit = useSubmit();
@@ -141,7 +141,7 @@ export default function Users() {
               </div>
             ) : (
               <TableWrapper>
-                {users.map((user) => (
+                {users.map((user: { username: string }) => (
                   <TableRow
                     key={user.username}
                     icon={

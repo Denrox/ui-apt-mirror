@@ -209,32 +209,6 @@ export default function ChunkedUpload({
     }
   }, [selectedFiles, currentPath, uploadChunk, onChunkUploaded]);
 
-  const getStatusIcon = (status: FileUploadStatus['status']) => {
-    switch (status) {
-      case 'completed':
-        return '✓';
-      case 'error':
-        return '✗';
-      case 'uploading':
-        return '↻';
-      default:
-        return '⋯';
-    }
-  };
-
-  const getStatusColor = (status: FileUploadStatus['status']) => {
-    switch (status) {
-      case 'completed':
-        return 'text-green-600';
-      case 'error':
-        return 'text-red-600';
-      case 'uploading':
-        return 'text-blue-600';
-      default:
-        return 'text-gray-400';
-    }
-  };
-
   const completedCount = selectedFiles.filter(f => f.status === 'completed').length;
   const currentUploadingIndex = selectedFiles.findIndex(f => f.status === 'uploading');
   const currentProgress = currentUploadingIndex >= 0 ? selectedFiles[currentUploadingIndex].progress : 0;
