@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useLoaderData, useSubmit, useRevalidator } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileAlt, faTags, faSearch, faEye, faTrash, faSync, faTimes } from '@fortawesome/free-solid-svg-icons';
+import { faFileAlt, faTags, faEye, faTrash, faSync, faTimes } from '@fortawesome/free-solid-svg-icons';
 import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
@@ -33,7 +33,7 @@ export function meta() {
 }
 
 export default function Cheatsheets() {
-  const data = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader & { __domain: string }>();
   const files = data?.files || [];
   const categories = data?.categories || [];
   const error = data?.error;

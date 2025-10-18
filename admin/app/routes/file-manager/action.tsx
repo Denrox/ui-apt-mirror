@@ -418,11 +418,60 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   };
 }
 
+async function searchFiles(rootPath: string, searchQuery: string): Promise<any[]> {
+  const results: any[] = [];
+  const lowerQuery = searchQuery.toLowerCase();
+
+  async function searchDirectory(dirPath: string): Promise<void> {
+    try {
+      const items = await fs.readdir(dirPath);
+      
+      for (const itemName of items) {
+        // Skip hidden files except .tmp- directories
+        if (itemName.startsWith('.') && !itemName.startsWith('.tmp-')) {
+          continue;
+        }
+
+        const itemPath = path.join(dirPath, itemName);
+        
+        try {
+          const stats = await fs.stat(itemPath);
+          
+          // Check if the item name matches the search query
+          if (itemName.toLowerCase().includes(lowerQuery)) {
+            results.push({
+              name: itemName,
+              path: itemPath,
+              size: stats.isFile() ? stats.size : 0,
+              modified: stats.mtime,
+              isDirectory: stats.isDirectory(),
+            });
+          }
+          
+          // Recursively search subdirectories (but not .tmp- directories)
+          if (stats.isDirectory() && !itemName.startsWith('.tmp-')) {
+            await searchDirectory(itemPath);
+          }
+        } catch (itemError) {
+          // Skip items we can't access
+          console.error(`Error processing item: ${itemPath}`, itemError);
+        }
+      }
+    } catch (readError) {
+      console.error(`Error reading directory: ${dirPath}`, readError);
+    }
+  }
+
+  await searchDirectory(rootPath);
+  return results;
+}
+
 export async function action({ request }: Route.ActionArgs): Promise<{
   success: boolean;
   message?: string;
   error?: string;
   output?: string;
+  results?: any[];
 }> {
   try {
     const formData = await request.formData();
@@ -836,6 +885,29 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return {
           success: false,
           error: `Failed to clear health report: ${errorMessage}`,
+        };
+      }
+    } else if (intent === 'searchFiles') {
+      const searchQuery = formData.get('searchQuery') as string;
+      const rootPath = formData.get('rootPath') as string;
+
+      if (!searchQuery || searchQuery.trim().length < 3) {
+        return { success: false, error: 'Search query must be at least 3 characters' };
+      }
+
+      if (!rootPath) {
+        return { success: false, error: 'Root path is required' };
+      }
+
+      try {
+        const results = await searchFiles(rootPath, searchQuery.trim());
+        return { success: true, results };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        return {
+          success: false,
+          error: `Search failed: ${errorMessage}`,
         };
       }
     }

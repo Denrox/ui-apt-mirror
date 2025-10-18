@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useActionData } from 'react-router';
 import FormButton from '~/components/shared/form/form-button';
 import FormInput from '~/components/shared/form/form-input';
@@ -16,7 +16,6 @@ export function meta() {
 export { loader, action };
 
 export default function Login() {
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const actionData = useActionData<typeof action>();
 
   useEffect(() => {
@@ -44,7 +43,6 @@ export default function Login() {
                   type="text"
                   name="username"
                   placeholder="Enter username"
-                  disabled={isSubmitting}
                 />
               </FormField>
 
@@ -53,7 +51,6 @@ export default function Login() {
                   type="password"
                   name="password"
                   placeholder="Enter password"
-                  disabled={isSubmitting}
                 />
               </FormField>
 
@@ -61,9 +58,8 @@ export default function Login() {
                 <FormButton
                   type="primary"
                   buttonType="submit"
-                  disabled={isSubmitting}
                 >
-                  {isSubmitting ? 'Signing in...' : 'Sign In'}
+                  Sign In
                 </FormButton>
               </div>
             </form>

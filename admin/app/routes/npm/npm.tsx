@@ -304,7 +304,7 @@ async function loadPrivatePackage(
   return { data, headers };
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
+export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   let packagePath = url.pathname;
 
@@ -690,7 +690,7 @@ export async function action({ request }: ActionFunctionArgs) {
       headers: forwardedHeaders,
     };
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const req = client.request(options, (res) => {
         const chunks: Buffer[] = [];
 

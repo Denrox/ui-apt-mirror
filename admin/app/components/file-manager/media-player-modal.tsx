@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '~/components/shared/modal/modal';
 import FileManagerWarning from '~/components/shared/filemanager-warning/filemanager-warning';
+import FilePreviews from '~/components/file-manager/file-previews';
 
 interface MediaFile {
   name: string;
@@ -15,8 +16,10 @@ interface MediaPlayerModalProps {
   fileUrl: string;
   fileName: string;
   mediaType: 'video' | 'audio';
-  mediaFiles?: MediaFile[];
   onSelectMedia?: (file: MediaFile) => void;
+  allFiles?: { name: string; path: string; size?: number; isDirectory?: boolean }[];
+  basePath?: string;
+  filesHost?: string;
 }
 
 export default function MediaPlayerModal({
@@ -25,12 +28,34 @@ export default function MediaPlayerModal({
   fileUrl,
   fileName,
   mediaType,
-  mediaFiles = [],
   onSelectMedia,
+  allFiles = [],
+  basePath = '',
+  filesHost = '',
 }: MediaPlayerModalProps) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null);
-  const [hasAudioTrack, setHasAudioTrack] = useState<boolean | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
+
+  const isMediaFile = (fileName: string): 'video' | 'audio' | null => {
+    const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v'];
+    const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma'];
+    const lowerFileName = fileName.toLowerCase();
+    if (videoExtensions.some(ext => lowerFileName.endsWith(ext))) return 'video';
+    if (audioExtensions.some(ext => lowerFileName.endsWith(ext))) return 'audio';
+    return null;
+  };
+
+  const computedMediaFiles: MediaFile[] = useMemo(() => {
+    if (!allFiles || !filesHost || !basePath) return [];
+    return allFiles
+      .filter((file: any) => !file.isDirectory && isMediaFile(file.name))
+      .map((file: any) => ({
+        name: file.name,
+        url: `${filesHost}/downloads${file.path.replace(basePath, '')}`,
+        type: isMediaFile(file.name) as 'video' | 'audio',
+        size: file.size,
+      }));
+  }, [allFiles, filesHost, basePath]);
 
   useEffect(() => {
     if (!isOpen && mediaRef.current) {
@@ -41,7 +66,6 @@ export default function MediaPlayerModal({
 
   useEffect(() => {
     if (isOpen && mediaRef.current) {
-      setHasAudioTrack(null);
       setMediaError(null);
       mediaRef.current.load();
       mediaRef.current.play().catch(() => {
@@ -51,25 +75,15 @@ export default function MediaPlayerModal({
   }, [isOpen, fileUrl]);
 
   const handleEnded = () => {
-    if (!mediaFiles || mediaFiles.length === 0) return;
-    
-    const currentIndex = mediaFiles.findIndex(file => file.name === fileName);
-    if (currentIndex >= 0 && currentIndex < mediaFiles.length - 1) {
-      const nextFile = mediaFiles[currentIndex + 1];
+    if (!computedMediaFiles || computedMediaFiles.length === 0) return;
+    const currentIndex = computedMediaFiles.findIndex(file => file.name === fileName);
+    if (currentIndex >= 0 && currentIndex < computedMediaFiles.length - 1) {
+      const nextFile = computedMediaFiles[currentIndex + 1];
       onSelectMedia?.(nextFile);
     }
   };
 
-  const handleLoadedMetadata = () => {
-    if (mediaRef.current && 'audioTracks' in mediaRef.current) {
-      const videoEl = mediaRef.current as any;
-      const hasAudio = videoEl.audioTracks?.length > 0 || 
-                       videoEl.mozHasAudio || 
-                       !!videoEl.webkitAudioDecodedByteCount ||
-                       videoEl.volume !== undefined;
-      setHasAudioTrack(hasAudio);
-    }
-  };
+  // removed unused audio track detection
 
   const handleError = () => {
     if (mediaRef.current && mediaRef.current.error) {
@@ -93,15 +107,6 @@ export default function MediaPlayerModal({
     }
   };
 
-  const formatFileSize = (bytes?: number): string => {
-    if (!bytes) return '';
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={fileName} maxWidth="custom-1000">
       <div className="flex flex-col gap-6">
@@ -119,7 +124,6 @@ export default function MediaPlayerModal({
             controls
             className="w-full max-h-[60vh] bg-black rounded"
             preload="metadata"
-            onLoadedMetadata={handleLoadedMetadata}
             onError={handleError}
             onEnded={handleEnded}
           >
@@ -144,31 +148,12 @@ export default function MediaPlayerModal({
           </div>
         )}
 
-        {mediaFiles.length > 0 && (
-          <div>
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {mediaFiles.map((file, index) => (
-                <button
-                  key={index}
-                  onClick={() => onSelectMedia?.(file)}
-                  className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all hover:shadow-md flex-shrink-0 w-[140px] cursor-pointer ${
-                    file.name === fileName
-                      ? 'border-gray-500 bg-gray-200'
-                      : 'border-gray-200 hover:border-gray-300 bg-gray-50'
-                  }`}
-                >
-                  <div className="text-xs font-medium text-gray-700 text-center break-words w-full line-clamp-2">
-                    {file.name}
-                  </div>
-                  {file.size && (
-                    <div className="text-xs text-gray-500">
-                      {formatFileSize(file.size)}
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+        {computedMediaFiles.length > 0 && (
+          <FilePreviews
+            mediaFiles={computedMediaFiles}
+            currentFileName={fileName}
+            onSelectMedia={onSelectMedia}
+          />
         )}
       </div>
     </Modal>

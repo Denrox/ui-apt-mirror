@@ -6,6 +6,8 @@ interface FormInputProps {
   readonly disabled?: boolean;
   readonly id?: string;
   readonly name?: string;
+  readonly onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  readonly width?: string;
 }
 
 export default function FormInput({
@@ -16,6 +18,8 @@ export default function FormInput({
   disabled = false,
   id,
   name,
+  onKeyDown,
+  width,
 }: FormInputProps) {
   return (
     <input
@@ -24,8 +28,10 @@ export default function FormInput({
       name={name}
       value={value}
       onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+      onKeyDown={onKeyDown}
       placeholder={placeholder}
       disabled={disabled}
+      style={width ? { width } : undefined}
       className="w-full h-[40px] px-[12px] border border-gray-300 rounded-md text-[14px] focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
     />
   );
