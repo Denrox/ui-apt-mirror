@@ -1,10 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useFetcher } from 'react-router';
 import FormButton from '~/components/shared/form/form-button';
+import Modal from '~/components/shared/modal/modal';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faUpload } from '@fortawesome/free-solid-svg-icons';
 
 interface ChunkedUploadProps {
   readonly currentPath: string;
-  readonly onSelectedFile: (isSelected: boolean) => void;
+  readonly onSelectedFile?: (isSelected: boolean) => void;
   readonly onChunkUploaded?: (chunkIndex: number, totalChunks: number) => void;
 }
 
@@ -107,7 +110,9 @@ export default function ChunkedUpload({
   );
 
   useEffect(() => {
-    onSelectedFile(selectedFiles.length > 0);
+    if (onSelectedFile) {
+      onSelectedFile(selectedFiles.length > 0);
+    }
   }, [selectedFiles, onSelectedFile]);
 
   const handleFileSelect = useCallback(
@@ -253,40 +258,65 @@ export default function ChunkedUpload({
             }
             disabled={uploading}
           >
-            Upload Files
+            <FontAwesomeIcon icon={faUpload} />
           </FormButton>
         </label>
       )}
-      {selectedFiles.length > 0 && !uploading && (
-        <>
-          <FormButton onClick={handleUpload} disabled={uploading}>
-            Upload All
-          </FormButton>
-          <span className="text-sm text-gray-600">
-            {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
-          </span>
-          <FormButton type="secondary" onClick={() => cancelUpload()}>
-            Cancel
-          </FormButton>
-        </>
-      )}
-      {uploading && (
-        <>
-          <span className="text-sm text-gray-600">
-            Uploading ({completedCount + 1}/{selectedFiles.length})
-          </span>
-          <div className="flex items-center gap-2">
-            <div className="w-32 bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${currentProgress}%` }}
-              ></div>
+
+      {(selectedFiles.length > 0 || uploading) && (
+        <Modal
+          isOpen={true}
+          onClose={() => {
+            // Prevent closing while uploading; require Cancel
+            if (uploading) return;
+            cancelUpload();
+          }}
+          title="Upload Files"
+        >
+          <div className="space-y-4">
+            {!uploading && (
+              <div className="text-sm text-gray-600">
+                {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
+              </div>
+            )}
+
+            {uploading && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">
+                  Uploading ({completedCount + 1}/{selectedFiles.length})
+                </span>
+                <div className="flex items-center gap-2">
+                  <div className="w-32 bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${currentProgress}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-xs text-gray-600 w-10 text-right">
+                    {currentProgress}%
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-4">
+              {uploading ? (
+                <FormButton type="secondary" onClick={() => cancelUpload()}>
+                  Cancel Upload
+                </FormButton>
+              ) : (
+                <>
+                  <FormButton type="secondary" onClick={() => cancelUpload()}>
+                    Cancel
+                  </FormButton>
+                  <FormButton onClick={handleUpload} disabled={uploading || selectedFiles.length === 0}>
+                    Upload
+                  </FormButton>
+                </>
+              )}
             </div>
-            <span className="text-xs text-gray-600 w-10 text-right">
-              {currentProgress}%
-            </span>
           </div>
-        </>
+        </Modal>
       )}
     </div>
   );

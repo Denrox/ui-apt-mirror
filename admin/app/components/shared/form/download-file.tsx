@@ -2,10 +2,13 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSubmit } from 'react-router';
 import FormButton from '~/components/shared/form/form-button';
 import FormInput from '~/components/shared/form/form-input';
+import Modal from '~/components/shared/modal/modal';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faDownload } from '@fortawesome/free-solid-svg-icons';
 import { toast } from 'react-toastify';
 
 interface DownloadFileProps {
-  readonly onDownloadInput: (isDownloading: boolean) => void;
+  readonly onDownloadInput?: (isDownloading: boolean) => void;
   readonly currentPath: string;
 }
 
@@ -42,7 +45,9 @@ export default function DownloadFile({
   }, []);
 
   useEffect(() => {
-    onDownloadInput(showUrlInput);
+    if (onDownloadInput) {
+      onDownloadInput(showUrlInput);
+    }
   }, [showUrlInput, onDownloadInput]);
 
   const handleDownload = useCallback(async () => {
@@ -69,7 +74,6 @@ export default function DownloadFile({
         setUrl('');
         setFileName('');
         setShowUrlInput(false);
-        toast.success('File downloaded successfully');
       }
     } catch (error) {
       if (!abortControllerRef.current.signal.aborted) {
@@ -118,31 +122,59 @@ export default function DownloadFile({
     };
   }, []);
 
-  if (!showUrlInput) {
-    return (
-      <FormButton onClick={handleDownloadClick} disabled={downloading}>
-        Download File
-      </FormButton>
-    );
-  }
-
   return (
-    <div className="flex items-center gap-2">
-      <FormInput
-        value={url}
-        onChange={setUrl}
-        placeholder="File URL"
-        disabled={downloading}
-      />
-      <FormButton
-        onClick={handleDownload}
-        disabled={downloading || !url.trim()}
-      >
-        {downloading ? 'Downloading...' : 'Download'}
+    <>
+      <FormButton onClick={handleDownloadClick} disabled={downloading}>
+        <FontAwesomeIcon icon={faDownload} />
       </FormButton>
-      <FormButton type="secondary" onClick={handleCancel}>
-        Cancel
-      </FormButton>
-    </div>
+      {showUrlInput && (
+        <Modal
+          isOpen={true}
+          onClose={() => {
+            if (downloading) return; // prevent closing while downloading
+            handleCancel();
+          }}
+          title="Download File"
+        >
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="download-url"
+                className="block text-sm font-medium text-gray-700 mb-1"
+              >
+                File URL
+              </label>
+              <FormInput
+                id="download-url"
+                value={url}
+                onChange={setUrl}
+                placeholder="https://example.com/file.zip"
+                disabled={downloading}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Filename is auto-detected from URL. You can rename after download.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              {downloading ? (
+                <FormButton type="secondary" onClick={handleCancel}>
+                  Cancel Download
+                </FormButton>
+              ) : (
+                <>
+                  <FormButton type="secondary" onClick={handleCancel}>
+                    Cancel
+                  </FormButton>
+                  <FormButton onClick={handleDownload} disabled={!url.trim()}>
+                    Download
+                  </FormButton>
+                </>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }

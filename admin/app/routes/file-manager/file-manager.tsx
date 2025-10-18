@@ -13,6 +13,8 @@ import Dropdown from '~/components/shared/dropdown/dropdown';
 import DropdownItem from '~/components/shared/dropdown/dropdown-item';
 import DownloadImageModal from '~/components/file-manager/download-image-modal';
 import MediaPlayerModal from '~/components/file-manager/media-player-modal';
+import CreateFolderModal from '~/components/file-manager/create-folder-modal';
+import FilePreviewModal from '~/components/file-manager/file-preview-modal';
 import FileManagerWarning from '~/components/shared/filemanager-warning/filemanager-warning';
 import TableRow from '~/components/shared/table-row/table-row';
 import TableWrapper from '~/components/shared/table-wrapper/table-wrapper';
@@ -42,6 +44,7 @@ import {
   faFolder,
   faFile,
   faPlay,
+  faEye,
 } from '@fortawesome/free-solid-svg-icons';
 
 export { action, loader };
@@ -117,10 +120,10 @@ export default function FileManager() {
   const actionData = useActionData<typeof action>();
   const [newFolderName, setNewFolderName] = useState('');
   const submit = useSubmit();
-  const [isUploading, setIsUploading] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  // removed local upload/download UI blockers; handled inside modals
   const [isDownloadImageModalOpen, setIsDownloadImageModalOpen] =
     useState(false);
+  const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
 
   const [itemToRename, setItemToRename] = useState<{
     path: string;
@@ -219,6 +222,8 @@ export default function FileManager() {
       revalidator.revalidate();
     }
   }, [actionData?.success, revalidator]);
+
+  // search removed
 
   const handleCreateFolder = async () => {
     try {
@@ -329,19 +334,15 @@ export default function FileManager() {
     return null;
   };
 
-  const currentFolderMediaFiles = useMemo(() => {
-    const basePath = view === 'mirrored-packages' ? rootPath : appConfig.filesDir;
-    const filesHost = getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '');
-    
-    return currentPathFiles
-      .filter((file: any) => !file.isDirectory && isMediaFile(file.name))
-      .map((file: any) => ({
-        name: file.name,
-        url: `${filesHost}/downloads${file.path.replace(basePath, '')}`,
-        type: isMediaFile(file.name) as 'video' | 'audio',
-        size: file.size,
-      }));
-  }, [currentPathFiles, view, rootPath]);
+  const getPreviewType = (fileName: string): 'image' | 'text' | 'pdf' | null => {
+    const lower = fileName.toLowerCase();
+    if (lower.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/)) return 'image';
+    if (lower.endsWith('.txt')) return 'text';
+    if (lower.endsWith('.pdf')) return 'pdf';
+    return null;
+  };
+
+  // No per-type lists here: pass all currentPathFiles and let modals compute
 
   const handlePlayMedia = (item: any) => {
     const basePath = view === 'mirrored-packages' ? rootPath : appConfig.filesDir;
@@ -376,6 +377,40 @@ export default function FileManager() {
     });
   };
 
+  const [filePreview, setFilePreview] = useState<{
+    isOpen: boolean;
+    fileUrl: string;
+    fileName: string;
+    previewType: 'image' | 'text' | 'pdf';
+  }>({
+    isOpen: false,
+    fileUrl: '',
+    fileName: '',
+    previewType: 'image',
+  });
+
+  const handlePreviewFile = (item: any) => {
+    const basePath = view === 'mirrored-packages' ? rootPath : appConfig.filesDir;
+    const fileUrl = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+    const previewType = getPreviewType(item.name);
+    if (!previewType) return;
+    setFilePreview({
+      isOpen: true,
+      fileUrl,
+      fileName: item.name,
+      previewType,
+    });
+  };
+
+  const handleCloseFilePreview = () => {
+    setFilePreview({
+      isOpen: false,
+      fileUrl: '',
+      fileName: '',
+      previewType: 'image',
+    });
+  };
+
   const formatDate = (date: Date): string => {
     return (
       date.toLocaleDateString() +
@@ -393,8 +428,8 @@ export default function FileManager() {
   }, [currentPath]);
 
   const isOperationInProgress = useMemo(() => {
-    return isUploading || isDownloading;
-  }, [isUploading, isDownloading]);
+    return false;
+  }, []);
 
   return (
     <PageLayoutFull>
@@ -445,8 +480,6 @@ export default function FileManager() {
                 : []),
             ]}
             disabled={
-              isUploading ||
-              isDownloading ||
               Boolean(itemToRename) ||
               Boolean(fileToCut) ||
               Boolean(newFolderName.trim()) ||
@@ -509,14 +542,14 @@ export default function FileManager() {
             />
           )}
 
-          <div className="flex items-center gap-2 px-0 bg-gray-50 rounded-md">
+          <div className="flex items-center gap-2 px-0">
             <span className="font-semibold">Current Path:</span>
             <span className="font-mono text-sm">{displayPath}</span>
           </div>
 
           <div
             className={classNames(
-              'flex flex-wrap gap-4 px-0 bg-gray-50 rounded-md',
+              'flex flex-wrap gap-4 px-0',
             )}
           >
             {!shouldShowSyncPlaceholder && (
@@ -534,21 +567,11 @@ export default function FileManager() {
                 {!isPublicRoute && (
                   <>
                     <div className="flex items-center gap-2">
-                      <FormInput
-                        value={newFolderName}
-                        onChange={setNewFolderName}
-                        placeholder="New folder name"
-                        disabled={isLoading}
-                      />
                       <FormButton
-                        onClick={handleCreateFolder}
-                        disabled={
-                          !newFolderName.trim() ||
-                          isOperationInProgress ||
-                          isLoading
-                        }
+                        onClick={() => setIsCreateFolderOpen(true)}
+                        disabled={isLoading}
                       >
-                        Create Folder
+                        New Folder
                       </FormButton>
                     </div>
                     {fileToCut ? (
@@ -573,22 +596,18 @@ export default function FileManager() {
                       </div>
                     ) : (
                       <>
-                        {!isDownloading && (
+                        {
                           <ChunkedUpload
-                            onSelectedFile={setIsUploading}
                             currentPath={currentPath}
                             onChunkUploaded={handleChunkUploaded}
                           />
-                        )}
-                        {!isUploading && (
+                        }
+                        {
                           <DownloadFile
-                            onDownloadInput={setIsDownloading}
                             currentPath={currentPath}
                           />
-                        )}
-                        {!isUploading &&
-                          !isDownloading &&
-                          view === 'user-uploads' && (
+                        }
+                        {view === 'user-uploads' && (
                             <Dropdown
                               disabled={isOperationInProgress || isLoading}
                               trigger={
@@ -679,6 +698,20 @@ export default function FileManager() {
                             onClick={() => handlePlayMedia(item)}
                           >
                             <FontAwesomeIcon icon={faPlay} />
+                          </FormButton>
+                        )}
+                        {!item.isDirectory && getPreviewType(item.name) && (
+                          <FormButton
+                            type="secondary"
+                            size="small"
+                            disabled={
+                              isOperationInProgress ||
+                              Boolean(fileToCut) ||
+                              isLoading
+                            }
+                            onClick={() => handlePreviewFile(item)}
+                          >
+                            <FontAwesomeIcon icon={faEye} />
                           </FormButton>
                         )}
                         {!item.isDirectory && (
@@ -788,9 +821,17 @@ export default function FileManager() {
         </Modal>
       )}
 
+      {/* Create Folder Modal moved to dedicated component */}
+
       <DownloadImageModal
         isOpen={isDownloadImageModalOpen}
         onClose={() => setIsDownloadImageModalOpen(false)}
+        currentPath={currentPath}
+      />
+
+      <CreateFolderModal
+        isOpen={isCreateFolderOpen}
+        onClose={() => setIsCreateFolderOpen(false)}
         currentPath={currentPath}
       />
 
@@ -800,8 +841,30 @@ export default function FileManager() {
         fileUrl={mediaPlayer.fileUrl}
         fileName={mediaPlayer.fileName}
         mediaType={mediaPlayer.mediaType}
-        mediaFiles={currentFolderMediaFiles}
         onSelectMedia={handleSelectMediaFile}
+        allFiles={currentPathFiles}
+        basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
+        filesHost={getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}
+      />
+
+      <FilePreviewModal
+        isOpen={filePreview.isOpen}
+        onClose={handleCloseFilePreview}
+        fileUrl={filePreview.fileUrl}
+        fileName={filePreview.fileName}
+        previewType={filePreview.previewType}
+        onSelectPreviewFile={(file) =>
+          setFilePreview((prev) => ({
+            ...prev,
+            isOpen: true,
+            fileUrl: file.url,
+            fileName: file.name,
+            previewType: getPreviewType(file.name) || prev.previewType,
+          }))
+        }
+        allFiles={currentPathFiles}
+        basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
+        filesHost={getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}
       />
 
       {/* Delete Confirmation Modal */}
