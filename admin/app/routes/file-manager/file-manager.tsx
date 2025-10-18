@@ -4,6 +4,7 @@ import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import FormButton from '~/components/shared/form/form-button';
 import FormSelect from '~/components/shared/form/form-select';
+import FormInput from '~/components/shared/form/form-input';
 import Modal from '~/components/shared/modal/modal';
 import DeleteConfirmationModal from '~/components/shared/delete-confirmation-modal';
 import RenameForm from '~/components/file-manager/rename-form';
@@ -23,6 +24,7 @@ import {
   useSubmit,
   useRevalidator,
   useSearchParams,
+  useFetcher,
 } from 'react-router';
 import appConfig from '~/config/config.json';
 import { loader } from './loader';
@@ -41,6 +43,7 @@ import {
   faEdit,
   faSearch,
   faFolder,
+  faFolderPlus,
   faFile,
   faPlay,
   faEye,
@@ -118,9 +121,13 @@ export default function FileManager() {
 
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
+  const searchFetcher = useFetcher<typeof action>();
   const [isDownloadImageModalOpen, setIsDownloadImageModalOpen] =
     useState(false);
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
 
   const [itemToRename, setItemToRename] = useState<{
     path: string;
@@ -168,8 +175,11 @@ export default function FileManager() {
   }, [loaderError, rootPath, setSearchParams]);
 
   const currentPathFiles = useMemo(() => {
+    if (isSearching && searchResults.length > 0) {
+      return searchResults;
+    }
     return files.filter((file: any) => isChildPath(file.path, currentPath));
-  }, [files, currentPath]);
+  }, [files, currentPath, isSearching, searchResults]);
 
   const handleDelete = (filePath: string, fileName: string) => {
     setDeleteTarget({ path: filePath, name: fileName });
@@ -289,6 +299,35 @@ export default function FileManager() {
     },
     [revalidator],
   );
+
+  const handleSearch = useCallback(() => {
+    if (searchQuery.trim().length < 3) return;
+    
+    setIsSearching(true);
+    const formData = new FormData();
+    formData.append('intent', 'searchFiles');
+    formData.append('searchQuery', searchQuery.trim());
+    formData.append('rootPath', currentPath);
+    
+    searchFetcher.submit(formData, { method: 'post' });
+  }, [searchQuery, currentPath, searchFetcher]);
+
+  const handleClearSearch = useCallback(() => {
+    setIsSearching(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  }, []);
+
+  useEffect(() => {
+    if (searchFetcher.data && searchFetcher.state === 'idle') {
+      if (searchFetcher.data.success && searchFetcher.data.results) {
+        setSearchResults(searchFetcher.data.results);
+      } else if (searchFetcher.data.error) {
+        toast.error(searchFetcher.data.error);
+        setIsSearching(false);
+      }
+    }
+  }, [searchFetcher.data, searchFetcher.state]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -521,7 +560,9 @@ export default function FileManager() {
           )}
 
           <div className="flex items-center gap-2 px-0">
-            <span className="font-semibold">Current Path:</span>
+            <span className="font-semibold">
+              {isSearching ? 'Searching inside:' : 'Current Path:'}
+            </span>
             <span className="font-mono text-sm">{displayPath}</span>
           </div>
 
@@ -532,7 +573,7 @@ export default function FileManager() {
           >
             {!shouldShowSyncPlaceholder && (
               <>
-                {!isRootPath && parentDirName && (
+                {!isRootPath && parentDirName && !isSearching && (
                   <div className="flex items-center gap-2">
                     <FormButton
                       onClick={() => setSearchParams({ path: parentDirName })}
@@ -545,70 +586,104 @@ export default function FileManager() {
                 {!isPublicRoute && (
                   <>
                     <div className="flex items-center gap-2">
-                      <FormButton
-                        onClick={() => setIsCreateFolderOpen(true)}
-                        disabled={isLoading}
-                      >
-                        New Folder
-                      </FormButton>
-                    </div>
-                    {fileToCut ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-600">
-                          Moving:{' '}
-                          <span className="font-medium">{fileToCut.name}</span>
-                        </span>
-                        <FormButton
-                          onClick={handlePasteClick}
-                          disabled={isOperationInProgress || isLoading}
-                        >
-                          Paste
-                        </FormButton>
+                      <FormInput
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && searchQuery.trim().length >= 3) {
+                            handleSearch();
+                          }
+                        }}
+                        placeholder="Search files and folders..."
+                        disabled={isLoading || isSearching}
+                        width="220px"
+                      />
+                      {isSearching ? (
                         <FormButton
                           type="secondary"
-                          onClick={handleCutCancel}
-                          disabled={isOperationInProgress || isLoading}
+                          onClick={handleClearSearch}
+                          disabled={isLoading}
                         >
-                          Cancel
+                          Clear
+                        </FormButton>
+                      ) : (
+                        <FormButton
+                          type="secondary"
+                          onClick={handleSearch}
+                          disabled={isLoading || searchQuery.trim().length < 3}
+                        >
+                          <FontAwesomeIcon icon={faSearch} />
+                        </FormButton>
+                      )}
+                    </div>
+                    {!isSearching && (
+                      <div className="flex items-center gap-2">
+                        <FormButton
+                          type="secondary"
+                          onClick={() => setIsCreateFolderOpen(true)}
+                          disabled={isLoading}
+                        >
+                          <FontAwesomeIcon icon={faFolderPlus} />
                         </FormButton>
                       </div>
-                    ) : (
-                      <>
-                        {
-                          <ChunkedUpload
-                            currentPath={currentPath}
-                            onChunkUploaded={handleChunkUploaded}
-                          />
-                        }
-                        {
-                          <DownloadFile
-                            currentPath={currentPath}
-                          />
-                        }
-                        {view === 'user-uploads' && (
-                            <Dropdown
-                              disabled={isOperationInProgress || isLoading}
-                              trigger={
-                                <FormButton
-                                  type="secondary"
-                                  disabled={isOperationInProgress || isLoading}
-                                  onClick={() => {}}
-                                >
-                                  <FontAwesomeIcon icon={faEllipsisV} />
-                                </FormButton>
-                              }
-                            >
-                              <DropdownItem
-                                onClick={() => setIsDownloadImageModalOpen(true)}
-                              >
-                                Download Container Image
-                              </DropdownItem>
-                            </Dropdown>
-                          )}
-                      </>
                     )}
                   </>
                 )}
+                {!isPublicRoute && !isSearching && fileToCut ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">
+                      Moving:{' '}
+                      <span className="font-medium">{fileToCut.name}</span>
+                    </span>
+                    <FormButton
+                      onClick={handlePasteClick}
+                      disabled={isOperationInProgress || isLoading}
+                    >
+                      Paste
+                    </FormButton>
+                    <FormButton
+                      type="secondary"
+                      onClick={handleCutCancel}
+                      disabled={isOperationInProgress || isLoading}
+                    >
+                      Cancel
+                    </FormButton>
+                  </div>
+                ) : !isPublicRoute && !isSearching ? (
+                  <>
+                    {
+                      <ChunkedUpload
+                        currentPath={currentPath}
+                        onChunkUploaded={handleChunkUploaded}
+                      />
+                    }
+                    {
+                      <DownloadFile
+                        currentPath={currentPath}
+                      />
+                    }
+                    {view === 'user-uploads' && (
+                        <Dropdown
+                          disabled={isOperationInProgress || isLoading}
+                          trigger={
+                            <FormButton
+                              type="secondary"
+                              disabled={isOperationInProgress || isLoading}
+                              onClick={() => {}}
+                            >
+                              <FontAwesomeIcon icon={faEllipsisV} />
+                            </FormButton>
+                          }
+                        >
+                          <DropdownItem
+                            onClick={() => setIsDownloadImageModalOpen(true)}
+                          >
+                            Download Container Image
+                          </DropdownItem>
+                        </Dropdown>
+                      )}
+                  </>
+                ) : null}
               </>
             )}
           </div>

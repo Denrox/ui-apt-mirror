@@ -230,6 +230,7 @@ export default function ChunkedUpload({
             onClick={() =>
               document.getElementById('chunked-file-upload')?.click()
             }
+            type="secondary"
             disabled={uploading}
           >
             <FontAwesomeIcon icon={faUpload} />

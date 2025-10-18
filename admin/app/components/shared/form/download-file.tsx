@@ -124,7 +124,7 @@ export default function DownloadFile({
 
   return (
     <>
-      <FormButton onClick={handleDownloadClick} disabled={downloading}>
+      <FormButton type="secondary" onClick={handleDownloadClick} disabled={downloading}>
         <FontAwesomeIcon icon={faDownload} />
       </FormButton>
       {showUrlInput && (
