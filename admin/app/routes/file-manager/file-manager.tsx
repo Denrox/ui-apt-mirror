@@ -129,6 +129,11 @@ export default function FileManager() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
+  useEffect(() => {
+    setSearchQuery('');
+    setIsSearching(false);
+  }, [searchParams]);
+
   const [itemToRename, setItemToRename] = useState<{
     path: string;
     name: string;
