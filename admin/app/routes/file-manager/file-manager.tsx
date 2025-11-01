@@ -90,9 +90,20 @@ export default function FileManager() {
   const loaderError = data?.error;
   const isPublicRoute = data?.__domain === 'files';
   const [searchParams, setSearchParams] = useSearchParams();
+  
+  const getViewFromPath = (pathStr: string | null): 'public-files' | 'private-files' | 'mirrored-packages' | 'npm-packages' => {
+    if (!pathStr) return 'public-files';
+    
+    if (pathStr.includes(appConfig.mirroredPackagesDir)) return 'mirrored-packages';
+    if (pathStr.includes(appConfig.npmPackagesDir)) return 'npm-packages';
+    if (pathStr.includes(appConfig.privateFilesDir)) return 'private-files';
+    return 'public-files';
+  };
+  
+  const initialPath = searchParams.get('path');
   const [view, setView] = useState<
-    'user-uploads' | 'mirrored-packages' | 'npm-packages'
-  >('user-uploads');
+    'public-files' | 'private-files' | 'mirrored-packages' | 'npm-packages'
+  >(getViewFromPath(initialPath));
   const revalidator = useRevalidator();
   const previousViewRef = useRef(view);
 
@@ -101,6 +112,8 @@ export default function FileManager() {
       return appConfig.mirroredPackagesDir;
     } else if (view === 'npm-packages') {
       return appConfig.npmPackagesDir;
+    } else if (view === 'private-files') {
+      return appConfig.privateFilesDir;
     } else {
       return appConfig.filesDir;
     }
@@ -368,8 +381,10 @@ export default function FileManager() {
   // No per-type lists here: pass all currentPathFiles and let modals compute
 
   const handlePlayMedia = (item: any) => {
-    const basePath = view === 'mirrored-packages' ? rootPath : appConfig.filesDir;
-    const fileUrl = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+    const basePath = view === 'mirrored-packages' ? rootPath : (view === 'private-files' ? appConfig.privateFilesDir : appConfig.filesDir);
+    const fileUrl = view === 'private-files' 
+      ? `/api/download-private?path=${encodeURIComponent(item.path)}`
+      : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
     const mediaType = isMediaFile(item.name);
     
     if (mediaType) {
@@ -413,8 +428,10 @@ export default function FileManager() {
   });
 
   const handlePreviewFile = (item: any) => {
-    const basePath = view === 'mirrored-packages' ? rootPath : appConfig.filesDir;
-    const fileUrl = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+    const basePath = view === 'mirrored-packages' ? rootPath : (view === 'private-files' ? appConfig.privateFilesDir : appConfig.filesDir);
+    const fileUrl = view === 'private-files'
+      ? `/api/download-private?path=${encodeURIComponent(item.path)}`
+      : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
     const previewType = getPreviewType(item.name);
     if (!previewType) return;
     setFilePreview({
@@ -492,11 +509,12 @@ export default function FileManager() {
             value={view}
             onChange={(value) =>
               setView(
-                value as 'user-uploads' | 'mirrored-packages' | 'npm-packages',
+                value as 'public-files' | 'private-files' | 'mirrored-packages' | 'npm-packages',
               )
             }
             options={[
-              { value: 'user-uploads', label: 'User Uploads' },
+              { value: 'public-files', label: 'Public Files' },
+              ...(!isPublicRoute ? [{ value: 'private-files', label: 'Private Files' }] : []),
               { value: 'mirrored-packages', label: 'Mirrored Packages' },
               ...(appConfig.isNpmProxyEnabled
                 ? [{ value: 'npm-packages', label: 'Npm Packages' }]
@@ -667,7 +685,7 @@ export default function FileManager() {
                         currentPath={currentPath}
                       />
                     }
-                    {view === 'user-uploads' && (
+                    {view === 'public-files' && (
                         <Dropdown
                           disabled={isOperationInProgress || isLoading}
                           trigger={
@@ -744,7 +762,7 @@ export default function FileManager() {
                         "w-[224px]": !isPublicRoute,
                         "w-[96px]": isPublicRoute
                       })}>
-                        {!item.isDirectory && isMediaFile(item.name) && (
+                        {!item.isDirectory && isMediaFile(item.name) && view !== 'private-files' && (
                           <FormButton
                             type="secondary"
                             size="small"
@@ -758,7 +776,7 @@ export default function FileManager() {
                             <FontAwesomeIcon icon={faPlay} />
                           </FormButton>
                         )}
-                        {!item.isDirectory && getPreviewType(item.name) && (
+                        {!item.isDirectory && getPreviewType(item.name) && view !== 'private-files' && (
                           <FormButton
                             type="secondary"
                             size="small"
@@ -782,17 +800,27 @@ export default function FileManager() {
                               isLoading
                             }
                             onClick={() => {
-                              const link = document.createElement('a');
-                              const basePath =
-                                view === 'mirrored-packages'
-                                  ? rootPath
-                                  : appConfig.filesDir;
-                              link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
-                              link.target = '_blank';
-                              link.rel = 'noopener noreferrer';
-                              document.body.appendChild(link);
-                              link.click();
-                              document.body.removeChild(link);
+                              if (view === 'private-files') {
+                                const link = document.createElement('a');
+                                link.href = `/api/download-private?path=${encodeURIComponent(item.path)}`;
+                                link.target = '_blank';
+                                link.rel = 'noopener noreferrer';
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              } else {
+                                const link = document.createElement('a');
+                                const basePath =
+                                  view === 'mirrored-packages'
+                                    ? rootPath
+                                    : appConfig.filesDir;
+                                link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+                                link.target = '_blank';
+                                link.rel = 'noopener noreferrer';
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              }
                             }}
                           >
                             ↓

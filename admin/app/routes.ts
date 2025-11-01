@@ -20,5 +20,6 @@ export default [
   ]),
   route('api/cheatsheet/:filename', 'routes/api.cheatsheet.$filename.tsx'),
   route('api/cheatsheets/update', 'routes/api.cheatsheets.update.tsx'),
+  route('api/download-private', 'routes/api.download-private.tsx'),
   route('npm/*', 'routes/npm/npm.tsx'),
 ] satisfies RouteConfig;

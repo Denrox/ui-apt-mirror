@@ -46,8 +46,9 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
   }
 }
 
-function isPathAllowed(requestedPath: string): boolean {
+function isPathAllowed(requestedPath: string, isPublicRoute: boolean): boolean {
   const userUploadsDir = appConfig.filesDir;
+  const privateFilesDir = appConfig.privateFilesDir;
   const mirroredPackagesDir = appConfig.mirroredPackagesDir;
   const npmPackagesDir = appConfig.npmPackagesDir;
 
@@ -56,8 +57,16 @@ function isPathAllowed(requestedPath: string): boolean {
   const normalizedMirroredPackagesDir = path.resolve(mirroredPackagesDir);
   const normalizedNpmPackagesDir = path.resolve(npmPackagesDir);
 
+  if (isPublicRoute && privateFilesDir) {
+    const normalizedPrivateFilesDir = path.resolve(privateFilesDir);
+    if (normalizedRequestedPath.startsWith(normalizedPrivateFilesDir)) {
+      return false;
+    }
+  }
+
   return (
     normalizedRequestedPath.startsWith(normalizedUserUploadsDir) ||
+    (!isPublicRoute && privateFilesDir && normalizedRequestedPath.startsWith(path.resolve(privateFilesDir))) ||
     normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir) ||
     normalizedRequestedPath.startsWith(normalizedNpmPackagesDir)
   );
@@ -72,10 +81,52 @@ export async function loader({ request }: { request: Request }) {
   }
 
   const searchParams = url.searchParams;
-  const rootPath = appConfig.filesDir;
-  const currentPath = searchParams.get('path') ?? rootPath;
+  const requestedPath = searchParams.get('path');
+  let rootPath = appConfig.filesDir;
+  
+  if (requestedPath) {
+    const normalizedRequestedPath = path.resolve(requestedPath);
+    const normalizedPrivateFilesDir = path.resolve(appConfig.privateFilesDir);
+    
+    if (isPublicRoute && normalizedRequestedPath.startsWith(normalizedPrivateFilesDir)) {
+      return {
+        files: [],
+        currentPath: appConfig.filesDir,
+        isLockFilePresent: false,
+        error: 'Access denied: Private files are not accessible from public route',
+        __domain: 'files',
+      };
+    }
+    
+    if (normalizedRequestedPath.startsWith(normalizedPrivateFilesDir)) {
+      rootPath = appConfig.privateFilesDir;
+    } else if (normalizedRequestedPath.startsWith(path.resolve(appConfig.mirroredPackagesDir))) {
+      rootPath = appConfig.mirroredPackagesDir;
+    } else if (normalizedRequestedPath.startsWith(path.resolve(appConfig.npmPackagesDir))) {
+      rootPath = appConfig.npmPackagesDir;
+    } else {
+      rootPath = appConfig.filesDir;
+    }
+  }
+  
+  const currentPath = requestedPath ?? rootPath;
+  
+  if (isPublicRoute && appConfig.privateFilesDir) {
+    const normalizedCurrentPath = path.resolve(currentPath);
+    const normalizedPrivateFilesDir = path.resolve(appConfig.privateFilesDir);
+    
+    if (normalizedCurrentPath.startsWith(normalizedPrivateFilesDir)) {
+      return {
+        files: [],
+        currentPath: appConfig.filesDir,
+        isLockFilePresent: false,
+        error: 'Access denied: Private files are not accessible from public route',
+        __domain: 'files',
+      };
+    }
+  }
 
-  if (!isPathAllowed(currentPath)) {
+  if (!isPathAllowed(currentPath, isPublicRoute)) {
     console.error(
       'Security violation: Attempted to access unauthorized directory:',
       currentPath,
@@ -85,6 +136,7 @@ export async function loader({ request }: { request: Request }) {
       currentPath: appConfig.filesDir,
       isLockFilePresent: false,
       error: 'Access denied: Directory not allowed',
+      __domain: isPublicRoute ? 'files' : 'admin',
     };
   }
 
@@ -108,5 +160,6 @@ export async function loader({ request }: { request: Request }) {
     currentPath: currentPath,
     isLockFilePresent,
     healthReport,
+    __domain: isPublicRoute ? 'files' : 'admin',
   };
 }

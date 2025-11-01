@@ -3,6 +3,7 @@
   "nginxLogsDir": "/var/log/nginx",
   "filesDir": "/var/www/files",
   "healthReportFile": "/var/health-reports/health.json",
+  "privateFilesDir": "/var/www/files-private",
   "mirroredPackagesDir": "/var/spool/apt-mirror",
   "npmPackagesDir": "/var/www/npm",
   "resourceMonitorScriptPath": "/usr/local/bin/resource-monitor.sh",

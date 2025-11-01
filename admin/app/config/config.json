@@ -2,6 +2,7 @@
   "mirrorLogsDir": "/var/log/apt-mirror",
   "nginxLogsDir": "/var/log/nginx",
   "filesDir": "../data/data/files",
+  "privateFilesDir": "../data/data/files-private",
   "healthReportFile": "../data/data/health.json",
   "mirroredPackagesDir": "../data/data/apt-mirror",
   "npmPackagesDir": "../data/data/npm",
