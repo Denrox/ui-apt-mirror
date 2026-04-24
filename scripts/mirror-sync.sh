@@ -7,11 +7,30 @@ MIRROR_CONFIG="/etc/apt/mirror.list"
 MIRROR_LOG="/var/log/apt-mirror/apt-mirror.log"
 SYNC_FREQUENCY="${SYNC_FREQUENCY:-3600}"  # Default: 1 hour
 LOCK_FILE="/var/run/apt-mirror.lock"
+LOG_MAX_SIZE=2097152  # 2 MB
+LOG_MAX_ROTATIONS=3
+
+# Function to rotate log if it exceeds LOG_MAX_SIZE
+rotate_log() {
+    [ -f "$MIRROR_LOG" ] || return 0
+    local size
+    size=$(stat -c%s "$MIRROR_LOG" 2>/dev/null || echo 0)
+    [ "$size" -lt "$LOG_MAX_SIZE" ] && return 0
+
+    local i=$((LOG_MAX_ROTATIONS - 1))
+    rm -f "${MIRROR_LOG}.${LOG_MAX_ROTATIONS}"
+    while [ "$i" -ge 1 ]; do
+        [ -f "${MIRROR_LOG}.${i}" ] && mv "${MIRROR_LOG}.${i}" "${MIRROR_LOG}.$((i + 1))"
+        i=$((i - 1))
+    done
+    mv "$MIRROR_LOG" "${MIRROR_LOG}.1"
+}
 
 # Function to log messages
 log() {
     # Ensure log directory exists
     mkdir -p "$(dirname "$MIRROR_LOG")"
+    rotate_log
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$MIRROR_LOG"
 }
 
@@ -63,6 +82,7 @@ do_sync() {
     export PYTHONIOENCODING=utf-8
     
     # Run apt-mirror2 using Python version with timeout
+    rotate_log
     if timeout 36000 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
         log "Sync completed successfully"
         

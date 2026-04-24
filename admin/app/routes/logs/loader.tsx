@@ -24,9 +24,28 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     logs = [];
   }
 
+  const filteredLogs = logs.filter(
+    (log) => log.endsWith('.log') || /\.log.+$/.exec(log),
+  );
+
+  const logsWithMtime = await Promise.all(
+    filteredLogs.map(async (log) => {
+      try {
+        const stat = await fs.stat(`${logsDir}/${log}`);
+        return { name: log, mtimeMs: stat.mtimeMs };
+      } catch {
+        return { name: log, mtimeMs: 0 };
+      }
+    }),
+  );
+
+  const recentLogs = logsWithMtime
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, 3)
+    .map((l) => l.name);
+
   const logsContent = await Promise.all(
-    logs
-      .filter((log) => log.endsWith('.log') || /\.log.+$/.exec(log))
+    recentLogs
       .map(async (log) => {
         try {
           const logContent = await fs.readFile(`${logsDir}/${log}`, 'utf-8');
