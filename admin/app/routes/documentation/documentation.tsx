@@ -4,7 +4,7 @@ import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutNav from '~/components/shared/layout/page-layout-nav';
 import NavLink from '~/components/shared/nav/nav-link';
-import appConfig from '~/config/config.json';
+import { useRuntimeConfig } from '~/utils/use-runtime-config';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
 export async function loader({ request }: { request: Request }) {
@@ -20,21 +20,21 @@ export function meta() {
   ];
 }
 
-const sections = [
-  { id: 'file-structure', linkName: 'File Structure', title: 'File Structure' },
-  { id: 'commands', linkName: 'Commands', title: 'Commands' },
-  ...(appConfig.isNpmProxyEnabled
-    ? [
-        {
-          id: 'npm-proxy',
-          linkName: 'NPM Proxy',
-          title: 'NPM Proxy Configuration',
-        },
-      ]
-    : []),
-];
-
 export default function Documentation() {
+  const { isNpmProxyEnabled } = useRuntimeConfig();
+  const sections = [
+    { id: 'file-structure', linkName: 'File Structure', title: 'File Structure' },
+    { id: 'commands', linkName: 'Commands', title: 'Commands' },
+    ...(isNpmProxyEnabled
+      ? [
+          {
+            id: 'npm-proxy',
+            linkName: 'NPM Proxy',
+            title: 'NPM Proxy Configuration',
+          },
+        ]
+      : []),
+  ];
   const [activeSection, setActiveSection] = useState<string>('file-structure');
   const { section } = useParams();
 
@@ -62,7 +62,7 @@ export default function Documentation() {
 │           ├── admin.mirror.intra.conf
 │           ├── files.mirror.intra.conf
 │           ├── cheatsheets.mirror.intra.conf${
-                appConfig.isNpmProxyEnabled
+                isNpmProxyEnabled
                   ? `
 │           └── npm.mirror.intra.conf`
                   : ''
@@ -74,7 +74,7 @@ export default function Documentation() {
 │   │   └── var/                 # Variable data
 │   ├── files/                   # Custom file repository
 │   ├── cheatsheets/             # Developer cheatsheets and command references${
-                appConfig.isNpmProxyEnabled
+                isNpmProxyEnabled
                   ? `
 │   └── npm/                     # NPM packages
 │       ├── private/             # Private published packages
@@ -112,7 +112,7 @@ export default function Documentation() {
               Main data storage directory. apt-mirror/ contains downloaded
               package repositories, files/ contains custom file repository,
               cheatsheets/ contains developer command references and cheatsheets
-              {appConfig.isNpmProxyEnabled
+              {isNpmProxyEnabled
                 ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}
               .
@@ -289,7 +289,7 @@ export default function Documentation() {
   );
 
   const renderNpmProxy = () => {
-    if (!appConfig.isNpmProxyEnabled) {
+    if (!isNpmProxyEnabled) {
       return null;
     }
 
@@ -456,7 +456,7 @@ export default function Documentation() {
           {activeSection === 'file-structure' && renderFileStructure()}
           {activeSection === 'commands' && renderCommands()}
           {activeSection === 'npm-proxy' &&
-            appConfig.isNpmProxyEnabled &&
+            isNpmProxyEnabled &&
             renderNpmProxy()}
         </ContentBlock>
       </>

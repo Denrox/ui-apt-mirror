@@ -261,31 +261,19 @@ update_admin_config() {
         exit 1
     fi
     print_status "Generated JWT secret: ${jwt_secret:0:8}..."
-    
-    # Determine npm proxy enabled status
-    local npm_enabled="false"
-    if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
-        npm_enabled="true"
-    fi
-    
+
     # Update config.json
     if [ -f "admin/app/config/config.json" ]; then
         # Replace domain placeholders
         sed -i "s/domain/$domain/g" admin/app/config/config.json
-        # Replace npm proxy enabled status
-        sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
-        sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.json
         # Replace JWT secret
         sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.json
     fi
-    
+
     # Update config.build.json
     if [ -f "admin/app/config/config.build.json" ]; then
         # Replace domain placeholders
         sed -i "s/domain/$domain/g" admin/app/config/config.build.json
-        # Replace npm proxy enabled status
-        sed -i "s/\"isNpmProxyEnabled\": true/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
-        sed -i "s/\"isNpmProxyEnabled\": false/\"isNpmProxyEnabled\": $npm_enabled/g" admin/app/config/config.build.json
         # Replace JWT secret
         sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.build.json
     fi
@@ -318,7 +306,14 @@ generate_docker_compose() {
     sed -i "s/\${FILES_DOMAIN:-files.mirror.intra}/files.$domain/g" docker-compose.yml
     sed -i "s/\${NPM_DOMAIN:-npm.mirror.intra}/npm.$domain/g" docker-compose.yml
     sed -i "s/\${CHEATSHEETS_DOMAIN:-cheatsheets.mirror.intra}/cheatsheets.$domain/g" docker-compose.yml
-    
+
+    # Substitute npm proxy enabled flag
+    local npm_enabled="false"
+    if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
+        npm_enabled="true"
+    fi
+    sed -i "s/\${NPM_PROXY_ENABLED:-false}/$npm_enabled/g" docker-compose.yml
+
     # Escape timezone for sed (replace / with \/)
     local escaped_timezone=$(echo "$timezone" | sed 's/\//\\\//g')
     sed -i "s/\${TZ:-UTC}/$escaped_timezone/g" docker-compose.yml

@@ -11,6 +11,14 @@ import type { Route } from './+types/root';
 import { ToastContainer } from 'react-toastify';
 import './app.css';
 
+export async function loader() {
+  return {
+    runtimeConfig: {
+      isNpmProxyEnabled: process.env.NPM_PROXY_ENABLED === 'true',
+    },
+  };
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">

@@ -27,6 +27,7 @@ services:
       - FILES_DOMAIN=${FILES_DOMAIN:-files.mirror.intra}
       - NPM_DOMAIN=${NPM_DOMAIN:-npm.mirror.intra}
       - CHEATSHEETS_DOMAIN=${CHEATSHEETS_DOMAIN:-cheatsheets.mirror.intra}
+      - NPM_PROXY_ENABLED=${NPM_PROXY_ENABLED:-false}
       - TZ=${TZ:-UTC}
     networks:
       - mirror_network

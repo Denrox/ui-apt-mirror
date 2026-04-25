@@ -2,6 +2,7 @@ import Title from '~/components/shared/title/title';
 import classNames from 'classnames';
 import type { Route } from './+types/home';
 import appConfig from '~/config/config.json';
+import { useRuntimeConfig } from '~/utils/use-runtime-config';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import { useEffect, useState } from 'react';
 import { getHostAddress } from '~/utils/url';
@@ -37,6 +38,7 @@ export function meta({}: Route.MetaArgs) {
 export { loader, action };
 
 export default function Home() {
+  const { isNpmProxyEnabled } = useRuntimeConfig();
   const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
   const [pagesAvalabilityState, setPagesAvalabilityState] = useState<{
     [key: string]: boolean;
@@ -344,7 +346,7 @@ export default function Home() {
         <div className="flex flex-row items-center md:gap-[16px] lg:gap-[24px] gap-[12px] flex-wrap px-[12px] md:px-0">
           {appConfig.hosts
             .filter((page) => {
-              if (page.id === 'npm' && !appConfig.isNpmProxyEnabled) {
+              if (page.id === 'npm' && !isNpmProxyEnabled) {
                 return false;
               }
               return true;
