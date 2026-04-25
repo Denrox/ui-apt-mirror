@@ -582,10 +582,19 @@ update_nginx_configs() {
     local domain=$1
     
     print_status "Updating nginx configuration files with domain: $domain..."
-    
+
     # Create nginx sites-available directory if it doesn't exist
     mkdir -p data/conf/nginx/sites-available
-    
+
+    # Generate log-date.conf for nginx daily log rotation
+    mkdir -p data/conf/nginx/conf.d
+    cat > data/conf/nginx/conf.d/log-date.conf <<'EOF'
+map $time_iso8601 $log_date {
+    default                       "unknown";
+    "~^(?<ymd>\d{4}-\d{2}-\d{2})" $ymd;
+}
+EOF
+
     # Replace domain in all nginx config files
     for config_file in data/conf/nginx/sites-available/*.conf; do
         if [ -f "$config_file" ]; then
