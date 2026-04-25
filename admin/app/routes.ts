@@ -11,7 +11,7 @@ export default [
   route('logout', 'routes/logout.tsx'),
   layout('components/shared/layout/app-layout.tsx', [
     route('home', 'routes/home/home.tsx'),
-    route('logs/:log', 'routes/logs/logs.tsx'),
+    route('logs', 'routes/logs/logs.tsx'),
     route('documentation/:section', 'routes/documentation/documentation.tsx'),
     route('file-manager', 'routes/file-manager/file-manager.tsx'),
     route('cheatsheets', 'routes/cheatsheets/cheatsheets.tsx'),

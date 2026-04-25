@@ -1,6 +1,5 @@
 {
   "mirrorLogsDir": "/var/log/apt-mirror",
-  "nginxLogsDir": "/var/log/nginx",
   "filesDir": "/var/www/files",
   "healthReportFile": "/var/health-reports/health.json",
   "privateFilesDir": "/var/www/files-private",

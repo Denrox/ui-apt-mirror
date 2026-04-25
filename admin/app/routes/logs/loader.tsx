@@ -3,19 +3,12 @@ import appConfig from '~/config/config.json';
 import type { Route } from './+types/logs';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
-export async function loader({ params, request }: Route.LoaderArgs) {
+export async function loader({ request }: Route.LoaderArgs) {
   await requireAuthMiddleware(request);
 
-  const log = (params as { log: string }).log;
+  const logsDir = appConfig.mirrorLogsDir;
 
   let logs: string[] = [];
-  let logsDir: string = '';
-
-  if (log === 'mirror') {
-    logsDir = appConfig.mirrorLogsDir;
-  } else if (log === 'nginx') {
-    logsDir = appConfig.nginxLogsDir;
-  }
 
   try {
     logs = await fs.readdir(logsDir);
@@ -55,22 +48,21 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     .map((l) => l.name);
 
   const logsContent = await Promise.all(
-    recentLogs
-      .map(async (log) => {
-        try {
-          const logContent = await fs.readFile(`${logsDir}/${log}`, 'utf-8');
-          return {
-            name: log,
-            content: logContent,
-          };
-        } catch (error) {
-          console.error(`Error reading log file ${log}:`, error);
-          return {
-            name: log,
-            content: `Error reading log file ${log}: ${error}`,
-          };
-        }
-      }),
+    recentLogs.map(async (log) => {
+      try {
+        const logContent = await fs.readFile(`${logsDir}/${log}`, 'utf-8');
+        return {
+          name: log,
+          content: logContent,
+        };
+      } catch (error) {
+        console.error(`Error reading log file ${log}:`, error);
+        return {
+          name: log,
+          content: `Error reading log file ${log}: ${error}`,
+        };
+      }
+    }),
   );
 
   return {

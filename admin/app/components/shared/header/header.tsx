@@ -34,7 +34,7 @@ export default function Header() {
       isActive: location.pathname === '/cheatsheets',
     },
     {
-      to: '/logs/mirror',
+      to: '/logs',
       label: 'Logs',
       isActive: location.pathname.startsWith('/logs'),
     },
