@@ -39,9 +39,19 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     }),
   );
 
-  const recentLogs = logsWithMtime
+  const groups = new Map<string, typeof logsWithMtime>();
+  for (const entry of logsWithMtime) {
+    const key = entry.name.split('.log')[0];
+    const bucket = groups.get(key) ?? [];
+    bucket.push(entry);
+    groups.set(key, bucket);
+  }
+
+  const recentLogs = Array.from(groups.values())
+    .flatMap((bucket) =>
+      bucket.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, 3),
+    )
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .slice(0, 3)
     .map((l) => l.name);
 
   const logsContent = await Promise.all(

@@ -14,6 +14,7 @@ services:
       - ./data/conf/nginx/sites-available/files.mirror.intra.conf:/etc/nginx/sites-available/files.mirror.intra.conf
       - ./data/conf/nginx/sites-available/npm.mirror.intra.conf:/etc/nginx/sites-available/npm.mirror.intra.conf
       - ./data/conf/nginx/sites-available/cheatsheets.mirror.intra.conf:/etc/nginx/sites-available/cheatsheets.mirror.intra.conf
+      - ./data/conf/nginx/conf.d/log-date.conf:/etc/nginx/conf.d/log-date.conf
       - ./data/auth:/var/auth
       - ./data/logs/nginx:/var/log/nginx
       - ./data/data/files:/var/www/files

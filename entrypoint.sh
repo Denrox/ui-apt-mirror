@@ -69,6 +69,10 @@ else
     echo "⚠️  No apt-mirror2 configuration found. Skipping sync."
 fi
 
+echo "🧹 Starting log cleanup service..."
+/usr/local/bin/log-cleanup.sh &
+LOG_CLEANUP_PID=$!
+
 echo "🏥 Starting health check service..."
 /usr/local/bin/health-check.sh &
 HEALTH_PID=$!

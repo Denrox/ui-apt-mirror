@@ -34,6 +34,46 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to verify required commands are installed
+require_cmd() {
+    local missing=()
+    for cmd in "$@"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        print_error "Missing required command(s): ${missing[*]}"
+        print_error "Install them and re-run this script."
+        case " ${missing[*]} " in
+            *" docker "*)        print_error "  docker:  https://docs.docker.com/engine/install/" ;;
+        esac
+        case " ${missing[*]} " in
+            *" openssl "*)       print_error "  openssl: sudo apt-get install -y openssl" ;;
+        esac
+        case " ${missing[*]} " in
+            *" free "*)          print_error "  free:    sudo apt-get install -y procps" ;;
+        esac
+        case " ${missing[*]} " in
+            *" curl "*)          print_error "  curl:    sudo apt-get install -y curl" ;;
+        esac
+        case " ${missing[*]} " in
+            *" tar "*|*" gunzip "*) print_error "  tar/gunzip: sudo apt-get install -y tar gzip" ;;
+        esac
+        exit 1
+    fi
+}
+
+# Function to verify Docker Compose v2 plugin is available
+require_docker_compose() {
+    if ! docker compose version >/dev/null 2>&1; then
+        print_error "Docker Compose v2 plugin not found."
+        print_error "Install it: https://docs.docker.com/compose/install/linux/"
+        print_error "(legacy 'docker-compose' v1 is not supported by this script)"
+        exit 1
+    fi
+}
+
 # Function to detect system architecture
 detect_architecture() {
     print_status "Detecting system architecture..." >&2
@@ -196,7 +236,12 @@ generate_htpasswd() {
     mkdir -p data/auth
     
     # Generate SHA-512 hash using openssl
-    local pass_hash=$(openssl passwd -6 "$admin_pass")
+    local pass_hash
+    pass_hash=$(openssl passwd -6 "$admin_pass")
+    if [ -z "$pass_hash" ]; then
+        print_error "openssl produced an empty password hash."
+        exit 1
+    fi
     echo "admin:$pass_hash" > data/auth/.htpasswd
     
     print_success "htpasswd file generated successfully."
@@ -209,7 +254,12 @@ update_admin_config() {
     print_status "Updating admin app configuration files..."
     
     # Generate a random JWT secret
-    local jwt_secret=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
+    local jwt_secret
+    jwt_secret=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
+    if [ -z "$jwt_secret" ]; then
+        print_error "Failed to generate JWT secret with openssl."
+        exit 1
+    fi
     print_status "Generated JWT secret: ${jwt_secret:0:8}..."
     
     # Determine npm proxy enabled status
@@ -301,7 +351,7 @@ cleanup_previous() {
 create_data_dirs() {
     print_status "Creating data directories..."
     
-    mkdir -p data/{data/apt-mirror,data/files,data/npm,data/cheatsheets,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/sites-available}
+    mkdir -p data/{data/apt-mirror,data/files,data/npm,data/cheatsheets,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/sites-available,conf/nginx/conf.d}
     
     # Set proper permissions
     chmod 755 data/
@@ -522,10 +572,9 @@ show_usage() {
     echo "  - Connections: 6 per 700MB RAM (min: 6, max: 48)"
     echo ""
     echo "Prerequisites:"
-    echo "  - Docker installed and running"
+    echo "  - Docker installed and running (with Compose v2 plugin)"
     echo "  - Built images in dist/ directory (run ./build.sh first)"
-    echo "  - htpasswd command (apache2-utils package) for custom passwords"
-    echo "    Install with: sudo apt-get install apache2-utils"
+    echo "  - openssl, curl, tar, gzip, procps (free), awk, sed"
 }
 
 # Function to update nginx configuration files with custom domain
@@ -597,7 +646,11 @@ main() {
     done
     
     print_status "Starting ui-apt-mirror deployment..."
-    
+
+    # Verify required commands are installed
+    require_cmd docker openssl free awk sed tar gunzip curl
+    require_docker_compose
+
     # Detect architecture
     local arch=$(detect_architecture)
     print_success "Detected architecture: $arch"

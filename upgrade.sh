@@ -34,6 +34,27 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to verify required commands are installed
+require_cmd() {
+    local missing=()
+    for cmd in "$@"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        print_error "Missing required command(s): ${missing[*]}"
+        print_error "Install them and re-run this script."
+        case " ${missing[*]} " in
+            *" curl "*) print_error "  curl: sudo apt-get install -y curl" ;;
+        esac
+        case " ${missing[*]} " in
+            *" tar "*)  print_error "  tar:  sudo apt-get install -y tar" ;;
+        esac
+        exit 1
+    fi
+}
+
 # Function to detect system architecture
 detect_architecture() {
     local arch=$(uname -m)
@@ -63,6 +84,39 @@ check_connectivity() {
         print_error "Please check your internet connection and try again"
         exit 1
     fi
+}
+
+# Function to get user choice for docker-compose.yml rewrite
+get_compose_choice() {
+    REWRITE_COMPOSE="yes"
+
+    if [ ! -f "docker-compose.yml" ]; then
+        return
+    fi
+
+    echo ""
+    echo "An existing docker-compose.yml was found."
+    echo "setup.sh will regenerate it from docker-compose.src.yml by default."
+    echo ""
+
+    while true; do
+        read -p "Rewrite docker-compose.yml? (y/n): " choice
+        case $choice in
+            [Yy]|[Yy][Ee][Ss])
+                REWRITE_COMPOSE="yes"
+                print_success "docker-compose.yml will be rewritten"
+                break
+                ;;
+            [Nn]|[Nn][Oo])
+                REWRITE_COMPOSE="no"
+                print_success "Existing docker-compose.yml will be preserved"
+                break
+                ;;
+            *)
+                print_error "Invalid choice. Please enter y or n."
+                ;;
+        esac
+    done
 }
 
 # Function to get user choice for architecture
@@ -190,14 +244,27 @@ extract_and_install() {
 # Function to run setup
 run_setup() {
     print_status "Running setup script..."
-    
-    if [ -f "./setup.sh" ]; then
-        print_status "Starting setup process..."
-        ./setup.sh
-    else
+
+    if [ ! -f "./setup.sh" ]; then
         print_error "setup.sh not found in current directory"
         rm -rf "$TEMP_DIR"
         exit 1
+    fi
+
+    local compose_backup=""
+    if [ "$REWRITE_COMPOSE" = "no" ] && [ -f "docker-compose.yml" ]; then
+        compose_backup="$TEMP_DIR/docker-compose.yml.bak"
+        print_status "Backing up existing docker-compose.yml..."
+        cp docker-compose.yml "$compose_backup"
+    fi
+
+    print_status "Starting setup process..."
+    ./setup.sh
+
+    if [ -n "$compose_backup" ] && [ -f "$compose_backup" ]; then
+        print_status "Restoring preserved docker-compose.yml..."
+        cp "$compose_backup" docker-compose.yml
+        print_success "docker-compose.yml restored"
     fi
 }
 
@@ -248,13 +315,19 @@ main() {
     done
     
     print_status "Starting ui-apt-mirror upgrade process..."
-    
+
+    # Verify required commands are installed
+    require_cmd curl tar
+
     # Check connectivity
     check_connectivity
     
     # Get user choice for architecture
     get_architecture_choice
-    
+
+    # Get user choice for docker-compose.yml rewrite
+    get_compose_choice
+
     # Download latest version
     download_latest
     

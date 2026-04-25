@@ -34,6 +34,30 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to verify required commands are installed
+require_cmd() {
+    local missing=()
+    for cmd in "$@"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        print_error "Missing required command(s): ${missing[*]}"
+        print_error "Install them and re-run this script."
+        exit 1
+    fi
+}
+
+# Function to verify Docker Compose v2 plugin is available
+require_docker_compose() {
+    if ! docker compose version >/dev/null 2>&1; then
+        print_error "Docker Compose v2 plugin not found."
+        print_error "Install it: https://docs.docker.com/compose/install/linux/"
+        exit 1
+    fi
+}
+
 # Function to detect system architecture
 detect_architecture() {
     print_status "Detecting system architecture..." >&2
@@ -135,7 +159,11 @@ main() {
     done
     
     print_status "Starting ui-apt-mirror..."
-    
+
+    # Verify required commands are installed
+    require_cmd docker gunzip
+    require_docker_compose
+
     # Detect architecture
     local arch=$(detect_architecture)
     print_success "Detected architecture: $arch"
