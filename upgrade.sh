@@ -86,39 +86,6 @@ check_connectivity() {
     fi
 }
 
-# Function to get user choice for docker-compose.yml rewrite
-get_compose_choice() {
-    REWRITE_COMPOSE="yes"
-
-    if [ ! -f "docker-compose.yml" ]; then
-        return
-    fi
-
-    echo ""
-    echo "An existing docker-compose.yml was found."
-    echo "setup.sh will regenerate it from docker-compose.src.yml by default."
-    echo ""
-
-    while true; do
-        read -p "Rewrite docker-compose.yml? (y/n): " choice
-        case $choice in
-            [Yy]|[Yy][Ee][Ss])
-                REWRITE_COMPOSE="yes"
-                print_success "docker-compose.yml will be rewritten"
-                break
-                ;;
-            [Nn]|[Nn][Oo])
-                REWRITE_COMPOSE="no"
-                print_success "Existing docker-compose.yml will be preserved"
-                break
-                ;;
-            *)
-                print_error "Invalid choice. Please enter y or n."
-                ;;
-        esac
-    done
-}
-
 # Function to get user choice for architecture
 get_architecture_choice() {
     local current_arch=$(detect_architecture)
@@ -223,6 +190,7 @@ extract_and_install() {
     local files_to_copy=(
         "setup.sh"
         "start.sh"
+        "upgrade.sh"
         "docker-compose.src.yml"
         "README.md"
     )
@@ -251,21 +219,8 @@ run_setup() {
         exit 1
     fi
 
-    local compose_backup=""
-    if [ "$REWRITE_COMPOSE" = "no" ] && [ -f "docker-compose.yml" ]; then
-        compose_backup="$TEMP_DIR/docker-compose.yml.bak"
-        print_status "Backing up existing docker-compose.yml..."
-        cp docker-compose.yml "$compose_backup"
-    fi
-
     print_status "Starting setup process..."
     ./setup.sh
-
-    if [ -n "$compose_backup" ] && [ -f "$compose_backup" ]; then
-        print_status "Restoring preserved docker-compose.yml..."
-        cp "$compose_backup" docker-compose.yml
-        print_success "docker-compose.yml restored"
-    fi
 }
 
 # Function to cleanup
@@ -325,9 +280,6 @@ main() {
     # Get user choice for architecture
     get_architecture_choice
 
-    # Get user choice for docker-compose.yml rewrite
-    get_compose_choice
-
     # Download latest version
     download_latest
     
@@ -341,6 +293,9 @@ main() {
     cleanup
     
     print_success "Upgrade completed successfully!"
+    echo ""
+    print_warning "docker-compose.yml was regenerated from docker-compose.src.yml."
+    print_warning "If you had custom changes, re-apply them now."
     echo ""
     print_status "The new version is now running. You can access it at:"
     echo "  - Main Repository: http://mirror.intra"

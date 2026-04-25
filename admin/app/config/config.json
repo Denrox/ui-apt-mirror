@@ -13,7 +13,7 @@
   "htpasswdPath": "../data/auth/.htpasswd",
   "cheatsheetsDir": "../data/data/cheatsheets",
   "jwtSecret": "HMwZM9EQJBsOQEBwWQLNtBxJqo6SHIFa",
-  "isNpmProxyEnabled": true,
+  "isNpmProxyEnabled": false,
   "hosts": [
     { "id": "mirror", "address": "mirror.intra", "name": "APT Mirror", "description": "APT Mirror" },
     { "id": "admin", "address": "admin.mirror.intra", "name": "Admin", "description": "Admin UI for the mirror" },
