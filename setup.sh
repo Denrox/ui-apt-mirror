@@ -106,21 +106,21 @@ calculate_resource_limits() {
     # Calculate threads: 1 thread per 700MB RAM
     local calculated_threads=$((total_ram_mb / 700))
     
-    # Ensure minimum of 1 thread and maximum of 8 threads
+    # Ensure minimum of 1 thread and maximum of 4 threads
     if [ $calculated_threads -lt 1 ]; then
         calculated_threads=1
-    elif [ $calculated_threads -gt 8 ]; then
-        calculated_threads=8
+    elif [ $calculated_threads -gt 4 ]; then
+        calculated_threads=4
     fi
-    
+
     # Calculate connections: 6 connections per 700MB RAM
     local calculated_connections=$((6 * (total_ram_mb / 700)))
-    
-    # Ensure minimum of 6 connections and maximum of 48 connections
+
+    # Ensure minimum of 6 connections and maximum of 16 connections
     if [ $calculated_connections -lt 6 ]; then
         calculated_connections=6
-    elif [ $calculated_connections -gt 48 ]; then
-        calculated_connections=48
+    elif [ $calculated_connections -gt 16 ]; then
+        calculated_connections=16
     fi
     
     print_success "Calculated optimal settings:"
