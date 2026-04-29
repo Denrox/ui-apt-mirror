@@ -27,8 +27,6 @@ import {
   faTrash,
   faBox,
   faKey,
-  faDownload,
-  faSignature,
 } from '@fortawesome/free-solid-svg-icons';
 
 export function meta({}: Route.MetaArgs) {
@@ -289,7 +287,7 @@ export default function Home() {
             className={`overflow-hidden transition-all duration-300 ease-in-out relative ${
               isRepositoryConfigsExpanded
                 ? 'max-h-none pb-[32px]'
-                : 'max-h-[164px]'
+                : 'max-h-[180px]'
             }`}
           >
             <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
@@ -297,7 +295,7 @@ export default function Home() {
                 repositoryConfigs.map((config: RepositoryConfig) => (
                   <div
                     key={config.title}
-                    className="md:w-[calc(50%-18px)] w-full min-h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
+                    className="md:w-[calc(50%-18px)] w-full min-h-[164px] max-h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
                   >
                     <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold">
                       {config.title}
@@ -310,88 +308,95 @@ export default function Home() {
                         {line}
                       </div>
                     ))}
-                    {config.hosts.length > 0 && (
-                      <div className="flex flex-col gap-[6px] border-t border-gray-200 pt-[8px] mt-[4px]">
-                        {config.hosts.map((h) => (
-                          <div
-                            key={h.host}
-                            className="flex items-center justify-between gap-[8px] text-[12px]"
-                          >
-                            <div className="flex flex-col min-w-0">
-                              <span className="text-gray-700 truncate">{h.host}</span>
-                              {h.gpgKey ? (
-                                <span
-                                  className="text-[10px] text-gray-500 font-mono truncate"
-                                  title={h.gpgKey.fingerprint}
+                    <div className="absolute top-[12px] right-[12px] flex items-center gap-[12px]">
+                      {config.hosts.length > 0 && (
+                        <Dropdown
+                          trigger={
+                            <span
+                              className="text-gray-500 hover:text-gray-700 transition-colors cursor-pointer"
+                              title="GPG signing options"
+                            >
+                              <FontAwesomeIcon icon={faKey} />
+                            </span>
+                          }
+                          disabled={isActionInProgress}
+                        >
+                          {config.hosts.map((h, idx) => (
+                            <div
+                              key={h.host}
+                              className={
+                                idx > 0 ? 'border-t border-gray-100' : ''
+                              }
+                            >
+                              <div
+                                className="px-4 py-2 text-xs"
+                                title={h.gpgKey?.fingerprint ?? h.host}
+                              >
+                                <div className="font-semibold text-gray-700 truncate">
+                                  {h.host}
+                                </div>
+                                <div
+                                  className={`font-mono text-[10px] truncate ${
+                                    h.gpgKey ? 'text-gray-500' : 'text-gray-400'
+                                  }`}
                                 >
-                                  {h.gpgKey.keyId}
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-gray-400">
-                                  unsigned
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-[4px] flex-shrink-0">
+                                  {h.gpgKey ? h.gpgKey.keyId : 'unsigned'}
+                                </div>
+                              </div>
                               {h.gpgKey ? (
                                 <>
-                                  <a
-                                    href={`/api/pubkey/${h.host}`}
-                                    className="text-gray-500 hover:text-gray-700 px-[4px] py-[2px]"
-                                    title="Download public key"
-                                  >
-                                    <FontAwesomeIcon icon={faDownload} />
-                                  </a>
-                                  <button
-                                    onClick={() => handleSignRelease(h.host)}
-                                    disabled={isLockFilePresent || isActionInProgress}
-                                    className="text-gray-500 hover:text-gray-700 px-[4px] py-[2px] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                    title={
-                                      isLockFilePresent
-                                        ? 'Cannot sign while sync is running'
-                                        : 'Re-sign Release files now'
+                                  <DropdownItem
+                                    onClick={() =>
+                                      window.open(
+                                        `/api/pubkey/${h.host}`,
+                                        '_blank',
+                                      )
                                     }
                                   >
-                                    <FontAwesomeIcon icon={faSignature} />
-                                  </button>
-                                  <button
+                                    Download public key
+                                  </DropdownItem>
+                                  <DropdownItem
+                                    onClick={() => handleSignRelease(h.host)}
+                                    disabled={
+                                      isLockFilePresent || isActionInProgress
+                                    }
+                                  >
+                                    Re-sign Release files
+                                  </DropdownItem>
+                                  <DropdownItem
                                     onClick={() => handleDeleteGpgKey(h.host)}
                                     disabled={isActionInProgress}
-                                    className="text-rose-400 hover:text-rose-600 px-[4px] py-[2px] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                    title="Delete signing key"
                                   >
-                                    <FontAwesomeIcon icon={faTrash} />
-                                  </button>
+                                    Delete signing key
+                                  </DropdownItem>
                                 </>
                               ) : (
-                                <button
+                                <DropdownItem
                                   onClick={() => handleGenerateGpgKey(h.host)}
                                   disabled={isActionInProgress}
-                                  className="text-emerald-600 hover:text-emerald-800 px-[4px] py-[2px] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                                  title="Generate signing key"
                                 >
-                                  <FontAwesomeIcon icon={faKey} />
-                                </button>
+                                  Generate signing key
+                                </DropdownItem>
                               )}
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => handleDeleteClick(config.title)}
-                      className="absolute top-[12px] right-[12px] text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={
-                        isActionInProgress
-                          ? 'Action in progress...'
-                          : isLockFilePresent
-                            ? 'Cannot delete while sync is running'
-                            : 'Delete repository configuration'
-                      }
-                      disabled={isLockFilePresent || isActionInProgress}
-                    >
-                      <FontAwesomeIcon icon={faTrash} />
-                    </button>
+                          ))}
+                        </Dropdown>
+                      )}
+                      <button
+                        onClick={() => handleDeleteClick(config.title)}
+                        className="text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={
+                          isActionInProgress
+                            ? 'Action in progress...'
+                            : isLockFilePresent
+                              ? 'Cannot delete while sync is running'
+                              : 'Delete repository configuration'
+                        }
+                        disabled={isLockFilePresent || isActionInProgress}
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </div>
                   </div>
                 ))
               ) : (

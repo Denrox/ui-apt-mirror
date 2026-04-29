@@ -191,10 +191,15 @@ export async function action({ request }: { request: Request }) {
     try {
       assertValidHost(host);
       const record = await generateKey(host);
-      return {
-        success: true,
-        message: `Generated signing key for ${host} (${record.keyId})`,
-      };
+      let message = `Generated signing key for ${host} (${record.keyId})`;
+      try {
+        await signReleasesForHost(host);
+        message += ' and signed Release files';
+      } catch (signError) {
+        console.error('Initial signing after key generation failed:', signError);
+        message += ' (initial signing failed — will retry on next sync)';
+      }
+      return { success: true, message };
     } catch (error) {
       console.error('Error generating GPG key:', error);
       const msg = error instanceof Error ? error.message : 'Failed to generate key';
