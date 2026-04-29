@@ -85,13 +85,20 @@ do_sync() {
     rotate_log
     if timeout 36000 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
         log "Sync completed successfully"
-        
+
         # Update symlink to ensure web server sees latest data
         if [ -d "/var/spool/apt-mirror/mirror" ]; then
             ln -sf /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
             log "Updated web symlink"
         fi
-        
+
+        # Re-sign Release files for every host that has a GPG key registered.
+        if [ -x /usr/local/bin/sign-releases.sh ]; then
+            log "Signing Release files..."
+            /usr/local/bin/sign-releases.sh 2>&1 | tee -a "$MIRROR_LOG" || \
+                log "WARN: sign-releases.sh exited non-zero"
+        fi
+
         # Update last sync timestamp
         date > /var/spool/apt-mirror/last-sync.txt
         

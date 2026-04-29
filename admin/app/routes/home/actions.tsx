@@ -2,6 +2,12 @@ import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import {
+  generateKey,
+  deleteKey,
+  signReleasesForHost,
+  assertValidHost,
+} from '~/lib/gpg';
 
 const execAsync = promisify(exec);
 
@@ -177,6 +183,51 @@ export async function action({ request }: { request: Request }) {
       };
     } catch (error) {
       return { error: 'Failed to enable repository section' };
+    }
+  }
+
+  if (action === 'generateGpgKey') {
+    const host = formData.get('host') as string;
+    try {
+      assertValidHost(host);
+      const record = await generateKey(host);
+      return {
+        success: true,
+        message: `Generated signing key for ${host} (${record.keyId})`,
+      };
+    } catch (error) {
+      console.error('Error generating GPG key:', error);
+      const msg = error instanceof Error ? error.message : 'Failed to generate key';
+      return { error: msg };
+    }
+  }
+
+  if (action === 'signRelease') {
+    const host = formData.get('host') as string;
+    try {
+      assertValidHost(host);
+      await signReleasesForHost(host);
+      return {
+        success: true,
+        message: `Re-signed Release files for ${host}`,
+      };
+    } catch (error) {
+      console.error('Error signing release:', error);
+      const msg = error instanceof Error ? error.message : 'Failed to sign Release';
+      return { error: msg };
+    }
+  }
+
+  if (action === 'deleteGpgKey') {
+    const host = formData.get('host') as string;
+    try {
+      assertValidHost(host);
+      await deleteKey(host);
+      return { success: true, message: `Deleted signing key for ${host}` };
+    } catch (error) {
+      console.error('Error deleting GPG key:', error);
+      const msg = error instanceof Error ? error.message : 'Failed to delete key';
+      return { error: msg };
     }
   }
 

@@ -2,14 +2,54 @@ import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
+
+export interface RepositoryHost {
+  host: string;
+  gpgKey: GpgKeyRecord | null;
+}
 
 export interface RepositoryConfig {
   title: string;
   content: string[];
+  hosts: RepositoryHost[];
 }
 
 export interface CommentedSection {
   title: string;
+}
+
+function extractHosts(activeDebLines: string[]): string[] {
+  const hosts = new Set<string>();
+  for (const line of activeDebLines) {
+    const match = /^\s*deb(?:-src)?\s+(?:\[[^\]]*\]\s+)?(\S+)/.exec(line);
+    if (!match) continue;
+    try {
+      const url = new URL(match[1]);
+      if (url.hostname) hosts.add(url.hostname);
+    } catch {
+      // ignore non-URL deb sources
+    }
+  }
+  return Array.from(hosts);
+}
+
+function rewriteSignedByHint(
+  content: string[],
+  signedHosts: RepositoryHost[],
+): string[] {
+  if (signedHosts.length === 0) return content;
+
+  const keyringPaths = signedHosts
+    .map((h) => `/etc/apt/keyrings/${h.host}.asc`)
+    .join(' ');
+  const installLines = signedHosts.map(
+    (h) =>
+      `# Install pubkey: curl -fsSL http://admin.mirror.intra/api/pubkey/${h.host} | sudo tee /etc/apt/keyrings/${h.host}.asc > /dev/null`,
+  );
+
+  const filtered = content.filter((line) => !/^\s*Signed-By:/i.test(line));
+  return [...installLines, ...filtered, `Signed-By: ${keyringPaths}`];
 }
 
 async function parseRepositoryConfigs(): Promise<{
@@ -18,7 +58,10 @@ async function parseRepositoryConfigs(): Promise<{
 }> {
   try {
     const mirrorListPath = appConfig.mirrorListPath;
-    const content = await fs.readFile(mirrorListPath, 'utf-8');
+    const [content, keysIndex] = await Promise.all([
+      fs.readFile(mirrorListPath, 'utf-8'),
+      listKeys().catch(() => ({}) as Record<string, GpgKeyRecord>),
+    ]);
     const lines = content.split('\n');
 
     const activeConfigs: RepositoryConfig[] = [];
@@ -38,6 +81,7 @@ async function parseRepositoryConfigs(): Promise<{
         currentConfig = {
           title: startMatch[1].trim(),
           content: [],
+          hosts: [],
         };
         currentSectionTitle = startMatch[1].trim();
         sectionLines = [];
@@ -59,12 +103,22 @@ async function parseRepositoryConfigs(): Promise<{
 
       const endMatch = /# ---end---(.+?)---/.exec(line);
       if (endMatch && currentConfig && inTargetSection) {
-        const hasNonCommentedLines = sectionLines.some(
+        const activeDebLines = sectionLines.filter(
           (sectionLine) =>
             sectionLine.trim() && !sectionLine.trim().startsWith('#'),
         );
 
-        if (hasNonCommentedLines) {
+        if (activeDebLines.length > 0) {
+          const hosts = extractHosts(activeDebLines);
+          currentConfig.hosts = hosts.map((host) => ({
+            host,
+            gpgKey: keysIndex[host] ?? null,
+          }));
+          const signed = currentConfig.hosts.filter((h) => h.gpgKey);
+          currentConfig.content = rewriteSignedByHint(
+            currentConfig.content,
+            signed,
+          );
           activeConfigs.push(currentConfig);
         } else {
           commentedSections.push({ title: currentSectionTitle });

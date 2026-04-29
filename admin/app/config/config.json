@@ -11,6 +11,10 @@
   "stopMirrorScriptPath": "../scripts/stop-mirror.sh",
   "htpasswdPath": "../data/auth/.htpasswd",
   "cheatsheetsDir": "../data/data/cheatsheets",
+  "gpgHome": "../data/data/apt-mirror/gpg/gnupg",
+  "gpgKeysIndex": "../data/data/apt-mirror/gpg/keys.json",
+  "mirrorRoot": "../data/data/apt-mirror/mirror",
+  "signReleasesScriptPath": "../scripts/sign-releases.sh",
   "jwtSecret": "HMwZM9EQJBsOQEBwWQLNtBxJqo6SHIFa",
   "hosts": [
     { "id": "mirror", "address": "mirror.intra", "name": "APT Mirror", "description": "APT Mirror" },
