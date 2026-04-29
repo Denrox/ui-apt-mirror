@@ -40,16 +40,53 @@ function rewriteSignedByHint(
 ): string[] {
   if (signedHosts.length === 0) return content;
 
-  const keyringPaths = signedHosts
-    .map((h) => `/etc/apt/keyrings/${h.host}.asc`)
-    .join(' ');
+  const keyringPath = (host: string) => `/etc/apt/keyrings/${host}.asc`;
   const installLines = signedHosts.map(
     (h) =>
-      `# Install pubkey: curl -fsSL http://admin.mirror.intra/api/pubkey/${h.host} | sudo tee /etc/apt/keyrings/${h.host}.asc > /dev/null`,
+      `# Install pubkey: curl -fsSL http://admin.mirror.intra/api/pubkey/${h.host} | sudo tee ${keyringPath(h.host)} > /dev/null`,
   );
 
   const filtered = content.filter((line) => !/^\s*Signed-By:/i.test(line));
-  return [...installLines, ...filtered, `Signed-By: ${keyringPaths}`];
+  const isDeb822 = filtered.some((line) => /^\s*Types:\s*deb/i.test(line));
+
+  if (isDeb822) {
+    const keyringPaths = signedHosts.map((h) => keyringPath(h.host)).join(' ');
+    return [...installLines, ...filtered, `Signed-By: ${keyringPaths}`];
+  }
+
+  // Legacy one-line `deb [opts] URL ...` format: Signed-By: is not a valid
+  // standalone field, so inline [signed-by=PATH] into each deb line. Match
+  // the upstream host via the first path segment (the mirror URL embeds it,
+  // e.g. http://mirror.intra/deb.debian.org/debian) or via the URL hostname.
+  const rewritten = filtered.map((line) => {
+    const match = /^(\s*deb(?:-src)?\s+)(?:\[([^\]]*)\]\s+)?(\S+)(\s.*)?$/.exec(
+      line,
+    );
+    if (!match) return line;
+    const [, prefix, existingOpts, url, rest = ''] = match;
+    const opts = (existingOpts ?? '').trim();
+    if (/\bsigned-by=/i.test(opts) || /\btrusted=yes\b/i.test(opts)) return line;
+
+    let upstreamHost: string | null = null;
+    try {
+      const parsed = new URL(url);
+      const firstSegment = parsed.pathname.split('/').filter(Boolean)[0];
+      if (firstSegment && signedHosts.some((h) => h.host === firstSegment)) {
+        upstreamHost = firstSegment;
+      } else if (signedHosts.some((h) => h.host === parsed.hostname)) {
+        upstreamHost = parsed.hostname;
+      }
+    } catch {
+      // ignore non-URL deb sources
+    }
+    if (!upstreamHost) return line;
+
+    const newOpt = `signed-by=${keyringPath(upstreamHost)}`;
+    const mergedOpts = opts ? `${opts} ${newOpt}` : newOpt;
+    return `${prefix}[${mergedOpts}] ${url}${rest}`;
+  });
+
+  return [...installLines, ...rewritten];
 }
 
 async function parseRepositoryConfigs(): Promise<{
