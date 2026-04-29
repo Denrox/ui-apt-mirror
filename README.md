@@ -5,6 +5,7 @@ A containerized APT mirror solution with a web interface. This project provides 
 ## Features
 
 - **APT Mirror**: Local Ubuntu package repository with automatic synchronization using apt-mirror2 (Python/asyncio version) from PyPI
+- **GPG Signing**: Optional per-host signing keys generated via the admin panel — re-signs `Release` files so clients can verify the mirror with a real key instead of relying on `[trusted=yes]`. Sources.list snippets in the admin UI auto-include the correct `signed-by` / `Signed-By` directive when a key is present.
 - **NPM Proxy**: Optional local npm package registry cache for faster npm installs and reduced bandwidth usage
 - **Developer Cheatsheets**: Built-in command reference with tldr-pages integration for offline access to programming and system administration guides
 - **Web Interface**: web UI for all services
