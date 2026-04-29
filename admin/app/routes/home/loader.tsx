@@ -51,7 +51,9 @@ function rewriteSignedByHint(
 
   if (isDeb822) {
     const keyringPaths = signedHosts.map((h) => keyringPath(h.host)).join(' ');
-    return [...installLines, ...filtered, `Signed-By: ${keyringPaths}`];
+    // Once we emit Signed-By, drop any `Trusted: yes` — the key supersedes it.
+    const stripped = filtered.filter((line) => !/^\s*Trusted:\s*yes\b/i.test(line));
+    return [...installLines, ...stripped, `Signed-By: ${keyringPaths}`];
   }
 
   // Legacy one-line `deb [opts] URL ...` format: Signed-By: is not a valid
@@ -65,7 +67,7 @@ function rewriteSignedByHint(
     if (!match) return line;
     const [, prefix, existingOpts, url, rest = ''] = match;
     const opts = (existingOpts ?? '').trim();
-    if (/\bsigned-by=/i.test(opts) || /\btrusted=yes\b/i.test(opts)) return line;
+    if (/\bsigned-by=/i.test(opts)) return line;
 
     let upstreamHost: string | null = null;
     try {
@@ -81,8 +83,13 @@ function rewriteSignedByHint(
     }
     if (!upstreamHost) return line;
 
+    // Strip trusted=yes when we have a real key — the signature supersedes it.
+    const remainingOpts = opts
+      .split(/\s+/)
+      .filter((opt) => opt && !/^trusted=yes$/i.test(opt))
+      .join(' ');
     const newOpt = `signed-by=${keyringPath(upstreamHost)}`;
-    const mergedOpts = opts ? `${opts} ${newOpt}` : newOpt;
+    const mergedOpts = remainingOpts ? `${remainingOpts} ${newOpt}` : newOpt;
     return `${prefix}[${mergedOpts}] ${url}${rest}`;
   });
 
