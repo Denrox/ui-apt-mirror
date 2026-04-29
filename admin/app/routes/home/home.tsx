@@ -26,6 +26,7 @@ import {
   faPause,
   faTrash,
   faBox,
+  faKey,
 } from '@fortawesome/free-solid-svg-icons';
 
 export function meta({}: Route.MetaArgs) {
@@ -104,6 +105,36 @@ export default function Home() {
     const formData = new FormData();
     formData.append('action', 'restoreRepository');
     formData.append('sectionTitle', sectionTitle);
+    submit(formData, { method: 'post' });
+  };
+
+  const handleGenerateGpgKey = (host: string) => {
+    if (isActionInProgress) return;
+    setIsActionInProgress(true);
+    const formData = new FormData();
+    formData.append('action', 'generateGpgKey');
+    formData.append('host', host);
+    submit(formData, { method: 'post' });
+  };
+
+  const handleSignRelease = (host: string) => {
+    if (isActionInProgress) return;
+    setIsActionInProgress(true);
+    const formData = new FormData();
+    formData.append('action', 'signRelease');
+    formData.append('host', host);
+    submit(formData, { method: 'post' });
+  };
+
+  const handleDeleteGpgKey = (host: string) => {
+    if (isActionInProgress) return;
+    if (!confirm(`Delete signing key for ${host}? Apt clients trusting this key will stop verifying.`)) {
+      return;
+    }
+    setIsActionInProgress(true);
+    const formData = new FormData();
+    formData.append('action', 'deleteGpgKey');
+    formData.append('host', host);
     submit(formData, { method: 'post' });
   };
 
@@ -256,7 +287,7 @@ export default function Home() {
             className={`overflow-hidden transition-all duration-300 ease-in-out relative ${
               isRepositoryConfigsExpanded
                 ? 'max-h-none pb-[32px]'
-                : 'max-h-[164px]'
+                : 'max-h-[180px]'
             }`}
           >
             <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
@@ -264,7 +295,7 @@ export default function Home() {
                 repositoryConfigs.map((config: RepositoryConfig) => (
                   <div
                     key={config.title}
-                    className="md:w-[calc(50%-18px)] w-full h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
+                    className="md:w-[calc(50%-18px)] w-full min-h-[164px] max-h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
                   >
                     <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold">
                       {config.title}
@@ -277,20 +308,95 @@ export default function Home() {
                         {line}
                       </div>
                     ))}
-                    <button
-                      onClick={() => handleDeleteClick(config.title)}
-                      className="absolute top-[12px] right-[12px] text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={
-                        isActionInProgress
-                          ? 'Action in progress...'
-                          : isLockFilePresent
-                            ? 'Cannot delete while sync is running'
-                            : 'Delete repository configuration'
-                      }
-                      disabled={isLockFilePresent || isActionInProgress}
-                    >
-                      <FontAwesomeIcon icon={faTrash} />
-                    </button>
+                    <div className="absolute top-[12px] right-[12px] flex items-center gap-[12px]">
+                      {config.hosts.length > 0 && (
+                        <Dropdown
+                          trigger={
+                            <span
+                              className="text-gray-500 hover:text-gray-700 transition-colors cursor-pointer"
+                              title="GPG signing options"
+                            >
+                              <FontAwesomeIcon icon={faKey} />
+                            </span>
+                          }
+                          disabled={isActionInProgress}
+                        >
+                          {config.hosts.map((h, idx) => (
+                            <div
+                              key={h.host}
+                              className={
+                                idx > 0 ? 'border-t border-gray-100' : ''
+                              }
+                            >
+                              <div
+                                className="px-4 py-2 text-xs"
+                                title={h.gpgKey?.fingerprint ?? h.host}
+                              >
+                                <div className="font-semibold text-gray-700 truncate">
+                                  {h.host}
+                                </div>
+                                <div
+                                  className={`font-mono text-[10px] truncate ${
+                                    h.gpgKey ? 'text-gray-500' : 'text-gray-400'
+                                  }`}
+                                >
+                                  {h.gpgKey ? h.gpgKey.keyId : 'unsigned'}
+                                </div>
+                              </div>
+                              {h.gpgKey ? (
+                                <>
+                                  <DropdownItem
+                                    onClick={() =>
+                                      window.open(
+                                        `/api/pubkey/${h.host}`,
+                                        '_blank',
+                                      )
+                                    }
+                                  >
+                                    Download public key
+                                  </DropdownItem>
+                                  <DropdownItem
+                                    onClick={() => handleSignRelease(h.host)}
+                                    disabled={
+                                      isLockFilePresent || isActionInProgress
+                                    }
+                                  >
+                                    Re-sign Release files
+                                  </DropdownItem>
+                                  <DropdownItem
+                                    onClick={() => handleDeleteGpgKey(h.host)}
+                                    disabled={isActionInProgress}
+                                  >
+                                    Delete signing key
+                                  </DropdownItem>
+                                </>
+                              ) : (
+                                <DropdownItem
+                                  onClick={() => handleGenerateGpgKey(h.host)}
+                                  disabled={isActionInProgress}
+                                >
+                                  Generate signing key
+                                </DropdownItem>
+                              )}
+                            </div>
+                          ))}
+                        </Dropdown>
+                      )}
+                      <button
+                        onClick={() => handleDeleteClick(config.title)}
+                        className="text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={
+                          isActionInProgress
+                            ? 'Action in progress...'
+                            : isLockFilePresent
+                              ? 'Cannot delete while sync is running'
+                              : 'Delete repository configuration'
+                        }
+                        disabled={isLockFilePresent || isActionInProgress}
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </div>
                   </div>
                 ))
               ) : (
