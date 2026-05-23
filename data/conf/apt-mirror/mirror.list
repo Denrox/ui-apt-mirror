@@ -23,7 +23,7 @@ set defaultarch  amd64
 set postmirror_script $var_path/postmirror.sh
 
 # Set run_postmirror to 1 to run the postmirror script
-set run_postmirror 0
+set run_postmirror 1
 
 # Set nthreads to the number of threads to use (calculated based on RAM)
 set nthreads     8
