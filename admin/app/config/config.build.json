@@ -15,11 +15,33 @@
   "gpgKeysIndex": "/var/spool/apt-mirror/gpg/keys.json",
   "mirrorRoot": "/var/spool/apt-mirror/mirror",
   "signReleasesScriptPath": "/usr/local/bin/sign-releases.sh",
+  "localReposIndex": "/var/spool/apt-mirror/local-repos.json",
+  "localRepoScriptPath": "/usr/local/bin/local-repo.sh",
   "jwtSecret": "HMwZM9EQJBsOQEBwWQLNtBxJqo6SHIFa",
   "hosts": [
-    { "id": "mirror", "address": "mirror.intra", "name": "APT Mirror", "description": "APT Mirror" },
-    { "id": "admin", "address": "admin.mirror.intra", "name": "Admin", "description": "Admin UI for the mirror" },
-    { "id": "files", "address": "files.mirror.intra", "name": "Files", "description": "Files (user uploads)" },
-    { "id": "npm", "address": "npm.mirror.intra", "name": "NPM Mirror", "description": "NPM Registry Cache" }
+    {
+      "id": "mirror",
+      "address": "mirror.intra",
+      "name": "APT Mirror",
+      "description": "APT Mirror"
+    },
+    {
+      "id": "admin",
+      "address": "admin.mirror.intra",
+      "name": "Admin",
+      "description": "Admin UI for the mirror"
+    },
+    {
+      "id": "files",
+      "address": "files.mirror.intra",
+      "name": "Files",
+      "description": "Files (user uploads)"
+    },
+    {
+      "id": "npm",
+      "address": "npm.mirror.intra",
+      "name": "NPM Mirror",
+      "description": "NPM Registry Cache"
+    }
   ]
 }

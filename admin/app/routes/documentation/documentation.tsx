@@ -23,7 +23,11 @@ export function meta() {
 export default function Documentation() {
   const { isNpmProxyEnabled } = useRuntimeConfig();
   const sections = [
-    { id: 'file-structure', linkName: 'File Structure', title: 'File Structure' },
+    {
+      id: 'file-structure',
+      linkName: 'File Structure',
+      title: 'File Structure',
+    },
     { id: 'commands', linkName: 'Commands', title: 'Commands' },
     ...(isNpmProxyEnabled
       ? [
@@ -48,7 +52,7 @@ export default function Documentation() {
     <div className="space-y-6">
       <div>
         <h3 className="text-lg font-semibold mb-4">Data Directory Structure</h3>
-        <div className="bg-gray-50 p-4 rounded-lg font-mono text-sm">
+        <div className="bg-surface-container p-4 rounded-lg font-mono text-sm">
           <pre className="whitespace-pre-wrap">
             {`data/
 ├── auth/
@@ -62,11 +66,11 @@ export default function Documentation() {
 │           ├── admin.mirror.intra.conf
 │           ├── files.mirror.intra.conf
 │           ├── cheatsheets.mirror.intra.conf${
-                isNpmProxyEnabled
-                  ? `
+              isNpmProxyEnabled
+                ? `
 │           └── npm.mirror.intra.conf`
-                  : ''
-              }
+                : ''
+            }
 ├── data/
 │   ├── apt-mirror/              # apt-mirror2 working directory
 │   │   ├── mirror/              # Downloaded package mirrors
@@ -74,13 +78,13 @@ export default function Documentation() {
 │   │   └── var/                 # Variable data
 │   ├── files/                   # Custom file repository
 │   ├── cheatsheets/             # Developer cheatsheets and command references${
-                isNpmProxyEnabled
-                  ? `
+              isNpmProxyEnabled
+                ? `
 │   └── npm/                     # NPM packages
 │       ├── private/             # Private published packages
 │       └── public/              # Cached public packages from npmjs.org`
-                  : ''
-              }
+                : ''
+            }
 └── logs/
     ├── apt-mirror/              # apt-mirror2 logs
     │   └── apt-mirror.log       # Main apt-mirror2 log file
@@ -93,22 +97,22 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">Description</h3>
         <div className="space-y-4">
           <div>
-            <h4 className="font-semibold text-sky-500">auth/</h4>
-            <p className="text-gray-700">
+            <h4 className="font-semibold text-primary">auth/</h4>
+            <p className="text-on-surface-variant">
               Authentication files. Contains the .htpasswd file with admin
               credentials for accessing the admin panel and protected areas.
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-sky-500">conf/</h4>
-            <p className="text-gray-700">
+            <h4 className="font-semibold text-primary">conf/</h4>
+            <p className="text-on-surface-variant">
               Configuration files for apt-mirror and nginx. Contains mirror
               settings and web server configurations.
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-sky-500">data/</h4>
-            <p className="text-gray-700">
+            <h4 className="font-semibold text-primary">data/</h4>
+            <p className="text-on-surface-variant">
               Main data storage directory. apt-mirror/ contains downloaded
               package repositories, files/ contains custom file repository,
               cheatsheets/ contains developer command references and cheatsheets
@@ -119,8 +123,8 @@ export default function Documentation() {
             </p>
           </div>
           <div>
-            <h4 className="font-semibold text-sky-500">logs/</h4>
-            <p className="text-gray-700">
+            <h4 className="font-semibold text-primary">logs/</h4>
+            <p className="text-on-surface-variant">
               Log files from apt-mirror synchronization and nginx web server
               operations.
             </p>
@@ -134,12 +138,12 @@ export default function Documentation() {
     <div className="space-y-8">
       <div>
         <h3 className="text-lg font-semibold mb-4">Build Process</h3>
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-semibold text-sky-500 mb-2">./build.sh</h4>
-          <p className="text-gray-700 mb-3">
+        <div className="bg-surface-container p-4 rounded-lg">
+          <h4 className="font-semibold text-primary mb-2">./build.sh</h4>
+          <p className="text-on-surface-variant mb-3">
             Builds Docker images for multiple architectures (amd64, arm64).
           </p>
-          <div className="bg-white p-3 rounded border-l-4 border-sky-300">
+          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>Checks Docker and buildx prerequisites</li>
@@ -157,13 +161,13 @@ export default function Documentation() {
 
       <div>
         <h3 className="text-lg font-semibold mb-4">Initial Setup</h3>
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-semibold text-sky-500 mb-2">./setup.sh</h4>
-          <p className="text-gray-700 mb-3">
+        <div className="bg-surface-container p-4 rounded-lg">
+          <h4 className="font-semibold text-primary mb-2">./setup.sh</h4>
+          <p className="text-on-surface-variant mb-3">
             Performs initial deployment and configuration of the apt-mirror
             container.
           </p>
-          <div className="bg-white p-3 rounded border-l-4 border-emerald-300">
+          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>Detects system architecture (amd64/arm64)</li>
@@ -187,13 +191,13 @@ export default function Documentation() {
 
       <div>
         <h3 className="text-lg font-semibold mb-4">Starting and Restarting</h3>
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-semibold text-sky-500 mb-2">./start.sh</h4>
-          <p className="text-gray-700 mb-3">
+        <div className="bg-surface-container p-4 rounded-lg">
+          <h4 className="font-semibold text-primary mb-2">./start.sh</h4>
+          <p className="text-on-surface-variant mb-3">
             Loads Docker image and starts the container. Used by setup.sh and
             for manual restarts.
           </p>
-          <div className="bg-white p-3 rounded border-l-4 border-sky-300">
+          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>Detects system architecture (amd64/arm64)</li>
@@ -203,45 +207,47 @@ export default function Documentation() {
             </ul>
           </div>
 
-          <h4 className="font-semibold text-sky-500 mb-2 mt-4">
+          <h4 className="font-semibold text-primary mb-2 mt-4">
             After Initial Setup
           </h4>
-          <p className="text-gray-700 mb-3">
+          <p className="text-on-surface-variant mb-3">
             Commands for managing the running container.
           </p>
-          <div className="bg-white p-3 rounded border-l-4 border-amber-300">
+          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-tertiary">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>
-                <code className="bg-gray-100 px-1 rounded">./start.sh</code> -
-                Load image and start container
+                <code className="bg-surface-container-lowest px-1 rounded">
+                  ./start.sh
+                </code>{' '}
+                - Load image and start container
               </li>
               <li>
-                <code className="bg-gray-100 px-1 rounded">
+                <code className="bg-surface-container-lowest px-1 rounded">
                   docker compose up -d
                 </code>{' '}
                 - Start container
               </li>
               <li>
-                <code className="bg-gray-100 px-1 rounded">
+                <code className="bg-surface-container-lowest px-1 rounded">
                   docker compose down
                 </code>{' '}
                 - Stop container
               </li>
               <li>
-                <code className="bg-gray-100 px-1 rounded">
+                <code className="bg-surface-container-lowest px-1 rounded">
                   docker compose restart
                 </code>{' '}
                 - Restart container
               </li>
               <li>
-                <code className="bg-gray-100 px-1 rounded">
+                <code className="bg-surface-container-lowest px-1 rounded">
                   docker logs ui-apt-mirror
                 </code>{' '}
                 - View container logs
               </li>
               <li>
-                <code className="bg-gray-100 px-1 rounded">
+                <code className="bg-surface-container-lowest px-1 rounded">
                   docker compose logs
                 </code>{' '}
                 - View compose logs
@@ -255,12 +261,12 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">
           Upgrading the Installation
         </h3>
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <h4 className="font-semibold text-sky-500 mb-2">./upgrade.sh</h4>
-          <p className="text-gray-700 mb-3">
+        <div className="bg-surface-container p-4 rounded-lg">
+          <h4 className="font-semibold text-primary mb-2">./upgrade.sh</h4>
+          <p className="text-on-surface-variant mb-3">
             Downloads and installs the latest version from the official website.
           </p>
-          <div className="bg-white p-3 rounded border-l-4 border-violet-300">
+          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
             <h5 className="font-semibold mb-2">Operations:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>
@@ -274,7 +280,7 @@ export default function Documentation() {
               <li>Cleans up temporary files</li>
             </ul>
           </div>
-          <div className="bg-amber-50 p-3 rounded border-l-4 border-amber-300 mt-3">
+          <div className="bg-tertiary/10 p-3 rounded border-l-4 border-tertiary mt-3">
             <h5 className="font-semibold mb-2">Prerequisites:</h5>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>Internet connection</li>
@@ -297,14 +303,14 @@ export default function Documentation() {
       <div className="space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-4">NPM Proxy Overview</h3>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <p className="text-gray-700 mb-3">
+          <div className="bg-surface-container p-4 rounded-lg">
+            <p className="text-on-surface-variant mb-3">
               The NPM Proxy provides a local caching layer for npm packages,
-              speeding up installations and reducing bandwidth usage. It also supports
-              publishing private packages that are stored locally and never forwarded
-              to the public npm registry.
+              speeding up installations and reducing bandwidth usage. It also
+              supports publishing private packages that are stored locally and
+              never forwarded to the public npm registry.
             </p>
-            <div className="bg-white p-3 rounded border-l-4 border-blue-300">
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
               <h5 className="font-semibold mb-2">Features:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>Transparent caching of npm packages</li>
@@ -312,7 +318,10 @@ export default function Documentation() {
                 <li>Bandwidth optimization for repeated installs</li>
                 <li>Offline package availability</li>
                 <li>Private package publishing (requires authentication)</li>
-                <li>Private packages stored separately and never forwarded to npmjs.org</li>
+                <li>
+                  Private packages stored separately and never forwarded to
+                  npmjs.org
+                </li>
               </ul>
             </div>
           </div>
@@ -320,31 +329,35 @@ export default function Documentation() {
 
         <div>
           <h3 className="text-lg font-semibold mb-4">Usage</h3>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h4 className="font-semibold text-sky-500 mb-2">
+          <div className="bg-surface-container p-4 rounded-lg">
+            <h4 className="font-semibold text-primary mb-2">
               Configure npm to use the proxy
             </h4>
-            <div className="bg-white p-3 rounded border-l-4 border-amber-300">
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-tertiary">
               <h5 className="font-semibold mb-2">Commands:</h5>
               <div className="space-y-2 text-sm font-mono">
-                <div className="bg-gray-100 p-2 rounded">
+                <div className="bg-surface-container-lowest p-2 rounded">
                   npm config set registry http://npm.mirror.intra
                 </div>
-                <div className="bg-gray-100 p-2 rounded">
+                <div className="bg-surface-container-lowest p-2 rounded">
                   npm config set registry http://npm.yourdomain.com
                 </div>
               </div>
             </div>
 
-            <h4 className="font-semibold text-sky-500 mb-2 mt-4">
+            <h4 className="font-semibold text-primary mb-2 mt-4">
               Verify Configuration
             </h4>
-            <div className="bg-white p-3 rounded border-l-4 border-purple-300">
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
               <h5 className="font-semibold mb-2">Test Commands:</h5>
               <div className="space-y-2 text-sm font-mono">
-                <div className="bg-gray-100 p-2 rounded">npm view react</div>
-                <div className="bg-gray-100 p-2 rounded">npm install react</div>
-                <div className="bg-gray-100 p-2 rounded">
+                <div className="bg-surface-container-lowest p-2 rounded">
+                  npm view react
+                </div>
+                <div className="bg-surface-container-lowest p-2 rounded">
+                  npm install react
+                </div>
+                <div className="bg-surface-container-lowest p-2 rounded">
                   curl http://npm.mirror.intra/react
                 </div>
               </div>
@@ -353,58 +366,84 @@ export default function Documentation() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Publishing Private Packages</h3>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <p className="text-gray-700 mb-3">
-              You can publish private npm packages to this registry. All packages are stored locally and never forwarded to npmjs.org.
+          <h3 className="text-lg font-semibold mb-4">
+            Publishing Private Packages
+          </h3>
+          <div className="bg-surface-container p-4 rounded-lg">
+            <p className="text-on-surface-variant mb-3">
+              You can publish private npm packages to this registry. All
+              packages are stored locally and never forwarded to npmjs.org.
             </p>
-            
-            <div className="bg-white p-3 rounded border-l-4 border-green-400 mb-4">
+
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-success mb-4">
               <h5 className="font-semibold mb-2">Method 1: Using npm login</h5>
-              <p className="text-sm text-gray-600 mb-2">For npm 9.x+, use the --auth-type=legacy flag:</p>
+              <p className="text-sm text-on-surface-variant mb-2">
+                For npm 9.x+, use the --auth-type=legacy flag:
+              </p>
               <div className="space-y-2 text-sm">
-                <div className="bg-gray-100 p-2 rounded font-mono text-xs">
-                  npm login --registry=http://npm.mirror.intra --auth-type=legacy
+                <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
+                  npm login --registry=http://npm.mirror.intra
+                  --auth-type=legacy
                 </div>
-                <p className="text-gray-600">Enter your username and password when prompted, then verify:</p>
-                <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+                <p className="text-on-surface-variant">
+                  Enter your username and password when prompted, then verify:
+                </p>
+                <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
                   npm whoami --registry=http://npm.mirror.intra
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-3 rounded border-l-4 border-blue-400 mb-4">
-              <h5 className="font-semibold mb-2">Method 2: Manual token configuration</h5>
-              <p className="text-sm text-gray-600 mb-2">If npm login doesn't work, get a token manually:</p>
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary mb-4">
+              <h5 className="font-semibold mb-2">
+                Method 2: Manual token configuration
+              </h5>
+              <p className="text-sm text-on-surface-variant mb-2">
+                If npm login doesn't work, get a token manually:
+              </p>
               <div className="space-y-2 text-sm">
-                <div className="bg-gray-100 p-2 rounded font-mono text-xs overflow-x-auto">
-                  TOKEN=$(curl -X PUT http://npm.mirror.intra/-/user/org.couchdb.user:admin \<br />
+                <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs overflow-x-auto">
+                  TOKEN=$(curl -X PUT
+                  http://npm.mirror.intra/-/user/org.couchdb.user:admin \<br />
                   &nbsp;&nbsp;-H "Content-Type: application/json" \<br />
-                  &nbsp;&nbsp;-d '&#123;"name": "admin", "password": "your-password"&#125;' \<br />
+                  &nbsp;&nbsp;-d '&#123;"name": "admin", "password":
+                  "your-password"&#125;' \<br />
                   &nbsp;&nbsp;| jq -r .token)
                 </div>
-                <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+                <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
                   echo "//npm.mirror.intra/:_authToken=$TOKEN" &gt;&gt; ~/.npmrc
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-3 rounded border-l-4 border-purple-400 mb-4">
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary mb-4">
               <h5 className="font-semibold mb-2">Publishing:</h5>
-              <p className="text-sm text-gray-600 mb-2">Once authenticated, publish normally:</p>
-              <div className="bg-gray-100 p-2 rounded font-mono text-xs">
+              <p className="text-sm text-on-surface-variant mb-2">
+                Once authenticated, publish normally:
+              </p>
+              <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
                 npm publish
               </div>
             </div>
 
-            <div className="bg-white p-3 rounded border-l-4 border-amber-400">
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-tertiary">
               <h5 className="font-semibold mb-2">Important Notes:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
-                <li>All published packages are private and stored in data/npm/private/</li>
-                <li>Public packages (cached from npmjs.org) are stored in data/npm/public/</li>
+                <li>
+                  All published packages are private and stored in
+                  data/npm/private/
+                </li>
+                <li>
+                  Public packages (cached from npmjs.org) are stored in
+                  data/npm/public/
+                </li>
                 <li>Published packages are never forwarded to npmjs.org</li>
-                <li>Private packages take precedence over cached public packages</li>
-                <li>Authentication tokens are JWT-based and valid for 1 year</li>
+                <li>
+                  Private packages take precedence over cached public packages
+                </li>
+                <li>
+                  Authentication tokens are JWT-based and valid for 1 year
+                </li>
               </ul>
             </div>
           </div>
@@ -412,11 +451,14 @@ export default function Documentation() {
 
         <div>
           <h3 className="text-lg font-semibold mb-4">File Management</h3>
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <p className="text-gray-700 mb-3">
-              NPM packages are organized in the data/npm/ directory: public packages (cached from npmjs.org) in data/npm/public/ and private packages (published locally) in data/npm/private/. Both can be viewed and managed through the File Manager.
+          <div className="bg-surface-container p-4 rounded-lg">
+            <p className="text-on-surface-variant mb-3">
+              NPM packages are organized in the data/npm/ directory: public
+              packages (cached from npmjs.org) in data/npm/public/ and private
+              packages (published locally) in data/npm/private/. Both can be
+              viewed and managed through the File Manager.
             </p>
-            <div className="bg-white p-3 rounded border-l-4 border-indigo-300">
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-indigo-300">
               <h5 className="font-semibold mb-2">Access:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>Admin UI → File Manager → NPM Packages view</li>

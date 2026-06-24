@@ -51,7 +51,7 @@ export default function CreateFolderModal({
         <div>
           <label
             htmlFor="folder-name"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-on-surface-variant mb-1"
           >
             Folder Name
           </label>
@@ -64,10 +64,17 @@ export default function CreateFolderModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-4">
-          <FormButton type="secondary" onClick={handleCancel} disabled={isSubmitting}>
+          <FormButton
+            type="secondary"
+            onClick={handleCancel}
+            disabled={isSubmitting}
+          >
             Cancel
           </FormButton>
-          <FormButton onClick={handleSubmit} disabled={!folderName.trim() || isSubmitting}>
+          <FormButton
+            onClick={handleSubmit}
+            disabled={!folderName.trim() || isSubmitting}
+          >
             {isSubmitting ? 'Creating...' : 'Create'}
           </FormButton>
         </div>
@@ -75,5 +82,3 @@ export default function CreateFolderModal({
     </Modal>
   );
 }
-
-

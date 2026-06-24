@@ -15,8 +15,8 @@ export default function DropdownItem({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
-        disabled ? 'text-gray-400' : 'text-gray-700'
+      className={`w-full text-left px-4 py-2 text-sm hover:bg-surface-container-high disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors ${
+        disabled ? 'text-on-surface-variant/50' : 'text-on-surface'
       }`}
     >
       {children}

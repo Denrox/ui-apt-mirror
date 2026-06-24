@@ -24,17 +24,19 @@ export default function FormCheckbox({
           checked={checked}
           onChange={(e) => onChange(e.target.checked)}
           disabled={disabled}
-          className="w-4 h-4 text-gray-600 bg-gray-100 border-gray-300 rounded focus:ring-gray-400 focus:ring-2"
+          className="w-4 h-4 accent-primary bg-surface-container-lowest border-outline-variant rounded focus:ring-primary focus:ring-2"
         />
       </div>
       <div className="ml-3 text-sm">
         <label
           htmlFor={id}
-          className={`font-medium ${disabled ? 'text-gray-400' : 'text-gray-700'}`}
+          className={`font-medium ${disabled ? 'text-on-surface-variant/50' : 'text-on-surface'}`}
         >
           {label}
         </label>
-        {description && <p className="text-gray-500 mt-1">{description}</p>}
+        {description && (
+          <p className="text-on-surface-variant mt-1">{description}</p>
+        )}
       </div>
     </div>
   );

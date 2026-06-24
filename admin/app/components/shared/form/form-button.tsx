@@ -17,13 +17,13 @@ export default function FormButton({
   size = 'medium',
 }: PropsWithChildren<FormButtonProps>) {
   const baseClasses =
-    'font-semibold rounded-md outline-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap';
+    'font-semibold rounded-lg outline-none focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap transition-colors';
 
   const typeClasses = {
-    primary: 'bg-gray-700 text-white hover:bg-gray-800 focus:ring-gray-400',
+    primary: 'bg-primary text-on-primary hover:brightness-110',
     secondary:
-      'bg-gray-200 text-gray-700 hover:bg-gray-300 focus:ring-gray-400',
-    danger: 'bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-400',
+      'bg-secondary-container text-on-secondary-container hover:brightness-110',
+    danger: 'bg-error-container text-on-error-container hover:brightness-110',
   };
 
   const sizeClasses = {

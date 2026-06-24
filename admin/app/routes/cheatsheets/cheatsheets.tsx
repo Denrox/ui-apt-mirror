@@ -1,7 +1,14 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLoaderData, useSubmit, useRevalidator } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileAlt, faTags, faEye, faTrash, faSync, faTimes } from '@fortawesome/free-solid-svg-icons';
+import {
+  faFileAlt,
+  faTags,
+  faEye,
+  faTrash,
+  faSync,
+  faTimes,
+} from '@fortawesome/free-solid-svg-icons';
 import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
@@ -28,7 +35,10 @@ export { loader, action };
 export function meta() {
   return [
     { title: 'Cheatsheets' },
-    { name: 'description', content: 'Developer cheatsheets and reference guides' },
+    {
+      name: 'description',
+      content: 'Developer cheatsheets and reference guides',
+    },
   ];
 }
 
@@ -72,18 +82,25 @@ export default function Cheatsheets() {
     let filtered = files;
 
     if (selectedCategory) {
-      filtered = filtered.filter((file: FileItem) => file.categories.includes(selectedCategory));
+      filtered = filtered.filter((file: FileItem) =>
+        file.categories.includes(selectedCategory),
+      );
     }
 
-            if (debouncedSearchTerm) {
-              const term = debouncedSearchTerm.toLowerCase();
-              filtered = filtered.filter((file: FileItem) => 
-                file.name.toLowerCase().includes(term) ||
-                file.categories.some((cat: string) => cat.toLowerCase().includes(term))
-              );
-            }
+    if (debouncedSearchTerm) {
+      const term = debouncedSearchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (file: FileItem) =>
+          file.name.toLowerCase().includes(term) ||
+          file.categories.some((cat: string) =>
+            cat.toLowerCase().includes(term),
+          ),
+      );
+    }
 
-    return filtered.sort((a: FileItem, b: FileItem) => a.name.localeCompare(b.name));
+    return filtered.sort((a: FileItem, b: FileItem) =>
+      a.name.localeCompare(b.name),
+    );
   }, [files, selectedCategory, debouncedSearchTerm]);
 
   const handleFileClick = (file: FileItem) => {
@@ -106,27 +123,27 @@ export default function Cheatsheets() {
   const handleDeleteConfirm = async () => {
     if (!deleteModal.filename) return;
 
-    setDeleteModal(prev => ({ ...prev, isLoading: true }));
-    
+    setDeleteModal((prev) => ({ ...prev, isLoading: true }));
+
     try {
       await submit(
-        { 
+        {
           intent: 'deleteCheatsheet',
-          filename: deleteModal.filename 
+          filename: deleteModal.filename,
         },
         { action: '/cheatsheets', method: 'post' },
       );
-      
+
       setDeleteModal({
         isOpen: false,
         filename: null,
         isLoading: false,
       });
-      
+
       revalidator.revalidate();
     } catch (error) {
       console.error('Error deleting cheatsheet:', error);
-      setDeleteModal(prev => ({ ...prev, isLoading: false }));
+      setDeleteModal((prev) => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -168,7 +185,7 @@ export default function Cheatsheets() {
   return (
     <PageLayoutFull>
       <div className="flex items-center gap-4 px-[12px]">
-        <Title title={"Cheatsheets"} />
+        <Title title={'Cheatsheets'} />
         {!isPublicRoute && (
           <FormButton
             type="secondary"
@@ -178,7 +195,8 @@ export default function Cheatsheets() {
           >
             {isUpdating ? (
               <>
-                <FontAwesomeIcon icon={faSync} className="animate-spin" /> Updating...
+                <FontAwesomeIcon icon={faSync} className="animate-spin" />{' '}
+                Updating...
               </>
             ) : (
               <>
@@ -192,9 +210,7 @@ export default function Cheatsheets() {
       <ContentBlock>
         <div className="flex flex-col gap-4">
           {error && (
-            <div className="p-4 bg-red-100 text-red-700 rounded-md">
-              {error}
-            </div>
+            <div className="p-4 bg-error/10 text-error rounded-md">{error}</div>
           )}
 
           {/* Search and Filters */}
@@ -207,10 +223,7 @@ export default function Cheatsheets() {
               />
             </div>
             {(debouncedSearchTerm || selectedCategory) && (
-              <FormButton
-                type="secondary"
-                onClick={clearFilters}
-              >
+              <FormButton type="secondary" onClick={clearFilters}>
                 <FontAwesomeIcon icon={faTimes} className="mr-2" />
                 Clear Filters
               </FormButton>
@@ -219,8 +232,11 @@ export default function Cheatsheets() {
 
           {/* Categories */}
           <div className="mb-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-              <FontAwesomeIcon icon={faTags} className="text-gray-500" />
+            <h3 className="text-sm font-medium text-on-surface-variant mb-2 flex items-center gap-2">
+              <FontAwesomeIcon
+                icon={faTags}
+                className="text-on-surface-variant"
+              />
               Categories
             </h3>
             <div className="flex flex-wrap gap-2">
@@ -230,7 +246,9 @@ export default function Cheatsheets() {
                   label={category}
                   isSelected={selectedCategory === category}
                   onClick={() => handleCategoryClick(category)}
-                  variant={selectedCategory === category ? 'selected' : 'default'}
+                  variant={
+                    selectedCategory === category ? 'selected' : 'default'
+                  }
                 />
               ))}
             </div>
@@ -238,26 +256,37 @@ export default function Cheatsheets() {
 
           {/* Results Summary */}
           {(debouncedSearchTerm || selectedCategory) && (
-            <div className="text-sm text-gray-600 mb-4">
+            <div className="text-sm text-on-surface-variant mb-4">
               {filteredFiles.length} of {files.length} cheatsheets
               {selectedCategory && (
-                <span> in <strong>{selectedCategory}</strong></span>
+                <span>
+                  {' '}
+                  in <strong>{selectedCategory}</strong>
+                </span>
               )}
               {debouncedSearchTerm && (
-                <span> matching "<strong>{debouncedSearchTerm}</strong>"</span>
+                <span>
+                  {' '}
+                  matching "<strong>{debouncedSearchTerm}</strong>"
+                </span>
               )}
             </div>
           )}
 
           {/* Files List */}
-          <div className="border border-gray-200 rounded-md">
+          <div className="border border-outline-variant rounded-md">
             {filteredFiles.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <FontAwesomeIcon icon={faFileAlt} className="text-4xl mb-4 text-gray-300" />
+              <div className="p-8 text-center text-on-surface-variant">
+                <FontAwesomeIcon
+                  icon={faFileAlt}
+                  className="text-4xl mb-4 text-on-surface-variant/40"
+                />
                 {hasUserInteracted ? (
                   <>
                     <p>No cheatsheets found</p>
-                    <p className="text-sm mt-2">Try adjusting your search or filters</p>
+                    <p className="text-sm mt-2">
+                      Try adjusting your search or filters
+                    </p>
                   </>
                 ) : (
                   <p>Search command or select category</p>
@@ -271,23 +300,25 @@ export default function Cheatsheets() {
                     icon={
                       <FontAwesomeIcon
                         icon={faFileAlt}
-                        className="text-gray-600"
+                        className="text-on-surface-variant"
                       />
                     }
                     title={
                       <div className="flex flex-col">
-                        <div className="font-medium text-gray-900">
+                        <div className="font-medium text-on-surface">
                           {file.name.replace('.md', '')}
                         </div>
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {file.categories.slice(0, 3).map((category: string) => (
-                            <Tag
-                              key={category}
-                              label={category}
-                              size="small"
-                              onClick={() => handleCategoryClick(category)}
-                            />
-                          ))}
+                          {file.categories
+                            .slice(0, 3)
+                            .map((category: string) => (
+                              <Tag
+                                key={category}
+                                label={category}
+                                size="small"
+                                onClick={() => handleCategoryClick(category)}
+                              />
+                            ))}
                           {file.categories.length > 3 && (
                             <Tag
                               label={`+${file.categories.length - 3} more`}

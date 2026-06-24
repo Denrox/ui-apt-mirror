@@ -1,52 +1,164 @@
 @import "tailwindcss";
 @import "react-toastify/dist/ReactToastify.css";
-@import "@fontsource/inter/latin.css";
 
+/* Fonts — Inter (body), Hanken Grotesk (headings), JetBrains Mono (code/logs) */
+@import "@fontsource/inter/latin.css";
+@import "@fontsource/hanken-grotesk/latin-400.css";
+@import "@fontsource/hanken-grotesk/latin-500.css";
+@import "@fontsource/hanken-grotesk/latin-600.css";
+@import "@fontsource/hanken-grotesk/latin-700.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+
+/*
+ * Streamlined Ops — dark admin theme.
+ * Material Design 3 dark token set ported from the Stitch mockups
+ * (stitch_internal_interface_redesign). Color names mirror the M3 roles so
+ * utilities read semantically: `bg-surface-container-low`, `text-on-surface`,
+ * `border-outline-variant`, etc.
+ */
 @theme {
+  /* Typography */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-heading: "Hanken Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Surfaces / background */
+  --color-background: #101415;
+  --color-surface: #101415;
+  --color-surface-dim: #101415;
+  --color-surface-bright: #363a3b;
+  --color-surface-container-lowest: #0b0f10;
+  --color-surface-container-low: #191c1e;
+  --color-surface-container: #1d2022;
+  --color-surface-container-high: #272a2c;
+  --color-surface-container-highest: #323537;
+  --color-surface-variant: #323537;
+
+  /* Text / on-colors */
+  --color-on-background: #e0e3e5;
+  --color-on-surface: #e0e3e5;
+  --color-on-surface-variant: #c2c6d6;
+
+  /* Outlines */
+  --color-outline: #8c909f;
+  --color-outline-variant: #424754;
+
+  /* Primary */
+  --color-primary: #adc6ff;
+  --color-on-primary: #002e6a;
+  --color-primary-container: #4d8eff;
+  --color-on-primary-container: #00285d;
+  --color-primary-fixed: #d8e2ff;
+  --color-primary-fixed-dim: #adc6ff;
+  --color-inverse-primary: #005ac2;
+
+  /* Secondary */
+  --color-secondary: #b7c8e1;
+  --color-on-secondary: #213145;
+  --color-secondary-container: #3a4a5f;
+  --color-on-secondary-container: #a9bad3;
+  --color-secondary-fixed: #d3e4fe;
+
+  /* Tertiary */
+  --color-tertiary: #bec6e0;
+  --color-on-tertiary: #283044;
+  --color-tertiary-container: #8990a8;
+  --color-on-tertiary-container: #22293d;
+
+  /* Error / status */
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+  --color-success: #4ade80;
+
+  /* Inverse */
+  --color-inverse-surface: #e0e3e5;
+  --color-inverse-on-surface: #2d3133;
+
+  /* Named spacing tokens (p-gutter, w-sidebar, gap-stack-md, ...) */
+  --spacing-gutter: 1.5rem;
+  --spacing-stack-sm: 0.5rem;
+  --spacing-stack-md: 1rem;
+  --spacing-stack-lg: 2rem;
+  --spacing-sidebar: 260px;
+
+  /* Layout */
+  --container-content: 1440px;
+
+  /* Radius — cards use 8px (xl), controls 4px (lg); full stays pill (9999px) */
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+}
+
+html {
+  color-scheme: dark;
 }
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950;
-
-  @media (prefers-color-scheme: dark) {
-    color-scheme: dark;
-  }
+  @apply bg-background text-on-surface font-sans;
 }
 
-/* Custom prose styles for markdown content */
+/* Thin dark scrollbars to match the dense-data aesthetic */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-container-highest) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-surface-container-highest);
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Horizontal pill scrollers (mobile log sources, etc.) hide their scrollbar */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Markdown content (documentation, cheatsheets) — dark variant */
 .prose {
-  @apply text-gray-900;
+  @apply text-on-surface;
 }
 
 .prose h1 {
-  @apply text-2xl font-bold text-gray-900 mb-4 mt-6;
+  @apply font-heading text-2xl font-bold text-on-surface mb-4 mt-6;
 }
 
 .prose h2 {
-  @apply text-xl font-semibold text-gray-900 mb-3 mt-5;
+  @apply font-heading text-xl font-semibold text-on-surface mb-3 mt-5;
 }
 
 .prose h3 {
-  @apply text-lg font-semibold text-gray-900 mb-2 mt-4;
+  @apply font-heading text-lg font-semibold text-on-surface mb-2 mt-4;
 }
 
 .prose h4 {
-  @apply text-base font-semibold text-gray-900 mb-2 mt-3;
+  @apply font-heading text-base font-semibold text-on-surface mb-2 mt-3;
 }
 
 .prose p {
-  @apply mb-4 leading-relaxed;
+  @apply mb-4 leading-relaxed text-on-surface-variant;
 }
 
 .prose ul {
-  @apply list-disc pl-6 mb-4;
+  @apply list-disc pl-6 mb-4 text-on-surface-variant;
 }
 
 .prose ol {
-  @apply list-decimal pl-6 mb-4;
+  @apply list-decimal pl-6 mb-4 text-on-surface-variant;
 }
 
 .prose li {
@@ -54,27 +166,27 @@ body {
 }
 
 .prose code {
-  @apply bg-gray-100 text-blue-600 px-1.5 py-0.5 rounded text-sm font-mono;
+  @apply bg-surface-container-lowest text-primary px-1.5 py-0.5 rounded text-sm font-mono;
 }
 
 .prose pre {
-  @apply bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4 overflow-x-auto;
+  @apply bg-surface-container-lowest border border-outline-variant rounded-lg p-4 mb-4 overflow-x-auto;
 }
 
 .prose pre code {
-  @apply bg-transparent text-gray-800 p-0;
+  @apply bg-transparent text-on-surface p-0;
 }
 
 .prose blockquote {
-  @apply border-l-4 border-gray-300 pl-4 italic text-gray-700 mb-4;
+  @apply border-l-4 border-outline-variant pl-4 italic text-on-surface-variant mb-4;
 }
 
 .prose a {
-  @apply text-blue-600 hover:text-blue-800 underline;
+  @apply text-primary hover:underline;
 }
 
 .prose strong {
-  @apply font-semibold text-gray-900;
+  @apply font-semibold text-on-surface;
 }
 
 .prose em {
@@ -82,5 +194,5 @@ body {
 }
 
 .prose hr {
-  @apply border-gray-300 my-6;
+  @apply border-outline-variant my-6;
 }

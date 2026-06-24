@@ -73,7 +73,7 @@ export default function DownloadImageModal({
         <div>
           <label
             htmlFor="image-url"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-on-surface-variant mb-1"
           >
             Image URL
           </label>
@@ -83,7 +83,7 @@ export default function DownloadImageModal({
             onChange={setImageUrl}
             placeholder="e.g., nginx, repo/image, docker.io/repo/image, gcr.io/project/image"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-on-surface-variant mt-1">
             Supports Docker Hub and Google Container Registry (GCR). Single
             words (e.g., "nginx") will use docker.io/library/. Uses skopeo for
             downloading images.
@@ -93,7 +93,7 @@ export default function DownloadImageModal({
         <div>
           <label
             htmlFor="image-tag"
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-on-surface-variant mb-1"
           >
             Tag
           </label>

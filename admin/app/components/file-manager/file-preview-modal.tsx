@@ -11,8 +11,17 @@ interface FilePreviewModalProps {
   readonly fileUrl: string;
   readonly fileName: string;
   readonly previewType: PreviewType;
-  readonly onSelectPreviewFile?: (file: { name: string; url: string; size?: number }) => void;
-  readonly allFiles?: { name: string; path: string; size?: number; isDirectory?: boolean }[];
+  readonly onSelectPreviewFile?: (file: {
+    name: string;
+    url: string;
+    size?: number;
+  }) => void;
+  readonly allFiles?: {
+    name: string;
+    path: string;
+    size?: number;
+    isDirectory?: boolean;
+  }[];
   readonly basePath?: string;
   readonly filesHost?: string;
 }
@@ -35,10 +44,12 @@ export default function FilePreviewModal({
   const isText = useMemo(() => previewType === 'text', [previewType]);
 
   const sameTypeFiles = useMemo(() => {
-    if (!allFiles || !filesHost || !basePath) return [] as { name: string; url: string; size?: number }[];
+    if (!allFiles || !filesHost || !basePath)
+      return [] as { name: string; url: string; size?: number }[];
     const matchesType = (name: string) => {
       const lower = name.toLowerCase();
-      if (previewType === 'image') return Boolean(lower.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/));
+      if (previewType === 'image')
+        return Boolean(lower.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/));
       if (previewType === 'text') return lower.endsWith('.txt');
       if (previewType === 'pdf') return lower.endsWith('.pdf');
       return false;
@@ -77,11 +88,14 @@ export default function FilePreviewModal({
   }, [isOpen, isText, fileUrl]);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={fileName} maxWidth="custom-1000">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={fileName}
+      maxWidth="custom-1000"
+    >
       <div className="flex flex-col gap-6">
-        {error && (
-          <FileManagerWarning type="error" message={error} />
-        )}
+        {error && <FileManagerWarning type="error" message={error} />}
 
         {previewType === 'image' && (
           <div className="flex items-center justify-center">
@@ -104,11 +118,13 @@ export default function FilePreviewModal({
         )}
 
         {previewType === 'text' && (
-          <div className="bg-gray-50 rounded border border-gray-200 p-3 max-h-[70vh] overflow-auto">
+          <div className="bg-surface-container rounded border border-outline-variant p-3 max-h-[70vh] overflow-auto">
             {isLoading ? (
-              <div className="text-sm text-gray-600">Loading...</div>
+              <div className="text-sm text-on-surface-variant">Loading...</div>
             ) : (
-              <pre className="whitespace-pre-wrap break-words text-sm text-gray-800">{textContent}</pre>
+              <pre className="whitespace-pre-wrap break-words text-sm text-on-surface">
+                {textContent}
+              </pre>
             )}
           </div>
         )}
@@ -124,5 +140,3 @@ export default function FilePreviewModal({
     </Modal>
   );
 }
-
-

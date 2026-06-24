@@ -8,8 +8,38 @@ import {
   signReleasesForHost,
   assertValidHost,
 } from '~/lib/gpg';
+import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
+import { atomicWriteFile, validateRepositoryInput } from '~/utils/mirror-list';
 
 const execAsync = promisify(exec);
+
+/** Host whose URL is embedded in client-facing Usage snippets. */
+function mirrorDomain(): string {
+  return (
+    appConfig.hosts.find((h) => h.id === 'mirror')?.address ?? 'mirror.intra'
+  );
+}
+
+/** Split a whitespace/comma-separated form field into trimmed tokens. */
+function tokens(value: FormDataEntryValue | null): string[] {
+  return ((value as string) ?? '')
+    .split(/[\s,]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/** Read the repository form fields into a {@link RepositoryInput}. */
+function readRepositoryInput(formData: FormData): RepositoryInput {
+  return {
+    title: ((formData.get('title') as string) ?? '').trim(),
+    description: ((formData.get('description') as string) ?? '').trim(),
+    baseUrl: ((formData.get('baseUrl') as string) ?? '').trim(),
+    suites: tokens(formData.get('suites')),
+    components: tokens(formData.get('components')),
+    includeSrc: formData.get('includeSrc') === 'true',
+    trusted: formData.get('trusted') === 'true',
+  };
+}
 
 export async function action({ request }: { request: Request }) {
   const formData = await request.formData();
@@ -41,148 +71,101 @@ export async function action({ request }: { request: Request }) {
     }
   }
 
-  if (action === 'deleteRepository') {
+  if (action === 'deleteRepository' || action === 'restoreRepository') {
     const sectionTitle = formData.get('sectionTitle') as string;
-
     if (!sectionTitle) {
       return { error: 'Section title is required' };
     }
 
+    const enable = action === 'restoreRepository';
     try {
       const mirrorListPath = appConfig.mirrorListPath;
       const content = await fs.readFile(mirrorListPath, 'utf-8');
-      const lines = content.split('\n');
+      const config = MirrorConfig.parse(content);
 
-      const newLines: string[] = [];
-      let inTargetSection = false;
-      let inUsageSection = false;
-
-      for (const line of lines) {
-        const startMatch = /# ---start---(.+?)---/.exec(line);
-        if (startMatch) {
-          const title = startMatch[1].trim();
-          if (title === sectionTitle) {
-            inTargetSection = true;
-            newLines.push(line);
-            continue;
-          } else {
-            inTargetSection = false;
-            inUsageSection = false;
-          }
-        }
-
-        if (line.trim() === '# Usage start' && inTargetSection) {
-          inUsageSection = true;
-          newLines.push(line);
-          continue;
-        }
-
-        if (line.trim() === '# Usage end' && inTargetSection) {
-          inUsageSection = false;
-          newLines.push(line);
-          continue;
-        }
-
-        const endMatch = /# ---end---(.+?)---/.exec(line);
-        if (endMatch && inTargetSection) {
-          inTargetSection = false;
-          inUsageSection = false;
-          newLines.push(line);
-          continue;
-        }
-
-        if (
-          inTargetSection &&
-          !inUsageSection &&
-          line.trim() &&
-          !line.startsWith('#')
-        ) {
-          newLines.push(`# ${line}`);
-        } else {
-          newLines.push(line);
-        }
+      if (!config.getSection(sectionTitle)) {
+        return { error: `Repository section "${sectionTitle}" not found` };
       }
 
-      await fs.writeFile(mirrorListPath, newLines.join('\n'));
+      // Toggle only the deb/deb-src directives in the section; comments (the
+      // description) and the client-facing Usage snippet are left untouched.
+      config.setSectionEnabled(sectionTitle, enable);
+      await atomicWriteFile(mirrorListPath, config.serialize());
 
       return {
         success: true,
-        message: `Repository section "${sectionTitle}" commented successfully`,
+        message: `Repository section "${sectionTitle}" ${
+          enable ? 'enabled' : 'disabled'
+        } successfully`,
       };
     } catch (error) {
-      return { error: 'Failed to comment repository section' };
+      console.error('Error toggling repository section:', error);
+      return {
+        error: `Failed to ${enable ? 'enable' : 'disable'} repository section`,
+      };
     }
   }
 
-  if (action === 'restoreRepository') {
-    const sectionTitle = formData.get('sectionTitle') as string;
+  if (action === 'addRepository') {
+    const input = readRepositoryInput(formData);
+    try {
+      const mirrorListPath = appConfig.mirrorListPath;
+      const content = await fs.readFile(mirrorListPath, 'utf-8');
+      const config = MirrorConfig.parse(content);
 
-    if (!sectionTitle) {
-      return { error: 'Section title is required' };
+      const validationError = validateRepositoryInput(
+        input,
+        config.sectionTitles(),
+      );
+      if (validationError) return { error: validationError };
+
+      config.addSection(input, mirrorDomain());
+      await atomicWriteFile(mirrorListPath, config.serialize());
+
+      return {
+        success: true,
+        message: `Repository "${input.title}" added successfully`,
+      };
+    } catch (error) {
+      console.error('Error adding repository:', error);
+      return { error: 'Failed to add repository' };
     }
+  }
+
+  if (action === 'editRepository') {
+    const originalTitle = (
+      (formData.get('originalTitle') as string) ?? ''
+    ).trim();
+    if (!originalTitle) return { error: 'Original title is required' };
+    const input = readRepositoryInput(formData);
 
     try {
       const mirrorListPath = appConfig.mirrorListPath;
       const content = await fs.readFile(mirrorListPath, 'utf-8');
-      const lines = content.split('\n');
+      const config = MirrorConfig.parse(content);
 
-      const newLines: string[] = [];
-      let inTargetSection = false;
-      let inUsageSection = false;
-
-      for (const line of lines) {
-        const startMatch = /# ---start---(.+?)---/.exec(line);
-        if (startMatch) {
-          const title = startMatch[1].trim();
-          if (title === sectionTitle) {
-            inTargetSection = true;
-            newLines.push(line);
-            continue;
-          } else {
-            inTargetSection = false;
-            inUsageSection = false;
-          }
-        }
-
-        if (line.trim() === '# Usage start' && inTargetSection) {
-          inUsageSection = true;
-          newLines.push(line);
-          continue;
-        }
-
-        if (line.trim() === '# Usage end' && inTargetSection) {
-          inUsageSection = false;
-          newLines.push(line);
-          continue;
-        }
-
-        const endMatch = /# ---end---(.+?)---/.exec(line);
-        if (endMatch && inTargetSection) {
-          inTargetSection = false;
-          inUsageSection = false;
-          newLines.push(line);
-          continue;
-        }
-
-        if (
-          inTargetSection &&
-          !inUsageSection &&
-          line.trim().startsWith('# ')
-        ) {
-          newLines.push(line.substring(2));
-        } else {
-          newLines.push(line);
-        }
+      if (!config.getSection(originalTitle)) {
+        return { error: `Repository "${originalTitle}" not found` };
       }
 
-      await fs.writeFile(mirrorListPath, newLines.join('\n'));
+      // A rename to the same title is fine; only collisions with *other*
+      // sections are rejected.
+      const otherTitles = config
+        .sectionTitles()
+        .filter((t) => t !== originalTitle);
+      const validationError = validateRepositoryInput(input, otherTitles);
+      if (validationError) return { error: validationError };
+
+      config.editSection(originalTitle, input, mirrorDomain());
+      await atomicWriteFile(mirrorListPath, config.serialize());
 
       return {
         success: true,
-        message: `Repository section "${sectionTitle}" enabled successfully`,
+        message: `Repository "${input.title}" updated successfully`,
       };
     } catch (error) {
-      return { error: 'Failed to enable repository section' };
+      console.error('Error editing repository:', error);
+      return { error: 'Failed to edit repository' };
     }
   }
 
@@ -196,13 +179,17 @@ export async function action({ request }: { request: Request }) {
         await signReleasesForHost(host);
         message += ' and signed Release files';
       } catch (signError) {
-        console.error('Initial signing after key generation failed:', signError);
+        console.error(
+          'Initial signing after key generation failed:',
+          signError,
+        );
         message += ' (initial signing failed — will retry on next sync)';
       }
       return { success: true, message };
     } catch (error) {
       console.error('Error generating GPG key:', error);
-      const msg = error instanceof Error ? error.message : 'Failed to generate key';
+      const msg =
+        error instanceof Error ? error.message : 'Failed to generate key';
       return { error: msg };
     }
   }
@@ -218,7 +205,8 @@ export async function action({ request }: { request: Request }) {
       };
     } catch (error) {
       console.error('Error signing release:', error);
-      const msg = error instanceof Error ? error.message : 'Failed to sign Release';
+      const msg =
+        error instanceof Error ? error.message : 'Failed to sign Release';
       return { error: msg };
     }
   }
@@ -231,7 +219,8 @@ export async function action({ request }: { request: Request }) {
       return { success: true, message: `Deleted signing key for ${host}` };
     } catch (error) {
       console.error('Error deleting GPG key:', error);
-      const msg = error instanceof Error ? error.message : 'Failed to delete key';
+      const msg =
+        error instanceof Error ? error.message : 'Failed to delete key';
       return { error: msg };
     }
   }

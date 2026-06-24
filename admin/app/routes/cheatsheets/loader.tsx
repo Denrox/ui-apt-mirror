@@ -14,12 +14,21 @@ export async function loader({ request }: { request: Request }) {
   try {
     const cheatsheetsDir = appConfig.cheatsheetsDir;
     const categoriesPath = path.join(cheatsheetsDir, 'categories.json');
-    
-    const categoriesContent = await fs.readFile(categoriesPath, 'utf-8');
-    const categories = JSON.parse(categoriesContent);
-    
+
+    // The .md files on disk are the source of truth for what exists. Read them
+    // first so the list never disappears just because the category index is
+    // missing or malformed (e.g. a failed/partial update).
     const files = await fs.readdir(cheatsheetsDir);
     const mdFiles = files.filter(file => file.endsWith('.md') && file !== 'README.md');
+
+    // categories.json is a best-effort enrichment; fall back to no categories
+    // rather than failing the whole page if it is absent or invalid.
+    let categories: Record<string, unknown> = {};
+    try {
+      categories = JSON.parse(await fs.readFile(categoriesPath, 'utf-8'));
+    } catch (categoriesError) {
+      console.warn('cheatsheets: categories.json missing or invalid, listing without categories');
+    }
     const filesWithCategories = mdFiles.map(file => {
       const fileName = file;
       const fileCategories: string[] = [];

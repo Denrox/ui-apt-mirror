@@ -11,26 +11,27 @@ interface TagProps {
   removable?: boolean;
 }
 
-export default function Tag({ 
-  label, 
-  isSelected = false, 
-  onClick, 
+export default function Tag({
+  label,
+  isSelected = false,
+  onClick,
   onRemove,
   variant = 'default',
   size = 'small',
-  removable = false
+  removable = false,
 }: TagProps) {
-  const baseClasses = 'px-3 py-1 text-sm rounded-full border transition-colors flex items-center gap-1';
+  const baseClasses =
+    'px-3 py-1 text-sm rounded-full border transition-colors flex items-center gap-1';
   const sizeClasses = {
     small: 'text-xs px-2 py-0.5',
-    medium: 'text-sm px-3 py-1'
+    medium: 'text-sm px-3 py-1',
   };
-  
+
   const variantClasses = {
-    default: isSelected 
-      ? 'bg-blue-100 text-blue-800 border-blue-300' 
-      : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200',
-    selected: 'bg-blue-100 text-blue-800 border-blue-300'
+    default: isSelected
+      ? 'bg-primary/10 text-primary border-primary/30'
+      : 'bg-surface-container-high text-on-surface-variant border-outline-variant hover:bg-surface-container-highest hover:text-on-surface',
+    selected: 'bg-primary/10 text-primary border-primary/30',
   };
 
   const cursorClass = onClick ? 'cursor-pointer' : 'cursor-default';
@@ -51,7 +52,7 @@ export default function Tag({
   };
 
   return (
-    <span 
+    <span
       className={classes}
       onClick={handleClick}
       title={onClick ? `Filter by ${label}` : undefined}
@@ -60,7 +61,7 @@ export default function Tag({
       {removable && (
         <button
           onClick={handleRemove}
-          className="ml-1 hover:text-red-600 transition-colors cursor-pointer"
+          className="ml-1 hover:text-error transition-colors cursor-pointer"
           title="Remove tag"
         >
           <FontAwesomeIcon icon={faTimes} className="text-xs" />

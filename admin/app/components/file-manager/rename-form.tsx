@@ -51,7 +51,7 @@ export default function RenameForm({
       <div>
         <label
           htmlFor="new-name"
-          className="block text-sm font-medium text-gray-700 mb-2"
+          className="block text-sm font-medium text-on-surface-variant mb-2"
         >
           New Name
         </label>

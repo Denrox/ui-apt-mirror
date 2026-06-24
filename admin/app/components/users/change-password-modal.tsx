@@ -83,7 +83,7 @@ export default function ChangePasswordModal({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="p-3 bg-red-100 text-red-700 rounded-md text-sm">
+          <div className="p-3 bg-error/10 text-error border border-error/20 rounded-lg text-sm">
             {error}
           </div>
         )}

@@ -1,3 +1,5 @@
+import { type JSX } from 'react';
+
 interface TableRowProps {
   readonly icon?: JSX.Element;
   readonly title: string | JSX.Element;
@@ -19,7 +21,7 @@ export default function TableRow({
 }: TableRowProps) {
   return (
     <div
-      className={`flex w-auto items-center justify-between p-3 hover:bg-gray-50 ${className}`}
+      className={`flex w-auto items-center justify-between p-3 hover:bg-surface-container transition-colors ${className}`}
     >
       <div
         onClick={onClick}

@@ -4,7 +4,15 @@ interface ModalProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly title?: string;
-  readonly maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl' | '6xl' | 'custom-1000';
+  readonly maxWidth?:
+    | 'sm'
+    | 'md'
+    | 'lg'
+    | 'xl'
+    | '2xl'
+    | '4xl'
+    | '6xl'
+    | 'custom-1000';
 }
 
 export default function Modal({
@@ -44,17 +52,21 @@ export default function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black opacity-60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
 
       {/* Modal Content */}
-      <div className={`relative bg-white rounded-lg shadow-xl ${getMaxWidthClass(maxWidth)} w-full mx-4 max-h-[90vh] overflow-y-auto`}>
+      <div
+        className={`relative bg-surface-container border border-outline-variant rounded-xl shadow-2xl ${getMaxWidthClass(maxWidth)} w-full mx-4 max-h-[90vh] overflow-y-auto`}
+      >
         {/* Header */}
         {title && (
-          <div className="flex items-center justify-between p-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+          <div className="flex items-center justify-between p-4 border-b border-outline-variant">
+            <h3 className="font-heading text-lg font-semibold text-on-surface">
+              {title}
+            </h3>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 focus:outline-none focus:text-gray-600 cursor-pointer"
+              className="text-on-surface-variant hover:text-on-surface focus:outline-none cursor-pointer"
             >
               <span className="sr-only">Close</span>
               <svg
