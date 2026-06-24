@@ -19,10 +19,12 @@ export default function DeleteUserModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete User">
       <div className="space-y-4">
-        <p className="text-gray-700">
+        <p className="text-on-surface">
           Are you sure you want to delete user <strong>{username}</strong>?
         </p>
-        <p className="text-gray-600 text-sm">This action cannot be undone.</p>
+        <p className="text-on-surface-variant text-sm">
+          This action cannot be undone.
+        </p>
 
         <div className="flex justify-end gap-2 mt-6">
           <FormButton type="secondary" onClick={onClose} disabled={isDeleting}>

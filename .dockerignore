@@ -1,0 +1,13 @@
+# Build artifacts & deps (regenerated inside the image)
+dist
+**/node_modules
+admin/build
+admin/.react-router
+
+# Not needed in the image (mounted at runtime or dev-only)
+data
+e2e
+stitch_internal_interface_redesign
+.git
+*.tar.gz
+*.log

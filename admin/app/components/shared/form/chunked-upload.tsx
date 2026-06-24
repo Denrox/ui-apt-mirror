@@ -119,11 +119,13 @@ export default function ChunkedUpload({
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = event.target.files;
       if (files && files.length > 0) {
-        const fileStatuses: FileUploadStatus[] = Array.from(files).map(file => ({
-          file,
-          progress: 0,
-          status: 'pending' as const,
-        }));
+        const fileStatuses: FileUploadStatus[] = Array.from(files).map(
+          (file) => ({
+            file,
+            progress: 0,
+            status: 'pending' as const,
+          }),
+        );
         setSelectedFiles(fileStatuses);
       }
     },
@@ -143,11 +145,11 @@ export default function ChunkedUpload({
         }
 
         const fileStatus = selectedFiles[fileIndex];
-        
-        setSelectedFiles(prev => 
-          prev.map((f, i) => 
-            i === fileIndex ? { ...f, status: 'uploading' as const } : f
-          )
+
+        setSelectedFiles((prev) =>
+          prev.map((f, i) =>
+            i === fileIndex ? { ...f, status: 'uploading' as const } : f,
+          ),
         );
 
         const chunks = splitFileIntoChunks(fileStatus.file);
@@ -170,28 +172,33 @@ export default function ChunkedUpload({
             onChunkUploaded?.(chunk.index, chunk.total);
 
             const newProgress = Math.round(((i + 1) / chunks.length) * 100);
-            setSelectedFiles(prev => 
-              prev.map((f, idx) => 
-                idx === fileIndex ? { ...f, progress: newProgress } : f
-              )
+            setSelectedFiles((prev) =>
+              prev.map((f, idx) =>
+                idx === fileIndex ? { ...f, progress: newProgress } : f,
+              ),
             );
           }
 
-          setSelectedFiles(prev => 
-            prev.map((f, i) => 
-              i === fileIndex ? { ...f, status: 'completed' as const, progress: 100 } : f
-            )
+          setSelectedFiles((prev) =>
+            prev.map((f, i) =>
+              i === fileIndex
+                ? { ...f, status: 'completed' as const, progress: 100 }
+                : f,
+            ),
           );
         } catch (error) {
           console.error('Upload failed for file:', fileStatus.file.name, error);
-          setSelectedFiles(prev => 
-            prev.map((f, i) => 
-              i === fileIndex ? { 
-                ...f, 
-                status: 'error' as const, 
-                error: error instanceof Error ? error.message : 'Upload failed' 
-              } : f
-            )
+          setSelectedFiles((prev) =>
+            prev.map((f, i) =>
+              i === fileIndex
+                ? {
+                    ...f,
+                    status: 'error' as const,
+                    error:
+                      error instanceof Error ? error.message : 'Upload failed',
+                  }
+                : f,
+            ),
           );
         }
       }
@@ -209,9 +216,16 @@ export default function ChunkedUpload({
     }
   }, [selectedFiles, currentPath, uploadChunk, onChunkUploaded]);
 
-  const completedCount = selectedFiles.filter(f => f.status === 'completed').length;
-  const currentUploadingIndex = selectedFiles.findIndex(f => f.status === 'uploading');
-  const currentProgress = currentUploadingIndex >= 0 ? selectedFiles[currentUploadingIndex].progress : 0;
+  const completedCount = selectedFiles.filter(
+    (f) => f.status === 'completed',
+  ).length;
+  const currentUploadingIndex = selectedFiles.findIndex(
+    (f) => f.status === 'uploading',
+  );
+  const currentProgress =
+    currentUploadingIndex >= 0
+      ? selectedFiles[currentUploadingIndex].progress
+      : 0;
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -250,24 +264,25 @@ export default function ChunkedUpload({
         >
           <div className="space-y-4">
             {!uploading && (
-              <div className="text-sm text-gray-600">
-                {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
+              <div className="text-sm text-on-surface-variant">
+                {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''}{' '}
+                selected
               </div>
             )}
 
             {uploading && (
               <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-on-surface-variant">
                   Uploading ({completedCount + 1}/{selectedFiles.length})
                 </span>
                 <div className="flex items-center gap-2">
-                  <div className="w-32 bg-gray-200 rounded-full h-2">
+                  <div className="w-32 bg-surface-container-high rounded-full h-2">
                     <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      className="bg-primary h-2 rounded-full transition-all duration-300"
                       style={{ width: `${currentProgress}%` }}
                     ></div>
                   </div>
-                  <span className="text-xs text-gray-600 w-10 text-right">
+                  <span className="text-xs text-on-surface-variant w-10 text-right">
                     {currentProgress}%
                   </span>
                 </div>
@@ -284,7 +299,10 @@ export default function ChunkedUpload({
                   <FormButton type="secondary" onClick={() => cancelUpload()}>
                     Cancel
                   </FormButton>
-                  <FormButton onClick={handleUpload} disabled={uploading || selectedFiles.length === 0}>
+                  <FormButton
+                    onClick={handleUpload}
+                    disabled={uploading || selectedFiles.length === 0}
+                  >
                     Upload
                   </FormButton>
                 </>

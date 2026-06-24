@@ -37,12 +37,12 @@ export default function Ellipsis({ children, className = '' }: EllipsisProps) {
       clearTimeout(hideTimeoutRef.current);
       hideTimeoutRef.current = null;
     }
-    
+
     if (isOverflowing && elementRef.current) {
       const rect = elementRef.current.getBoundingClientRect();
       setTooltipPosition({
         top: rect.top - 32,
-        left: rect.left
+        left: rect.left,
       });
       setShowTooltip(true);
     }
@@ -76,18 +76,18 @@ export default function Ellipsis({ children, className = '' }: EllipsisProps) {
         {children}
       </span>
       {showTooltip && isOverflowing && (
-        <div 
+        <div
           ref={tooltipRef}
-          className="fixed z-50 px-2 py-1 text-sm text-white bg-gray-900 rounded shadow-lg whitespace-nowrap"
+          className="fixed z-50 px-2 py-1 text-sm text-on-surface bg-surface-container-highest border border-outline-variant rounded shadow-lg whitespace-nowrap"
           style={{
             top: `${tooltipPosition.top}px`,
-            left: `${tooltipPosition.left}px`
+            left: `${tooltipPosition.left}px`,
           }}
           onMouseEnter={handleTooltipMouseEnter}
           onMouseLeave={handleTooltipMouseLeave}
         >
           {children}
-          <div className="absolute w-2 h-2 bg-gray-900 transform rotate-45 -bottom-1 left-4"></div>
+          <div className="absolute w-2 h-2 bg-surface-container-highest transform rotate-45 -bottom-1 left-4"></div>
         </div>
       )}
     </div>

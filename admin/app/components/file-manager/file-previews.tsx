@@ -34,15 +34,17 @@ export default function FilePreviews({
             onClick={() => onSelectMedia?.(file)}
             className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all hover:shadow-md flex-shrink-0 w-[140px] cursor-pointer ${
               file.name === currentFileName
-                ? 'border-gray-500 bg-gray-200'
-                : 'border-gray-200 hover:border-gray-300 bg-gray-50'
+                ? 'border-outline bg-surface-container-high'
+                : 'border-outline-variant hover:border-outline-variant bg-surface-container'
             }`}
           >
-            <div className="text-xs font-medium text-gray-700 text-center break-words w-full line-clamp-2">
+            <div className="text-xs font-medium text-on-surface-variant text-center break-words w-full line-clamp-2">
               {file.name}
             </div>
             {file.size && (
-              <div className="text-xs text-gray-500">{formatFileSize(file.size)}</div>
+              <div className="text-xs text-on-surface-variant">
+                {formatFileSize(file.size)}
+              </div>
             )}
           </button>
         ))}
@@ -50,5 +52,3 @@ export default function FilePreviews({
     </div>
   );
 }
-
-

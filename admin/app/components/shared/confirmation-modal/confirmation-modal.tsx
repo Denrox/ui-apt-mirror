@@ -35,7 +35,7 @@ export default function ConfirmationModal({
       case 'danger':
         return 'danger';
       case 'warning':
-        return 'warning';
+        return 'danger';
       case 'info':
         return 'primary';
       default:
@@ -46,19 +46,13 @@ export default function ConfirmationModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title}>
       <div className="text-center">
-        <p className="text-sm text-gray-500 mb-6">
-          {message}
-        </p>
-        
+        <p className="text-sm text-on-surface-variant mb-6">{message}</p>
+
         <div className="flex gap-3 justify-center">
-          <FormButton
-            type="secondary"
-            onClick={onClose}
-            disabled={isLoading}
-          >
+          <FormButton type="secondary" onClick={onClose} disabled={isLoading}>
             {cancelText}
           </FormButton>
-          
+
           <FormButton
             type={getConfirmButtonType() as any}
             onClick={handleConfirm}
@@ -66,7 +60,10 @@ export default function ConfirmationModal({
           >
             {isLoading ? (
               <>
-                <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-2" />
+                <FontAwesomeIcon
+                  icon={faSpinner}
+                  className="animate-spin mr-2"
+                />
                 Processing...
               </>
             ) : (

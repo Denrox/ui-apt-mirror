@@ -7,11 +7,15 @@
     "dev": "NODE_OPTIONS=\"--max-http-header-size=8192000000\" react-router dev",
     "start": "NODE_OPTIONS=\"--max-http-header-size=8192000000\" react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prettier": "prettier --write app/**/*.{js,jsx,ts,tsx}",
     "lint": "react-router typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/hanken-grotesk": "^5.2.8",
     "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@fortawesome/fontawesome-svg-core": "^7.0.1",
     "@fortawesome/free-solid-svg-icons": "^7.0.1",
     "@fortawesome/react-fontawesome": "^3.0.2",
@@ -40,6 +44,7 @@
     "vite": "^6.3.3",
     "vite-plugin-commonjs": "^0.10.4",
     "vite-plugin-node-polyfills": "^0.24.0",
-    "vite-tsconfig-paths": "^5.1.4"
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.1.9"
   }
 }

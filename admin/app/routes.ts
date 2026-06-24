@@ -15,6 +15,7 @@ export default [
     route('documentation/:section', 'routes/documentation/documentation.tsx'),
     route('file-manager', 'routes/file-manager/file-manager.tsx'),
     route('cheatsheets', 'routes/cheatsheets/cheatsheets.tsx'),
+    route('local-repos', 'routes/local-repos/local-repos.tsx'),
     route('users', 'routes/users/users.tsx'),
     route('api/resources', 'routes/api.resources.tsx'),
   ]),

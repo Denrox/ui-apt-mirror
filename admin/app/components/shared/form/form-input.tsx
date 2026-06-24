@@ -32,7 +32,7 @@ export default function FormInput({
       placeholder={placeholder}
       disabled={disabled}
       style={width ? { width } : undefined}
-      className="w-full h-[40px] px-[12px] border border-gray-300 rounded-md text-[14px] focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500"
+      className="w-full h-[40px] px-[12px] bg-surface-container-lowest border border-outline-variant rounded-lg text-[14px] text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50"
     />
   );
 }

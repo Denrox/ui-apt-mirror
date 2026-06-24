@@ -11,7 +11,9 @@ export default function Title({ title, action, noCenter }: TitleProps) {
     <div
       className={`flex items-center ${noCenter ? '' : 'justify-center'} gap-[16px]`}
     >
-      <div className="text-[20px] font-semibold leading-[42px]">{title}</div>
+      <div className="font-heading text-[20px] font-bold leading-[42px] text-on-surface">
+        {title}
+      </div>
       {action && <div className="flex items-center">{action}</div>}
     </div>
   );

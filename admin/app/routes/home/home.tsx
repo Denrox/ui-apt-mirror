@@ -1,4 +1,3 @@
-import Title from '~/components/shared/title/title';
 import classNames from 'classnames';
 import type { Route } from './+types/home';
 import appConfig from '~/config/config.json';
@@ -19,12 +18,17 @@ import DeleteConfirmationModal from '~/components/shared/delete-confirmation-mod
 import FormButton from '~/components/shared/form/form-button';
 import Dropdown from '~/components/shared/dropdown/dropdown';
 import DropdownItem from '~/components/shared/dropdown/dropdown-item';
+import AddRepoModal, {
+  type NewRepoValues,
+} from '~/components/home/add-repo-modal';
+import LogPanel from '~/components/shared/log-panel/log-panel';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faSync,
   faPause,
   faTrash,
+  faPen,
   faBox,
   faKey,
 } from '@fortawesome/free-solid-svg-icons';
@@ -47,12 +51,17 @@ export default function Home() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string>('');
   const [isActionInProgress, setIsActionInProgress] = useState(false);
+  const [showRepoModal, setShowRepoModal] = useState(false);
+  const [repoModalMode, setRepoModalMode] = useState<'add' | 'edit'>('add');
+  const [editOriginalTitle, setEditOriginalTitle] = useState<string>('');
+  const [repoInitialValues, setRepoInitialValues] =
+    useState<NewRepoValues | null>(null);
   const [isRepositoryConfigsExpanded, setIsRepositoryConfigsExpanded] =
     useState(false);
   const [windowWidth, setWindowWidth] = useState(
     typeof window !== 'undefined' ? window.innerWidth : 1024,
   );
-  const { repositoryConfigs, commentedSections, isLockFilePresent } =
+  const { repositoryConfigs, commentedSections, isLockFilePresent, latestLog } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
@@ -68,6 +77,7 @@ export default function Home() {
     if (actionData?.success) {
       setShowDeleteModal(false);
       setDeleteTarget('');
+      setShowRepoModal(false);
       setIsActionInProgress(false);
       if (actionData.message) {
         toast.success(actionData.message);
@@ -96,6 +106,52 @@ export default function Home() {
   const handleDeleteCancel = () => {
     setShowDeleteModal(false);
     setDeleteTarget('');
+  };
+
+  const handleOpenAddRepo = () => {
+    if (isLockFilePresent || isActionInProgress) return;
+    setRepoModalMode('add');
+    setEditOriginalTitle('');
+    setRepoInitialValues(null);
+    setShowRepoModal(true);
+  };
+
+  const handleOpenEditRepo = (config: RepositoryConfig) => {
+    if (isLockFilePresent || isActionInProgress || !config.editable) return;
+    const input = config.editable;
+    setRepoModalMode('edit');
+    setEditOriginalTitle(config.title);
+    setRepoInitialValues({
+      title: input.title,
+      description: input.description ?? '',
+      baseUrl: input.baseUrl,
+      suites: input.suites.join(' '),
+      components: input.components.join(' '),
+      includeSrc: input.includeSrc,
+      trusted: input.trusted,
+    });
+    setShowRepoModal(true);
+  };
+
+  const handleRepoSubmit = (values: NewRepoValues) => {
+    if (isActionInProgress) return;
+    setIsActionInProgress(true);
+    const formData = new FormData();
+    formData.append(
+      'action',
+      repoModalMode === 'edit' ? 'editRepository' : 'addRepository',
+    );
+    if (repoModalMode === 'edit') {
+      formData.append('originalTitle', editOriginalTitle);
+    }
+    formData.append('title', values.title);
+    formData.append('description', values.description);
+    formData.append('baseUrl', values.baseUrl);
+    formData.append('suites', values.suites);
+    formData.append('components', values.components);
+    formData.append('includeSrc', String(values.includeSrc));
+    formData.append('trusted', String(values.trusted));
+    submit(formData, { method: 'post' });
   };
 
   const handleRestoreClick = (sectionTitle: string) => {
@@ -128,7 +184,11 @@ export default function Home() {
 
   const handleDeleteGpgKey = (host: string) => {
     if (isActionInProgress) return;
-    if (!confirm(`Delete signing key for ${host}? Apt clients trusting this key will stop verifying.`)) {
+    if (
+      !confirm(
+        `Delete signing key for ${host}? Apt clients trusting this key will stop verifying.`,
+      )
+    ) {
       return;
     }
     setIsActionInProgress(true);
@@ -218,102 +278,102 @@ export default function Home() {
 
   return (
     <PageLayoutFull>
-      <div className="sticky top-0 z-10 bg-white">
-        <div className="flex items-center justify-center gap-3">
-          <Title
-            title="Repository Configuration"
-            action={
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-opacity ${
-                      isActionInProgress
-                        ? 'opacity-50 cursor-not-allowed'
-                        : 'cursor-pointer hover:opacity-80'
-                    } ${
-                      isLockFilePresent
-                        ? 'bg-gray-200 text-gray-800 border border-gray-300'
-                        : 'bg-gray-100 text-gray-600 border border-gray-200'
-                    }`}
-                    onClick={isActionInProgress ? undefined : handleSyncToggle}
-                    title={
-                      isActionInProgress
-                        ? 'Action in progress...'
-                        : isLockFilePresent
-                          ? 'Click to stop sync'
-                          : 'Click to start sync'
-                    }
-                  >
-                    <span className={isLockFilePresent ? 'animate-spin' : ''}>
-                      {isLockFilePresent ? (
-                        <FontAwesomeIcon icon={faSync} />
-                      ) : (
-                        <FontAwesomeIcon icon={faPause} />
-                      )}
-                    </span>
-                    <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
-                  </div>
-                </div>
-                <Dropdown
-                  trigger={
-                    <FormButton onClick={() => {}} type="primary" size="small">
-                      +
-                    </FormButton>
-                  }
-                  disabled={
-                    commentedSections.length === 0 ||
-                    isLockFilePresent ||
-                    isActionInProgress
-                  }
-                >
-                  {commentedSections.map((section: CommentedSection) => (
-                    <DropdownItem
-                      key={section.title}
-                      onClick={() => handleRestoreClick(section.title)}
-                    >
-                      Enable: {section.title}
-                    </DropdownItem>
-                  ))}
-                </Dropdown>
-              </div>
+      {/* Page header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="font-heading text-2xl font-bold text-on-surface md:text-[30px]">
+            System Overview
+          </h1>
+          <p className="text-sm text-on-surface-variant">
+            Repository inventory &amp; synchronization status
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={isActionInProgress ? undefined : handleSyncToggle}
+            disabled={isActionInProgress}
+            title={
+              isActionInProgress
+                ? 'Action in progress...'
+                : isLockFilePresent
+                  ? 'Click to stop sync'
+                  : 'Click to start sync'
             }
-          />
+            className={classNames(
+              'flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
+              isActionInProgress
+                ? 'cursor-not-allowed opacity-50'
+                : 'cursor-pointer',
+              isLockFilePresent
+                ? 'border-primary/30 bg-primary/10 text-primary'
+                : 'border-outline-variant bg-surface-container text-on-surface-variant hover:text-on-surface',
+            )}
+          >
+            <FontAwesomeIcon
+              icon={isLockFilePresent ? faSync : faPause}
+              className={isLockFilePresent ? 'animate-spin' : ''}
+            />
+            <span>{isLockFilePresent ? 'Syncing' : 'Idle'}</span>
+          </button>
+          <Dropdown
+            trigger={
+              <FormButton onClick={() => {}} type="primary" size="small">
+                + Add
+              </FormButton>
+            }
+            disabled={isLockFilePresent || isActionInProgress}
+          >
+            <DropdownItem onClick={handleOpenAddRepo}>
+              Add repository…
+            </DropdownItem>
+            {commentedSections.map((section: CommentedSection) => (
+              <DropdownItem
+                key={section.title}
+                onClick={() => handleRestoreClick(section.title)}
+              >
+                Enable: {section.title}
+              </DropdownItem>
+            ))}
+          </Dropdown>
         </div>
       </div>
-      {/* Scrollable Content Area */}
-      <div className="overflow-y-auto max-h-[calc(100vh-200px)] flex flex-col gap-[32px]">
+
+      {/* Active repositories */}
+      <section>
+        <h2 className="mb-3 font-heading text-lg font-semibold text-on-surface">
+          Active Repositories
+        </h2>
         <div className="relative">
           <div
-            className={`overflow-hidden transition-all duration-300 ease-in-out relative ${
-              isRepositoryConfigsExpanded
-                ? 'max-h-none pb-[32px]'
-                : 'max-h-[180px]'
-            }`}
+            className={classNames(
+              'relative overflow-hidden transition-all duration-300 ease-in-out',
+              isRepositoryConfigsExpanded ? 'max-h-none pb-8' : 'max-h-[200px]',
+            )}
           >
-            <div className="flex flex-row items-center md:gap-[32px] gap-[12px] flex-wrap px-[12px] md:px-0">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {repositoryConfigs.length > 0 ? (
                 repositoryConfigs.map((config: RepositoryConfig) => (
                   <div
                     key={config.title}
-                    className="md:w-[calc(50%-18px)] w-full min-h-[164px] max-h-[148px] overflow-y-auto relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]"
+                    className="relative flex max-h-[160px] flex-col gap-3 overflow-y-auto rounded-xl border border-outline-variant bg-surface-container-low p-4"
                   >
-                    <div className="block text-[16px] flex-shrink-0 w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold">
+                    <div className="w-[calc(100%-72px)] shrink-0 truncate font-heading text-base font-semibold text-on-surface">
                       {config.title}
                     </div>
                     {config.content.map((line: string, lineIndex: number) => (
                       <div
                         key={lineIndex}
-                        className="text-[12px] text-gray-500"
+                        className="shrink-0 truncate font-mono text-[12px] text-on-surface-variant"
                       >
                         {line}
                       </div>
                     ))}
-                    <div className="absolute top-[12px] right-[12px] flex items-center gap-[12px]">
+                    <div className="absolute right-3 top-3 flex items-center gap-3">
                       {config.hosts.length > 0 && (
                         <Dropdown
                           trigger={
                             <span
-                              className="text-gray-500 hover:text-gray-700 transition-colors cursor-pointer"
+                              className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
                               title="GPG signing options"
                             >
                               <FontAwesomeIcon icon={faKey} />
@@ -325,19 +385,23 @@ export default function Home() {
                             <div
                               key={h.host}
                               className={
-                                idx > 0 ? 'border-t border-gray-100' : ''
+                                idx > 0
+                                  ? 'border-t border-outline-variant/40'
+                                  : ''
                               }
                             >
                               <div
                                 className="px-4 py-2 text-xs"
                                 title={h.gpgKey?.fingerprint ?? h.host}
                               >
-                                <div className="font-semibold text-gray-700 truncate">
+                                <div className="truncate font-semibold text-on-surface">
                                   {h.host}
                                 </div>
                                 <div
-                                  className={`font-mono text-[10px] truncate ${
-                                    h.gpgKey ? 'text-gray-500' : 'text-gray-400'
+                                  className={`truncate font-mono text-[10px] ${
+                                    h.gpgKey
+                                      ? 'text-success'
+                                      : 'text-on-surface-variant/60'
                                   }`}
                                 >
                                   {h.gpgKey ? h.gpgKey.keyId : 'unsigned'}
@@ -382,9 +446,25 @@ export default function Home() {
                           ))}
                         </Dropdown>
                       )}
+                      {config.editable && (
+                        <button
+                          onClick={() => handleOpenEditRepo(config)}
+                          className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                          title={
+                            isActionInProgress
+                              ? 'Action in progress...'
+                              : isLockFilePresent
+                                ? 'Cannot edit while sync is running'
+                                : 'Edit repository configuration'
+                          }
+                          disabled={isLockFilePresent || isActionInProgress}
+                        >
+                          <FontAwesomeIcon icon={faPen} />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteClick(config.title)}
-                        className="text-gray-500 hover:text-gray-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="cursor-pointer text-on-surface-variant transition-colors hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
                         title={
                           isActionInProgress
                             ? 'Action in progress...'
@@ -400,56 +480,81 @@ export default function Home() {
                   </div>
                 ))
               ) : (
-                <div className="w-full h-[148px] bg-gray-50 border-2 border-dashed border-gray-300 rounded-md flex flex-col items-center justify-center p-[12px]">
-                  <div className="text-gray-400 text-[48px] mb-2">
+                <div className="col-span-full flex h-[160px] flex-col items-center justify-center rounded-xl border-2 border-dashed border-outline-variant p-4">
+                  <div className="mb-2 text-[48px] text-on-surface-variant/40">
                     <FontAwesomeIcon icon={faBox} />
                   </div>
-                  <div className="text-gray-500 text-[14px] font-medium text-center">
+                  <div className="text-center text-sm font-medium text-on-surface-variant">
                     No repository configurations found
                   </div>
-                  <div className="text-gray-400 text-[12px] text-center mt-1">
-                    Use the + button to add configurations
+                  <div className="mt-1 text-center text-xs text-on-surface-variant/60">
+                    Use the + Add button to add configurations
                   </div>
                 </div>
               )}
             </div>
             {/* +x more / show less control */}
-            {calculateHiddenItems() > 0 && (
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent h-8'} flex items-end justify-center pb-1">
+            {calculateHiddenItems() > 0 && !isRepositoryConfigsExpanded && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-12 items-end justify-center bg-gradient-to-t from-background via-background to-transparent">
                 <button
                   onClick={handleRepositoryConfigsToggle}
-                  className="text-sm text-gray-500 font-medium bg-white px-2 py-1 rounded-full shadow-sm border hover:bg-gray-50 hover:text-gray-700 transition-colors cursor-pointer"
-                  title={
-                    isRepositoryConfigsExpanded
-                      ? 'Click to collapse and show fewer repository configurations'
-                      : 'Click to expand and see all repository configurations'
-                  }
+                  className="pointer-events-auto cursor-pointer rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+                  title="Expand and see all repository configurations"
                 >
-                  {isRepositoryConfigsExpanded
-                    ? 'Show less'
-                    : `+${calculateHiddenItems()} more`}
+                  +{calculateHiddenItems()} more
                 </button>
               </div>
             )}
           </div>
+          {isRepositoryConfigsExpanded && (
+            <div className="mt-2 flex justify-center">
+              <button
+                onClick={handleRepositoryConfigsToggle}
+                className="cursor-pointer rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+              >
+                Show less
+              </button>
+            </div>
+          )}
         </div>
+      </section>
 
-        {/* Delete Confirmation Modal */}
-        <DeleteConfirmationModal
-          isOpen={showDeleteModal}
-          onClose={handleDeleteCancel}
-          onConfirm={handleDeleteConfirm}
-          title="Confirm Deletion"
-          itemName={deleteTarget}
-          itemType="repository configuration"
-          isLoading={isActionInProgress}
-        />
+      {/* Service status */}
+      <section>
+        <h2 className="mb-3 font-heading text-lg font-semibold text-on-surface">
+          Service Status
+        </h2>
+        <ResourceMonitor />
+      </section>
 
-        <Title title="Services Status" />
-        <div className="px-[12px] md:px-0">
-          <ResourceMonitor />
-        </div>
-        <div className="flex flex-row items-center md:gap-[16px] lg:gap-[24px] gap-[12px] flex-wrap px-[12px] md:px-0">
+      {/* Live output */}
+      {latestLog && (
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-heading text-lg font-semibold text-on-surface">
+              Live Output
+            </h2>
+            {isLockFilePresent && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-success">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
+                Live
+              </span>
+            )}
+          </div>
+          <LogPanel
+            content={latestLog.content}
+            title={latestLog.name}
+            bodyClassName="max-h-[320px] min-h-[200px]"
+          />
+        </section>
+      )}
+
+      {/* Endpoints */}
+      <section>
+        <h2 className="mb-3 font-heading text-lg font-semibold text-on-surface">
+          Endpoints
+        </h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {appConfig.hosts
             .filter((page) => {
               if (page.id === 'npm' && !isNpmProxyEnabled) {
@@ -457,42 +562,68 @@ export default function Home() {
               }
               return true;
             })
-            .map((page) => (
-              <div
-                key={page.address}
-                className={classNames(
-                  'h-[120px] w-full md:w-[calc(50%-16px)] lg:w-[calc(25%-18px)] relative bg-gray-100 border border-gray-200 shadow-md rounded-md flex flex-col gap-[12px] p-[12px]',
-                  {},
-                )}
-              >
-                <a
-                  href={getHostAddress(page.address)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={classNames(
-                    'block text-[16px] w-[calc(100%-48px)] whitespace-nowrap overflow-hidden text-ellipsis text-gray-700 font-semibold hover:text-gray-900',
-                    {},
-                  )}
-                >{`${page.name} (${getHostAddress(page.address)})`}</a>
-                <div className="text-[12px] text-gray-500">
-                  {page.description}
+            .map((page) => {
+              const online =
+                pagesAvalabilityState[getHostAddress(page.address)];
+              return (
+                <div
+                  key={page.address}
+                  className="relative flex min-h-[120px] flex-col gap-2 rounded-xl border border-outline-variant bg-surface-container-low p-4"
+                >
+                  <a
+                    href={getHostAddress(page.address)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-[calc(100%-56px)] truncate font-heading text-base font-semibold text-on-surface hover:text-primary"
+                  >
+                    {page.name}
+                  </a>
+                  <div className="truncate font-mono text-[11px] text-on-surface-variant">
+                    {getHostAddress(page.address)}
+                  </div>
+                  <div className="text-xs text-on-surface-variant/80">
+                    {page.description}
+                  </div>
+                  <span
+                    className={classNames(
+                      'absolute right-3 top-3 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider',
+                      online
+                        ? 'bg-success/10 text-success'
+                        : 'bg-error/10 text-error',
+                    )}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                    {online ? 'Online' : 'Offline'}
+                  </span>
                 </div>
-                <div className="absolute top-[12px] right-[12px] leading-none">
-                  {pagesAvalabilityState[getHostAddress(page.address)] ? (
-                    <div className="font-semibold leading-[24px] text-[9px] text-emerald-500">
-                      Online
-                    </div>
-                  ) : (
-                    <div className="font-semibold leading-[24px] text-[12px] text-rose-400">
-                      Offline
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
-      </div>{' '}
-      {/* Close scrollable content area */}
+      </section>
+
+      {/* Add / Edit Repository Modal */}
+      <AddRepoModal
+        isOpen={showRepoModal}
+        onClose={() => setShowRepoModal(false)}
+        onSubmit={handleRepoSubmit}
+        isSubmitting={isActionInProgress}
+        initialValues={repoInitialValues}
+        title={repoModalMode === 'edit' ? 'Edit Repository' : 'Add Repository'}
+        submitLabel={
+          repoModalMode === 'edit' ? 'Save Changes' : 'Add Repository'
+        }
+      />
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={handleDeleteCancel}
+        onConfirm={handleDeleteConfirm}
+        title="Confirm Deletion"
+        itemName={deleteTarget}
+        itemType="repository configuration"
+        isLoading={isActionInProgress}
+      />
     </PageLayoutFull>
   );
 }

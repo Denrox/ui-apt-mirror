@@ -27,7 +27,7 @@ export default async function updateCategories(cheatsheetsDir: string) {
     for (const file of mdFiles) {
       const cmd = file.replace('.md', '');
       
-      if (cmd.startsWith('git') || 'git-' in cmd) {
+      if (cmd.startsWith('git') || cmd.includes('git-')) {
         categories['Git & Version Control'].push(file);
       }
       else if (cmd.startsWith('docker')) {

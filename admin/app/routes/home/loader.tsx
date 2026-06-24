@@ -3,6 +3,7 @@ import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
+import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
 
 export interface RepositoryHost {
   host: string;
@@ -13,25 +14,12 @@ export interface RepositoryConfig {
   title: string;
   content: string[];
   hosts: RepositoryHost[];
+  /** Editable definition for pre-filling the edit form (null if unreconstructable). */
+  editable: RepositoryInput | null;
 }
 
 export interface CommentedSection {
   title: string;
-}
-
-function extractHosts(activeDebLines: string[]): string[] {
-  const hosts = new Set<string>();
-  for (const line of activeDebLines) {
-    const match = /^\s*deb(?:-src)?\s+(?:\[[^\]]*\]\s+)?(\S+)/.exec(line);
-    if (!match) continue;
-    try {
-      const url = new URL(match[1]);
-      if (url.hostname) hosts.add(url.hostname);
-    } catch {
-      // ignore non-URL deb sources
-    }
-  }
-  return Array.from(hosts);
 }
 
 function rewriteSignedByHint(
@@ -52,7 +40,9 @@ function rewriteSignedByHint(
   if (isDeb822) {
     const keyringPaths = signedHosts.map((h) => keyringPath(h.host)).join(' ');
     // Once we emit Signed-By, drop any `Trusted: yes` — the key supersedes it.
-    const stripped = filtered.filter((line) => !/^\s*Trusted:\s*yes\b/i.test(line));
+    const stripped = filtered.filter(
+      (line) => !/^\s*Trusted:\s*yes\b/i.test(line),
+    );
     return [...installLines, ...stripped, `Signed-By: ${keyringPaths}`];
   }
 
@@ -106,92 +96,30 @@ async function parseRepositoryConfigs(): Promise<{
       fs.readFile(mirrorListPath, 'utf-8'),
       listKeys().catch(() => ({}) as Record<string, GpgKeyRecord>),
     ]);
-    const lines = content.split('\n');
 
+    const config = MirrorConfig.parse(content);
     const activeConfigs: RepositoryConfig[] = [];
     const commentedSections: CommentedSection[] = [];
-    let currentConfig: RepositoryConfig | null = null;
-    let inUsageSection = false;
-    let sectionLines: string[] = [];
-    let sectionStartIndex = -1;
-    let currentSectionTitle = '';
-    let inTargetSection = false;
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      const startMatch = /# ---start---(.+?)---/.exec(line);
-      if (startMatch) {
-        currentConfig = {
-          title: startMatch[1].trim(),
-          content: [],
-          hosts: [],
-        };
-        currentSectionTitle = startMatch[1].trim();
-        sectionLines = [];
-        sectionStartIndex = i;
-        inTargetSection = true;
-        inUsageSection = false;
+    for (const section of config.sections()) {
+      // A section with no active deb directive is shown as a disabled entry the
+      // user can re-enable.
+      if (!config.isSectionEnabled(section)) {
+        commentedSections.push({ title: section.title });
         continue;
       }
 
-      if (line.trim() === '# Usage start' && inTargetSection) {
-        inUsageSection = true;
-        continue;
-      }
+      const hosts: RepositoryHost[] = config
+        .sectionHosts(section)
+        .map((host) => ({ host, gpgKey: keysIndex[host] ?? null }));
+      const signed = hosts.filter((h) => h.gpgKey);
 
-      if (line.trim() === '# Usage end' && inTargetSection) {
-        inUsageSection = false;
-        continue;
-      }
-
-      const endMatch = /# ---end---(.+?)---/.exec(line);
-      if (endMatch && currentConfig && inTargetSection) {
-        const activeDebLines = sectionLines.filter(
-          (sectionLine) =>
-            sectionLine.trim() && !sectionLine.trim().startsWith('#'),
-        );
-
-        if (activeDebLines.length > 0) {
-          const hosts = extractHosts(activeDebLines);
-          currentConfig.hosts = hosts.map((host) => ({
-            host,
-            gpgKey: keysIndex[host] ?? null,
-          }));
-          const signed = currentConfig.hosts.filter((h) => h.gpgKey);
-          currentConfig.content = rewriteSignedByHint(
-            currentConfig.content,
-            signed,
-          );
-          activeConfigs.push(currentConfig);
-        } else {
-          commentedSections.push({ title: currentSectionTitle });
-        }
-
-        currentConfig = null;
-        sectionLines = [];
-        sectionStartIndex = -1;
-        currentSectionTitle = '';
-        inTargetSection = false;
-        inUsageSection = false;
-        continue;
-      }
-
-      if (
-        currentConfig &&
-        sectionStartIndex !== -1 &&
-        i > sectionStartIndex &&
-        !inUsageSection
-      ) {
-        sectionLines.push(line);
-      }
-
-      if (inUsageSection && currentConfig && line.trim()) {
-        const cleanLine = line.trim().replace(/^#\s*/, '');
-        if (cleanLine) {
-          currentConfig.content.push(cleanLine);
-        }
-      }
+      activeConfigs.push({
+        title: section.title,
+        hosts,
+        content: rewriteSignedByHint(config.sectionUsageLines(section), signed),
+        editable: config.sectionToInput(section),
+      });
     }
 
     return { active: activeConfigs, commented: commentedSections };
@@ -201,16 +129,55 @@ async function parseRepositoryConfigs(): Promise<{
   }
 }
 
+/** Tail of the most-recently-modified mirror log, for the dashboard panel. */
+async function readLatestLog(): Promise<{
+  name: string;
+  content: string;
+} | null> {
+  try {
+    const logsDir = appConfig.mirrorLogsDir;
+    const entries = await fs.readdir(logsDir);
+    const logFiles = entries.filter(
+      (f) => f.endsWith('.log') || /\.log.+$/.exec(f),
+    );
+    if (logFiles.length === 0) return null;
+
+    const withMtime = await Promise.all(
+      logFiles.map(async (name) => {
+        try {
+          const stat = await fs.stat(`${logsDir}/${name}`);
+          return { name, mtimeMs: stat.mtimeMs };
+        } catch {
+          return { name, mtimeMs: 0 };
+        }
+      }),
+    );
+    withMtime.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const latest = withMtime[0];
+
+    const raw = await fs.readFile(`${logsDir}/${latest.name}`, 'utf-8');
+    // Only the tail matters on the dashboard; cap to keep the payload small.
+    const content = raw.split('\n').slice(-400).join('\n');
+    return { name: latest.name, content };
+  } catch (error) {
+    console.error('Error reading latest log:', error);
+    return null;
+  }
+}
+
 export async function loader({ request }: { request: Request }) {
   await requireAuthMiddleware(request);
 
-  const [{ active, commented }, isLockFilePresent] = await Promise.all([
-    parseRepositoryConfigs(),
-    checkLockFile(),
-  ]);
+  const [{ active, commented }, isLockFilePresent, latestLog] =
+    await Promise.all([
+      parseRepositoryConfigs(),
+      checkLockFile(),
+      readLatestLog(),
+    ]);
   return {
     repositoryConfigs: active,
     commentedSections: commented,
     isLockFilePresent,
+    latestLog,
   };
 }

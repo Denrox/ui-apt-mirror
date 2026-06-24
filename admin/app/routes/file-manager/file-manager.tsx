@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import FormButton from '~/components/shared/form/form-button';
@@ -92,16 +91,23 @@ export default function FileManager() {
   const loaderError = data?.error;
   const isPublicRoute = data?.__domain === 'files';
   const [searchParams, setSearchParams] = useSearchParams();
-  
-  const getViewFromPath = (pathStr: string | null): 'public-files' | 'private-files' | 'mirrored-packages' | 'npm-packages' => {
+
+  const getViewFromPath = (
+    pathStr: string | null,
+  ):
+    | 'public-files'
+    | 'private-files'
+    | 'mirrored-packages'
+    | 'npm-packages' => {
     if (!pathStr) return 'public-files';
-    
-    if (pathStr.includes(appConfig.mirroredPackagesDir)) return 'mirrored-packages';
+
+    if (pathStr.includes(appConfig.mirroredPackagesDir))
+      return 'mirrored-packages';
     if (pathStr.includes(appConfig.npmPackagesDir)) return 'npm-packages';
     if (pathStr.includes(appConfig.privateFilesDir)) return 'private-files';
     return 'public-files';
   };
-  
+
   const initialPath = searchParams.get('path');
   const [view, setView] = useState<
     'public-files' | 'private-files' | 'mirrored-packages' | 'npm-packages'
@@ -322,13 +328,13 @@ export default function FileManager() {
 
   const handleSearch = useCallback(() => {
     if (searchQuery.trim().length < 3) return;
-    
+
     setIsSearching(true);
     const formData = new FormData();
     formData.append('intent', 'searchFiles');
     formData.append('searchQuery', searchQuery.trim());
     formData.append('rootPath', currentPath);
-    
+
     searchFetcher.submit(formData, { method: 'post' });
   }, [searchQuery, currentPath, searchFetcher]);
 
@@ -358,21 +364,39 @@ export default function FileManager() {
   };
 
   const isMediaFile = (fileName: string): 'video' | 'audio' | null => {
-    const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.m4v'];
-    const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.wma'];
-    
+    const videoExtensions = [
+      '.mp4',
+      '.webm',
+      '.ogg',
+      '.mov',
+      '.avi',
+      '.mkv',
+      '.m4v',
+    ];
+    const audioExtensions = [
+      '.mp3',
+      '.wav',
+      '.ogg',
+      '.m4a',
+      '.flac',
+      '.aac',
+      '.wma',
+    ];
+
     const lowerFileName = fileName.toLowerCase();
-    
-    if (videoExtensions.some(ext => lowerFileName.endsWith(ext))) {
+
+    if (videoExtensions.some((ext) => lowerFileName.endsWith(ext))) {
       return 'video';
     }
-    if (audioExtensions.some(ext => lowerFileName.endsWith(ext))) {
+    if (audioExtensions.some((ext) => lowerFileName.endsWith(ext))) {
       return 'audio';
     }
     return null;
   };
 
-  const getPreviewType = (fileName: string): 'image' | 'text' | 'pdf' | null => {
+  const getPreviewType = (
+    fileName: string,
+  ): 'image' | 'text' | 'pdf' | null => {
     const lower = fileName.toLowerCase();
     if (lower.match(/\.(png|jpe?g|gif|webp|bmp|svg)$/)) return 'image';
     if (lower.endsWith('.txt')) return 'text';
@@ -383,12 +407,18 @@ export default function FileManager() {
   // No per-type lists here: pass all currentPathFiles and let modals compute
 
   const handlePlayMedia = (item: any) => {
-    const basePath = view === 'mirrored-packages' ? rootPath : (view === 'private-files' ? appConfig.privateFilesDir : appConfig.filesDir);
-    const fileUrl = view === 'private-files' 
-      ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-      : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+    const basePath =
+      view === 'mirrored-packages'
+        ? rootPath
+        : view === 'private-files'
+          ? appConfig.privateFilesDir
+          : appConfig.filesDir;
+    const fileUrl =
+      view === 'private-files'
+        ? `/api/download-private?path=${encodeURIComponent(item.path)}`
+        : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
     const mediaType = isMediaFile(item.name);
-    
+
     if (mediaType) {
       setMediaPlayer({
         isOpen: true,
@@ -399,7 +429,11 @@ export default function FileManager() {
     }
   };
 
-  const handleSelectMediaFile = (file: { name: string; url: string; type: 'video' | 'audio' }) => {
+  const handleSelectMediaFile = (file: {
+    name: string;
+    url: string;
+    type: 'video' | 'audio';
+  }) => {
     setMediaPlayer({
       isOpen: true,
       fileUrl: file.url,
@@ -430,10 +464,16 @@ export default function FileManager() {
   });
 
   const handlePreviewFile = (item: any) => {
-    const basePath = view === 'mirrored-packages' ? rootPath : (view === 'private-files' ? appConfig.privateFilesDir : appConfig.filesDir);
-    const fileUrl = view === 'private-files'
-      ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-      : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+    const basePath =
+      view === 'mirrored-packages'
+        ? rootPath
+        : view === 'private-files'
+          ? appConfig.privateFilesDir
+          : appConfig.filesDir;
+    const fileUrl =
+      view === 'private-files'
+        ? `/api/download-private?path=${encodeURIComponent(item.path)}`
+        : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
     const previewType = getPreviewType(item.name);
     if (!previewType) return;
     setFilePreview({
@@ -477,7 +517,9 @@ export default function FileManager() {
     <PageLayoutFull>
       <div className="flex items-center justify-between px-[12px]">
         <div className="flex items-center gap-4">
-          <Title title={isPublicRoute ? "Files" : "File Manager"} />
+          <h1 className="font-heading text-2xl font-bold text-on-surface md:text-[30px]">
+            {isPublicRoute ? 'Files' : 'File Manager'}
+          </h1>
           {!isPublicRoute && (
             <div className="hidden md:block">
               <FormButton
@@ -504,29 +546,33 @@ export default function FileManager() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600 hidden md:block">View:</span>
+          <span className="text-sm text-on-surface-variant hidden md:block">
+            View:
+          </span>
           <FormSelect
             id="view-selector"
             label=""
             value={view}
             onChange={(value) =>
               setView(
-                value as 'public-files' | 'private-files' | 'mirrored-packages' | 'npm-packages',
+                value as
+                  | 'public-files'
+                  | 'private-files'
+                  | 'mirrored-packages'
+                  | 'npm-packages',
               )
             }
             options={[
               { value: 'public-files', label: 'Public Files' },
-              ...(!isPublicRoute ? [{ value: 'private-files', label: 'Private Files' }] : []),
+              ...(!isPublicRoute
+                ? [{ value: 'private-files', label: 'Private Files' }]
+                : []),
               { value: 'mirrored-packages', label: 'Mirrored Packages' },
               ...(isNpmProxyEnabled
                 ? [{ value: 'npm-packages', label: 'Npm Packages' }]
                 : []),
             ]}
-            disabled={
-              Boolean(itemToRename) ||
-              Boolean(fileToCut) ||
-              isLoading
-            }
+            disabled={Boolean(itemToRename) || Boolean(fileToCut) || isLoading}
           />
         </div>
       </div>
@@ -585,17 +631,15 @@ export default function FileManager() {
           )}
 
           <div className="flex items-center gap-2 px-0">
-            <span className="font-semibold">
+            <span className="font-semibold text-on-surface-variant">
               {isSearching ? 'Searching inside:' : 'Current Path:'}
             </span>
-            <span className="font-mono text-sm">{displayPath}</span>
+            <span className="font-mono text-sm text-on-surface">
+              {displayPath}
+            </span>
           </div>
 
-          <div
-            className={classNames(
-              'flex flex-wrap gap-4 px-0',
-            )}
-          >
+          <div className={classNames('flex flex-wrap gap-4 px-0')}>
             {!shouldShowSyncPlaceholder && (
               <>
                 {!isRootPath && parentDirName && !isSearching && (
@@ -615,7 +659,10 @@ export default function FileManager() {
                         value={searchQuery}
                         onChange={setSearchQuery}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' && searchQuery.trim().length >= 3) {
+                          if (
+                            e.key === 'Enter' &&
+                            searchQuery.trim().length >= 3
+                          ) {
                             handleSearch();
                           }
                         }}
@@ -656,9 +703,11 @@ export default function FileManager() {
                 )}
                 {!isPublicRoute && !isSearching && fileToCut ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-on-surface-variant">
                       Moving:{' '}
-                      <span className="font-medium">{fileToCut.name}</span>
+                      <span className="font-medium text-on-surface">
+                        {fileToCut.name}
+                      </span>
                     </span>
                     <FormButton
                       onClick={handlePasteClick}
@@ -682,51 +731,47 @@ export default function FileManager() {
                         onChunkUploaded={handleChunkUploaded}
                       />
                     }
-                    {
-                      <DownloadFile
-                        currentPath={currentPath}
-                      />
-                    }
+                    {<DownloadFile currentPath={currentPath} />}
                     {view === 'public-files' && (
-                        <Dropdown
-                          disabled={isOperationInProgress || isLoading}
-                          trigger={
-                            <FormButton
-                              type="secondary"
-                              disabled={isOperationInProgress || isLoading}
-                              onClick={() => {}}
-                            >
-                              <FontAwesomeIcon icon={faEllipsisV} />
-                            </FormButton>
-                          }
-                        >
-                          <DropdownItem
-                            onClick={() => setIsDownloadImageModalOpen(true)}
+                      <Dropdown
+                        disabled={isOperationInProgress || isLoading}
+                        trigger={
+                          <FormButton
+                            type="secondary"
+                            disabled={isOperationInProgress || isLoading}
+                            onClick={() => {}}
                           >
-                            Download Container Image
-                          </DropdownItem>
-                        </Dropdown>
-                      )}
+                            <FontAwesomeIcon icon={faEllipsisV} />
+                          </FormButton>
+                        }
+                      >
+                        <DropdownItem
+                          onClick={() => setIsDownloadImageModalOpen(true)}
+                        >
+                          Download Container Image
+                        </DropdownItem>
+                      </Dropdown>
+                    )}
                   </>
                 ) : null}
               </>
             )}
           </div>
-          <div className="border border-gray-200 rounded-md">
+          <div className="border border-outline-variant rounded-lg overflow-hidden">
             {shouldShowSyncPlaceholder ? (
               <div className="p-8 text-center">
-                <div className="text-gray-500 text-lg mb-2">
+                <div className="text-primary text-lg mb-2">
                   <FontAwesomeIcon icon={faSync} className="animate-spin" />
                 </div>
-                <div className="text-gray-700 font-medium mb-2">
+                <div className="text-on-surface font-medium mb-2">
                   Automatic sync is performed
                 </div>
-                <div className="text-gray-500 text-sm">
+                <div className="text-on-surface-variant text-sm">
                   Manual operations will be available after it's complete
                 </div>
               </div>
             ) : currentPathFiles.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">
+              <div className="p-4 text-center text-on-surface-variant">
                 No files found
               </div>
             ) : (
@@ -738,7 +783,9 @@ export default function FileManager() {
                       <FontAwesomeIcon
                         icon={item.isDirectory ? faFolder : faFile}
                         className={
-                          item.isDirectory ? 'text-gray-600' : 'text-gray-500'
+                          item.isDirectory
+                            ? 'text-primary'
+                            : 'text-on-surface-variant'
                         }
                       />
                     }
@@ -749,49 +796,58 @@ export default function FileManager() {
                     }
                     metadata={
                       <>
-                        <div className="text-sm text-gray-500 text-right w-[96px] flex-shrink-0">
+                        <div className="text-sm text-on-surface-variant text-right w-[96px] flex-shrink-0 font-mono">
                           {item.isDirectory
                             ? ''
                             : formatFileSize(item.size ?? 0)}
                         </div>
-                        <div className="text-sm text-gray-500 w-[120px] flex-shrink-0">
+                        <div className="text-sm text-on-surface-variant w-[120px] flex-shrink-0">
                           {item.modified && formatDate(item.modified)}
                         </div>
                       </>
                     }
                     actions={
-                      <div className={classNames("flex items-center justify-end gap-2 flex-shrink-0", {
-                        "w-[224px]": !isPublicRoute,
-                        "w-[96px]": isPublicRoute
-                      })}>
-                        {!item.isDirectory && isMediaFile(item.name) && view !== 'private-files' && (
-                          <FormButton
-                            type="secondary"
-                            size="small"
-                            disabled={
-                              isOperationInProgress ||
-                              Boolean(fileToCut) ||
-                              isLoading
-                            }
-                            onClick={() => handlePlayMedia(item)}
-                          >
-                            <FontAwesomeIcon icon={faPlay} />
-                          </FormButton>
+                      <div
+                        className={classNames(
+                          'flex items-center justify-end gap-2 flex-shrink-0',
+                          {
+                            'w-[224px]': !isPublicRoute,
+                            'w-[96px]': isPublicRoute,
+                          },
                         )}
-                        {!item.isDirectory && getPreviewType(item.name) && view !== 'private-files' && (
-                          <FormButton
-                            type="secondary"
-                            size="small"
-                            disabled={
-                              isOperationInProgress ||
-                              Boolean(fileToCut) ||
-                              isLoading
-                            }
-                            onClick={() => handlePreviewFile(item)}
-                          >
-                            <FontAwesomeIcon icon={faEye} />
-                          </FormButton>
-                        )}
+                      >
+                        {!item.isDirectory &&
+                          isMediaFile(item.name) &&
+                          view !== 'private-files' && (
+                            <FormButton
+                              type="secondary"
+                              size="small"
+                              disabled={
+                                isOperationInProgress ||
+                                Boolean(fileToCut) ||
+                                isLoading
+                              }
+                              onClick={() => handlePlayMedia(item)}
+                            >
+                              <FontAwesomeIcon icon={faPlay} />
+                            </FormButton>
+                          )}
+                        {!item.isDirectory &&
+                          getPreviewType(item.name) &&
+                          view !== 'private-files' && (
+                            <FormButton
+                              type="secondary"
+                              size="small"
+                              disabled={
+                                isOperationInProgress ||
+                                Boolean(fileToCut) ||
+                                isLoading
+                              }
+                              onClick={() => handlePreviewFile(item)}
+                            >
+                              <FontAwesomeIcon icon={faEye} />
+                            </FormButton>
+                          )}
                         {!item.isDirectory && (
                           <FormButton
                             type="secondary"
@@ -839,7 +895,10 @@ export default function FileManager() {
                                 isLoading
                               }
                               onClick={() =>
-                                handleCutClick({ path: item.path, name: item.name })
+                                handleCutClick({
+                                  path: item.path,
+                                  name: item.name,
+                                })
                               }
                             >
                               <FontAwesomeIcon icon={faCut} />
@@ -932,7 +991,9 @@ export default function FileManager() {
         onSelectMedia={handleSelectMediaFile}
         allFiles={currentPathFiles}
         basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
-        filesHost={getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}
+        filesHost={getHostAddress(
+          appConfig.hosts.find((host) => host.id === 'files')?.address ?? '',
+        )}
       />
 
       <FilePreviewModal
@@ -952,7 +1013,9 @@ export default function FileManager() {
         }
         allFiles={currentPathFiles}
         basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
-        filesHost={getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}
+        filesHost={getHostAddress(
+          appConfig.hosts.find((host) => host.id === 'files')?.address ?? '',
+        )}
       />
 
       {/* Delete Confirmation Modal */}

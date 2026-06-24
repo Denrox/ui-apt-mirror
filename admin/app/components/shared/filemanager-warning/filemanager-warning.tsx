@@ -27,13 +27,13 @@ export default function Warning({
   const getStyles = () => {
     switch (type) {
       case 'warning':
-        return 'bg-amber-50/50 border-amber-100 text-amber-600';
+        return 'bg-tertiary/10 border-tertiary/20 text-tertiary';
       case 'error':
-        return 'bg-rose-50/50 border-rose-100 text-rose-600';
+        return 'bg-error/10 border-error/20 text-error';
       case 'info':
-        return 'bg-sky-50/50 border-sky-100 text-sky-600';
+        return 'bg-primary/10 border-primary/20 text-primary';
       default:
-        return 'bg-amber-50/50 border-amber-100 text-amber-600';
+        return 'bg-tertiary/10 border-tertiary/20 text-tertiary';
     }
   };
 
@@ -69,7 +69,7 @@ export default function Warning({
               {details.map((detail) => (
                 <div
                   key={detail}
-                  className="font-mono bg-white/50 px-2 py-1 rounded"
+                  className="font-mono bg-surface-container-lowest px-2 py-1 rounded"
                 >
                   {detail}
                 </div>

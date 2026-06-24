@@ -124,7 +124,11 @@ export default function DownloadFile({
 
   return (
     <>
-      <FormButton type="secondary" onClick={handleDownloadClick} disabled={downloading}>
+      <FormButton
+        type="secondary"
+        onClick={handleDownloadClick}
+        disabled={downloading}
+      >
         <FontAwesomeIcon icon={faDownload} />
       </FormButton>
       {showUrlInput && (
@@ -140,7 +144,7 @@ export default function DownloadFile({
             <div>
               <label
                 htmlFor="download-url"
-                className="block text-sm font-medium text-gray-700 mb-1"
+                className="block text-sm font-medium text-on-surface-variant mb-1"
               >
                 File URL
               </label>
@@ -151,8 +155,9 @@ export default function DownloadFile({
                 placeholder="https://example.com/file.zip"
                 disabled={downloading}
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Filename is auto-detected from URL. You can rename after download.
+              <p className="text-xs text-on-surface-variant mt-1">
+                Filename is auto-detected from URL. You can rename after
+                download.
               </p>
             </div>
 

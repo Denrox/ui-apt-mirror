@@ -19,7 +19,11 @@ interface CheatsheetModalProps {
   onClose: () => void;
 }
 
-export default function CheatsheetModal({ file, isOpen, onClose }: CheatsheetModalProps) {
+export default function CheatsheetModal({
+  file,
+  isOpen,
+  onClose,
+}: CheatsheetModalProps) {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,41 +37,42 @@ export default function CheatsheetModal({ file, isOpen, onClose }: CheatsheetMod
   const loadCheatsheetContent = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
-              const response = await fetch(`/api/cheatsheet/${file.name}`);
+      const response = await fetch(`/api/cheatsheet/${file.name}`);
       if (!response.ok) {
         throw new Error('Failed to load cheatsheet');
       }
       const text = await response.text();
       setContent(text);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load cheatsheet');
+      setError(
+        err instanceof Error ? err.message : 'Failed to load cheatsheet',
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Modal 
-      isOpen={isOpen} 
+    <Modal
+      isOpen={isOpen}
       onClose={onClose}
       title={file.name.replace('.md', '')}
       maxWidth="4xl"
     >
       {/* Custom header with file info and categories */}
-      <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200">
-        <FontAwesomeIcon icon={faFileAlt} className="text-gray-600" />
+      <div className="flex items-center gap-3 mb-4 pb-4 border-b border-outline-variant">
+        <FontAwesomeIcon icon={faFileAlt} className="text-on-surface-variant" />
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <FontAwesomeIcon icon={faTags} className="text-gray-400 text-xs" />
+            <FontAwesomeIcon
+              icon={faTags}
+              className="text-on-surface-variant/60 text-xs"
+            />
             <div className="flex flex-wrap gap-1">
               {file.categories.map((category) => (
-                <Tag
-                  key={category}
-                  label={category}
-                  size="small"
-                />
+                <Tag key={category} label={category} size="small" />
               ))}
             </div>
           </div>
@@ -79,10 +84,12 @@ export default function CheatsheetModal({ file, isOpen, onClose }: CheatsheetMod
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <span className="ml-3 text-gray-600">Loading cheatsheet...</span>
+            <span className="ml-3 text-on-surface-variant">
+              Loading cheatsheet...
+            </span>
           </div>
         ) : error ? (
-          <div className="p-4 bg-red-100 text-red-700 rounded-md">
+          <div className="p-4 bg-error/10 text-error rounded-md">
             <p className="font-medium">Error loading cheatsheet</p>
             <p className="text-sm mt-1">{error}</p>
           </div>
