@@ -64,6 +64,33 @@ export interface BlankNode {
 }
 
 /**
+ * apt-mirror2 package-filter directives. Each limits which packages of a
+ * repository get mirrored, matched by exact name (tags also match the `facet::`
+ * prefix). In `mirror.list` the form is `<key> <repo-url> <value> <value> ...`.
+ */
+export const FILTER_KEYS = [
+  'include_source_name',
+  'exclude_source_name',
+  'include_binary_packages',
+  'exclude_binary_packages',
+  'include_sections',
+  'exclude_sections',
+  'include_tags',
+  'exclude_tags',
+] as const;
+
+export type FilterKey = (typeof FILTER_KEYS)[number];
+
+/** A package-filter directive bound to a repository by its base URL. */
+export interface FilterNode {
+  kind: 'filter';
+  key: FilterKey;
+  uri: string;
+  values: string[];
+  raw?: string;
+}
+
+/**
  * The client-facing deb822 "Usage" snippet inside a section, delimited by
  * `# Usage start` / `# Usage end`. Treated as opaque: its inner lines are
  * preserved verbatim and never reinterpreted as real directives.
@@ -99,6 +126,7 @@ export type MirrorNode =
   | CleanNode
   | CommentNode
   | BlankNode
+  | FilterNode
   | UsageNode
   | RawNode
   | SectionNode;
@@ -115,4 +143,13 @@ export interface RepositoryInput {
   components: string[];
   includeSrc: boolean;
   trusted: boolean;
+  /** Restrict mirrored binary architectures (e.g. ['i386']); empty = all. */
+  arches?: string[];
+  /**
+   * Package filters to apply to this repo. A key mapped to a (possibly empty)
+   * array is authoritative — on edit it replaces that directive (empty clears
+   * it). A key left `undefined` is preserved as-is, so directives the UI does
+   * not surface survive round-trips.
+   */
+  filters?: Partial<Record<FilterKey, string[]>>;
 }

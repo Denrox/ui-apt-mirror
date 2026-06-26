@@ -6,7 +6,6 @@ import {
   faUser,
   faLock,
   faRightToBracket,
-  faShieldHalved,
 } from '@fortawesome/free-solid-svg-icons';
 import { toast } from 'react-toastify';
 import { loader } from './loader';
@@ -113,15 +112,6 @@ export default function Login() {
               </div>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-on-surface-variant">
-              <input
-                type="checkbox"
-                name="remember"
-                className="h-4 w-4 rounded border-outline-variant bg-surface-container-lowest accent-primary focus:ring-primary"
-              />
-              Remember this terminal session
-            </label>
-
             <button
               type="submit"
               disabled={isSubmitting}
@@ -133,14 +123,6 @@ export default function Login() {
               />
               {isSubmitting ? 'Authenticating…' : 'Authenticate Session'}
             </button>
-
-            <div className="flex items-center justify-center gap-2 text-[11px] text-on-surface-variant">
-              <span className="h-2 w-2 rounded-full bg-success" />
-              Server: Online
-              <span className="text-outline-variant">·</span>
-              <FontAwesomeIcon icon={faShieldHalved} className="text-[11px]" />
-              Encrypted (AES-256)
-            </div>
           </form>
         </div>
 

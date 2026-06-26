@@ -1,6 +1,7 @@
 import type {
   DebNode,
   CleanNode,
+  FilterNode,
   MirrorNode,
   SectionNode,
   SetNode,
@@ -29,6 +30,10 @@ function renderSet(node: SetNode): string {
   return `set ${node.key} ${node.value}`;
 }
 
+function renderFilter(node: FilterNode): string {
+  return [node.key, node.uri, ...node.values].join(' ');
+}
+
 function renderUsage(node: UsageNode): string {
   if (node.raw) return node.raw.join('\n');
   return ['# Usage start', ...node.lines, '# Usage end'].join('\n');
@@ -48,6 +53,8 @@ function renderNode(node: MirrorNode): string {
       return node.raw ?? renderDeb(node);
     case 'clean':
       return node.raw ?? renderClean(node);
+    case 'filter':
+      return node.raw ?? renderFilter(node);
     case 'usage':
       return renderUsage(node);
     case 'section':

@@ -1,13 +1,16 @@
 import { parse } from './parse';
 import { serialize } from './serialize';
-import type {
-  CommentNode,
-  DebNode,
-  MirrorNode,
-  RepositoryInput,
-  SectionChild,
-  SectionNode,
-  UsageNode,
+import {
+  FILTER_KEYS,
+  type CommentNode,
+  type DebNode,
+  type FilterKey,
+  type FilterNode,
+  type MirrorNode,
+  type RepositoryInput,
+  type SectionChild,
+  type SectionNode,
+  type UsageNode,
 } from './types';
 
 /** Strip trailing slashes so URLs compare and render consistently. */
@@ -161,6 +164,8 @@ export class MirrorConfig {
       components: [...primary.components],
       includeSrc: debs.some((d) => d.debType === 'deb-src'),
       trusted: trustedOption || trustedUsage,
+      arches: archesOf(primary),
+      filters: sectionFilters(section),
     };
   }
 
@@ -205,7 +210,20 @@ export class MirrorConfig {
     if (!section) return false;
 
     const oldUrls = baseUrlsOf(section);
-    const rebuilt = buildSection(input, mirrorDomain);
+    // Filters the input does not mention are preserved; mentioned keys override
+    // (an empty array clears that directive).
+    const mergedFilters = sectionFilters(section);
+    for (const key of FILTER_KEYS) {
+      const provided = input.filters?.[key];
+      if (provided === undefined) continue;
+      if (provided.filter((v) => v.trim()).length)
+        mergedFilters[key] = provided;
+      else delete mergedFilters[key];
+    }
+    const rebuilt = buildSection(
+      { ...input, filters: mergedFilters },
+      mirrorDomain,
+    );
     section.title = rebuilt.title;
     section.children = rebuilt.children;
     section.startRaw = rebuilt.startRaw;
@@ -319,11 +337,13 @@ function buildSection(
     children.push({ kind: 'comment', text: `# ${input.description.trim()}` });
   }
 
+  const arches = (input.arches ?? []).map((a) => a.trim()).filter(Boolean);
+  const options = arches.length ? [`arch=${arches.join(',')}`] : [];
   const debLine = (debType: DebNode['debType'], suite: string): DebNode => ({
     kind: 'deb',
     debType,
     enabled: true,
-    options: [],
+    options: [...options],
     uri: base,
     suite,
     components: [...input.components],
@@ -332,6 +352,9 @@ function buildSection(
   if (input.includeSrc) {
     for (const suite of input.suites) children.push(debLine('deb-src', suite));
   }
+
+  // Package filters (apt-mirror2), bound to the repo's base URL.
+  children.push(...filterNodesFor(base, input.filters ?? {}));
 
   children.push(buildUsage(input, base, mirrorDomain));
 
@@ -359,6 +382,46 @@ function buildUsage(
     `#Suites: ${input.suites.join(' ')}`,
     `#Components: ${comps}`,
   ];
+  const arches = (input.arches ?? []).map((a) => a.trim()).filter(Boolean);
+  if (arches.length) lines.push(`#Architectures: ${arches.join(' ')}`);
   if (input.trusted) lines.push('#Trusted: yes');
   return { kind: 'usage', lines };
+}
+
+/** Build filter directive nodes for the non-empty filters of a repo. */
+function filterNodesFor(
+  base: string,
+  filters: Partial<Record<FilterKey, string[]>>,
+): FilterNode[] {
+  const nodes: FilterNode[] = [];
+  for (const key of FILTER_KEYS) {
+    const values = (filters[key] ?? []).map((v) => v.trim()).filter(Boolean);
+    if (values.length) nodes.push({ kind: 'filter', key, uri: base, values });
+  }
+  return nodes;
+}
+
+/** Read a section's existing filter directives into a key→values map. */
+function sectionFilters(
+  section: SectionNode,
+): Partial<Record<FilterKey, string[]>> {
+  const filters: Partial<Record<FilterKey, string[]>> = {};
+  for (const child of section.children) {
+    if (child.kind === 'filter' && child.values.length) {
+      filters[child.key] = [...child.values];
+    }
+  }
+  return filters;
+}
+
+/** Architectures requested by a deb line's `[arch=...]` option, if any. */
+function archesOf(deb: DebNode | undefined): string[] {
+  if (!deb) return [];
+  const opt = deb.options.find((o) => /^arch=/i.test(o));
+  return opt
+    ? opt
+        .slice(opt.indexOf('=') + 1)
+        .split(',')
+        .filter(Boolean)
+    : [];
 }

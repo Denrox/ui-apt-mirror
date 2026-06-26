@@ -2,11 +2,10 @@ import { Link, useSubmit } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faTerminal,
-  faBell,
   faRightFromBracket,
 } from '@fortawesome/free-solid-svg-icons';
 
-/** Mobile top app bar: brand + actions (visible below lg). */
+/** Mobile top app bar: brand + logout (visible below lg). */
 export default function MobileTopBar() {
   const submit = useSubmit();
   const handleLogout = () =>
@@ -22,24 +21,14 @@ export default function MobileTopBar() {
           Apt Mirror
         </span>
       </Link>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          title="Notifications"
-          className="relative grid h-9 w-9 place-items-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-high"
-        >
-          <FontAwesomeIcon icon={faBell} className="text-[16px]" />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-error" />
-        </button>
-        <button
-          type="button"
-          onClick={handleLogout}
-          title="Logout"
-          className="grid h-9 w-9 place-items-center rounded-lg text-error transition-colors hover:bg-error/10 active:scale-95"
-        >
-          <FontAwesomeIcon icon={faRightFromBracket} className="text-[16px]" />
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={handleLogout}
+        title="Logout"
+        className="grid h-9 w-9 place-items-center rounded-lg text-error transition-colors hover:bg-error/10 active:scale-95"
+      >
+        <FontAwesomeIcon icon={faRightFromBracket} className="text-[16px]" />
+      </button>
     </header>
   );
 }
