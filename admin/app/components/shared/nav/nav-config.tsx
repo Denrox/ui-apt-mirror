@@ -5,7 +5,6 @@ import {
   faTerminal,
   faBook,
   faUsers,
-  faBoxesStacked,
   type IconDefinition,
 } from '@fortawesome/free-solid-svg-icons';
 
@@ -20,8 +19,6 @@ export interface NavItem {
   icon: IconDefinition;
   /** Whether the current path activates this item. */
   isActive: (pathname: string) => boolean;
-  /** Show in the mobile bottom tab bar (defaults to true). Keeps the bar uncluttered. */
-  inBottomBar?: boolean;
 }
 
 /**
@@ -50,15 +47,6 @@ export const navItems: NavItem[] = [
     short: 'Cheats',
     icon: faBookOpen,
     isActive: (p) => p.startsWith('/cheatsheets'),
-  },
-  {
-    href: '/local-repos',
-    label: 'Local Repos',
-    short: 'Repos',
-    icon: faBoxesStacked,
-    isActive: (p) => p.startsWith('/local-repos'),
-    // Sidebar-only: the 5–6 most-used tabs stay in the mobile bottom bar.
-    inBottomBar: false,
   },
   {
     href: '/logs',

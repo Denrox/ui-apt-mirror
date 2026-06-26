@@ -211,6 +211,8 @@ describe('sectionToInput', () => {
       components: ['main', 'restricted'],
       includeSrc: false,
       trusted: false,
+      arches: [],
+      filters: {},
     });
   });
 
@@ -222,6 +224,8 @@ describe('sectionToInput', () => {
     expect(restored).toEqual({
       ...original,
       baseUrl: original.baseUrl, // already normalized
+      arches: [],
+      filters: {},
     });
   });
 
@@ -245,5 +249,99 @@ describe('sectionToInput', () => {
       ),
     );
     expect(cfg.sectionToInput(cfg.getSection('Empty')!)).toBeNull();
+  });
+});
+
+describe('package filters & architectures', () => {
+  const FILTERED = `# ---start---Steam---
+deb [arch=i386] http://deb.debian.org/debian trixie main
+include_source_name http://deb.debian.org/debian steam
+include_binary_packages http://deb.debian.org/debian steam libc6
+# ---end---Steam---
+`;
+
+  it('round-trips filter + arch lines byte-for-byte', () => {
+    expect(MirrorConfig.parse(FILTERED).serialize()).toBe(FILTERED);
+  });
+
+  it('addSection emits arch option and URL-bound filter directives', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(
+      input({
+        title: 'Steam i386',
+        baseUrl: 'http://deb.debian.org/debian',
+        suites: ['trixie'],
+        components: ['main', 'contrib', 'non-free'],
+        trusted: false,
+        arches: ['i386'],
+        filters: {
+          include_source_name: ['steam'],
+          include_binary_packages: ['steam', 'steam-installer', 'libc6'],
+        },
+      }),
+      'mirror.intra',
+    );
+    const out = cfg.serialize();
+    expect(out).toContain(
+      'deb [arch=i386] http://deb.debian.org/debian trixie main contrib non-free',
+    );
+    expect(out).toContain(
+      'include_source_name http://deb.debian.org/debian steam',
+    );
+    expect(out).toContain(
+      'include_binary_packages http://deb.debian.org/debian steam steam-installer libc6',
+    );
+  });
+
+  it('sectionToInput reconstructs arches and filters', () => {
+    const cfg = MirrorConfig.parse(FILTERED);
+    const got = cfg.sectionToInput(cfg.getSection('Steam')!)!;
+    expect(got.arches).toEqual(['i386']);
+    expect(got.filters?.include_source_name).toEqual(['steam']);
+    expect(got.filters?.include_binary_packages).toEqual(['steam', 'libc6']);
+  });
+
+  it('editSection overrides provided filters but preserves unmentioned ones', () => {
+    const cfg = MirrorConfig.parse(FILTERED);
+    cfg.editSection(
+      'Steam',
+      input({
+        title: 'Steam',
+        baseUrl: 'http://deb.debian.org/debian',
+        suites: ['trixie'],
+        components: ['main'],
+        trusted: false,
+        arches: ['i386'],
+        filters: { include_binary_packages: ['steam', 'libc6', 'libgl1'] },
+      }),
+      'mirror.intra',
+    );
+    const out = cfg.serialize();
+    // overridden
+    expect(out).toContain(
+      'include_binary_packages http://deb.debian.org/debian steam libc6 libgl1',
+    );
+    // include_source_name not in input.filters -> preserved
+    expect(out).toContain(
+      'include_source_name http://deb.debian.org/debian steam',
+    );
+  });
+
+  it('editSection clears a filter when given an empty array', () => {
+    const cfg = MirrorConfig.parse(FILTERED);
+    cfg.editSection(
+      'Steam',
+      input({
+        title: 'Steam',
+        baseUrl: 'http://deb.debian.org/debian',
+        suites: ['trixie'],
+        components: ['main'],
+        trusted: false,
+        arches: ['i386'],
+        filters: { include_source_name: [] },
+      }),
+      'mirror.intra',
+    );
+    expect(cfg.serialize()).not.toContain('include_source_name');
   });
 });

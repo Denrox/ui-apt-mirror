@@ -15,8 +15,6 @@
   "gpgKeysIndex": "../data/data/apt-mirror/gpg/keys.json",
   "mirrorRoot": "../data/data/apt-mirror/mirror",
   "signReleasesScriptPath": "../scripts/sign-releases.sh",
-  "localReposIndex": "../data/data/apt-mirror/local-repos.json",
-  "localRepoScriptPath": "../scripts/local-repo.sh",
   "jwtSecret": "HMwZM9EQJBsOQEBwWQLNtBxJqo6SHIFa",
   "hosts": [
     {

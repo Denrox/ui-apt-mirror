@@ -21,8 +21,6 @@ RUN apt-get update && apt-get install -y \
     bc \
     gnupg \
     jq \
-    dpkg-dev \
-    apt-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install skopeo for container image operations

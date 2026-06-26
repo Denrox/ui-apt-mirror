@@ -38,6 +38,15 @@ function readRepositoryInput(formData: FormData): RepositoryInput {
     components: tokens(formData.get('components')),
     includeSrc: formData.get('includeSrc') === 'true',
     trusted: formData.get('trusted') === 'true',
+    arches: tokens(formData.get('arches')),
+    // Only the UI-managed filter keys are sent; keys omitted here are preserved
+    // by editSection (an empty array clears that directive).
+    filters: {
+      include_source_name: tokens(formData.get('includeSourceName')),
+      include_binary_packages: tokens(formData.get('includeBinaryPackages')),
+      exclude_binary_packages: tokens(formData.get('excludeBinaryPackages')),
+      include_sections: tokens(formData.get('includeSections')),
+    },
   };
 }
 

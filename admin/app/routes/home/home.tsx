@@ -129,6 +129,15 @@ export default function Home() {
       components: input.components.join(' '),
       includeSrc: input.includeSrc,
       trusted: input.trusted,
+      arches: (input.arches ?? []).join(' '),
+      includeSourceName: (input.filters?.include_source_name ?? []).join(' '),
+      includeBinaryPackages: (
+        input.filters?.include_binary_packages ?? []
+      ).join(' '),
+      excludeBinaryPackages: (
+        input.filters?.exclude_binary_packages ?? []
+      ).join(' '),
+      includeSections: (input.filters?.include_sections ?? []).join(' '),
     });
     setShowRepoModal(true);
   };
@@ -151,6 +160,11 @@ export default function Home() {
     formData.append('components', values.components);
     formData.append('includeSrc', String(values.includeSrc));
     formData.append('trusted', String(values.trusted));
+    formData.append('arches', values.arches);
+    formData.append('includeSourceName', values.includeSourceName);
+    formData.append('includeBinaryPackages', values.includeBinaryPackages);
+    formData.append('excludeBinaryPackages', values.excludeBinaryPackages);
+    formData.append('includeSections', values.includeSections);
     submit(formData, { method: 'post' });
   };
 

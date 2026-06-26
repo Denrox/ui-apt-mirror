@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router';
 import classNames from 'classnames';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTerminal, faUserShield } from '@fortawesome/free-solid-svg-icons';
+import { faTerminal } from '@fortawesome/free-solid-svg-icons';
 import { navItems } from '../nav/nav-config';
 
 /** Fixed 260px desktop sidebar (hidden below lg). */
@@ -29,7 +29,7 @@ export default function Sidebar() {
       </Link>
 
       {/* Nav */}
-      <nav className="flex flex-col gap-1 px-3">
+      <nav className="flex flex-col gap-1 px-3 pb-stack-md">
         {navItems.map((item) => {
           const active = item.isActive(pathname);
           return (
@@ -53,23 +53,6 @@ export default function Sidebar() {
           );
         })}
       </nav>
-
-      {/* User chip */}
-      <div className="mt-auto px-3 pb-stack-md">
-        <div className="flex items-center gap-3 rounded-lg bg-surface-container px-3 py-2">
-          <span className="grid h-8 w-8 place-items-center rounded-full bg-secondary-container text-on-secondary-container">
-            <FontAwesomeIcon icon={faUserShield} className="text-[14px]" />
-          </span>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold text-on-surface">
-              System Admin
-            </div>
-            <div className="text-[11px] text-on-surface-variant">
-              Administrator
-            </div>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

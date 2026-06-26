@@ -1,11 +1,16 @@
-import type {
-  DebNode,
-  CleanNode,
-  MirrorNode,
-  SectionChild,
-  SectionNode,
-  SetNode,
+import {
+  FILTER_KEYS,
+  type DebNode,
+  type CleanNode,
+  type FilterKey,
+  type FilterNode,
+  type MirrorNode,
+  type SectionChild,
+  type SectionNode,
+  type SetNode,
 } from './types';
+
+const FILTER_KEY_SET = new Set<string>(FILTER_KEYS);
 
 /**
  * Line-level grammar for `mirror.list`.
@@ -66,6 +71,19 @@ function parseSet(line: string): SetNode | null {
   return { kind: 'set', key: m[1], value: m[2], raw: line };
 }
 
+// `<filter_key> <repo-url> <value> <value> ...` (apt-mirror2 package filters).
+function parseFilter(line: string): FilterNode | null {
+  const tokens = line.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2 || !FILTER_KEY_SET.has(tokens[0])) return null;
+  return {
+    kind: 'filter',
+    key: tokens[0] as FilterKey,
+    uri: tokens[1],
+    values: tokens.slice(2),
+    raw: line,
+  };
+}
+
 /** Classify a single line into a section-level node (never a section itself). */
 function parseLeaf(line: string): SectionChild {
   if (line.trim() === '') return { kind: 'blank', raw: line };
@@ -73,6 +91,7 @@ function parseLeaf(line: string): SectionChild {
     parseSet(line) ??
     parseDeb(line) ??
     parseClean(line) ??
+    parseFilter(line) ??
     (line.trimStart().startsWith('#')
       ? { kind: 'comment', text: line, raw: line }
       : { kind: 'raw', text: line })
