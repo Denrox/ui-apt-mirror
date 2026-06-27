@@ -93,6 +93,10 @@ export default function AddRepoModal({
 }: AddRepoModalProps) {
   const [values, setValues] = useState<NewRepoValues>(EMPTY);
   const [showFilters, setShowFilters] = useState(false);
+  const [seeds, setSeeds] = useState('');
+  const [recommends, setRecommends] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [resolveInfo, setResolveInfo] = useState<string | null>(null);
 
   // Seed the form from initialValues each time the modal opens (edit mode), and
   // clear it on close. Keyed on isOpen so typing is not clobbered mid-edit.
@@ -100,6 +104,9 @@ export default function AddRepoModal({
     const next = isOpen ? (initialValues ?? EMPTY) : EMPTY;
     setValues(next);
     setShowFilters(hasFilters(next));
+    setSeeds('');
+    setRecommends(false);
+    setResolveInfo(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -107,6 +114,47 @@ export default function AddRepoModal({
     key: K,
     value: NewRepoValues[K],
   ) => setValues((prev) => ({ ...prev, [key]: value }));
+
+  const handleResolve = async () => {
+    if (resolving) return;
+    setResolving(true);
+    setResolveInfo('Resolving — fetching upstream indices…');
+    try {
+      const fd = new FormData();
+      fd.append('baseUrl', values.baseUrl);
+      fd.append('suite', values.suites);
+      fd.append('components', values.components);
+      fd.append('arches', values.arches);
+      fd.append('seeds', seeds);
+      fd.append('includeRecommends', String(recommends));
+      const res = await fetch('/api/resolve-deps', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setResolveInfo(data.error ?? 'Resolve failed');
+        return;
+      }
+      // The binary list becomes authoritative; clear the source-name filter so
+      // apt-mirror2 doesn't AND the two together.
+      setValues((prev) => ({
+        ...prev,
+        includeBinaryPackages: (data.packages as string[]).join(' '),
+        includeSourceName: '',
+      }));
+      const miss = data.missingSeeds?.length
+        ? ` · missing seeds: ${data.missingSeeds.join(', ')}`
+        : '';
+      setResolveInfo(
+        `Resolved ${data.packages.length} packages${data.truncated ? ' (truncated)' : ''}${miss}`,
+      );
+    } catch {
+      setResolveInfo('Resolve failed');
+    } finally {
+      setResolving(false);
+    }
+  };
 
   const isValid =
     values.title.trim() !== '' &&
@@ -212,6 +260,52 @@ export default function AddRepoModal({
                   disabled={isSubmitting}
                 />
               </FormField>
+
+              {/* Auto dependency-closure resolver */}
+              <div className="flex flex-col gap-[10px] rounded-lg border border-outline-variant/60 bg-surface-container-lowest/40 p-3">
+                <FormField label="Resolve dependency closure">
+                  <div className="flex gap-2">
+                    <FormInput
+                      value={seeds}
+                      onChange={setSeeds}
+                      placeholder="steam (seed package name)"
+                      disabled={isSubmitting || resolving}
+                    />
+                    <FormButton
+                      type="secondary"
+                      onClick={handleResolve}
+                      disabled={
+                        isSubmitting ||
+                        resolving ||
+                        !seeds.trim() ||
+                        !values.baseUrl.trim() ||
+                        !values.suites.trim() ||
+                        !values.components.trim()
+                      }
+                    >
+                      {resolving ? 'Resolving…' : 'Resolve →'}
+                    </FormButton>
+                  </div>
+                </FormField>
+                <FormCheckbox
+                  id="resolve-recommends"
+                  label="Also follow Recommends"
+                  checked={recommends}
+                  onChange={setRecommends}
+                  disabled={isSubmitting || resolving}
+                />
+                {resolveInfo && (
+                  <p className="text-[11px] text-on-surface-variant">
+                    {resolveInfo}
+                  </p>
+                )}
+                <p className="text-[11px] leading-relaxed text-on-surface-variant/80">
+                  Fetches the upstream indices and fills “Include binary
+                  packages” below with the full dependency set, so a complete{' '}
+                  <span className="font-mono">apt install</span> works from the
+                  mirror.
+                </p>
+              </div>
 
               <FormField label="Include source packages">
                 <Textarea
