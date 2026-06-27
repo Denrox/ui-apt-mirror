@@ -17,6 +17,7 @@ export default [
     route('cheatsheets', 'routes/cheatsheets/cheatsheets.tsx'),
     route('users', 'routes/users/users.tsx'),
     route('api/resources', 'routes/api.resources.tsx'),
+    route('api/resolve-deps', 'routes/api.resolve-deps.tsx'),
   ]),
   route('api/cheatsheet/:filename', 'routes/api.cheatsheet.$filename.tsx'),
   route('api/cheatsheets/update', 'routes/api.cheatsheets.update.tsx'),
