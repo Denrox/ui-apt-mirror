@@ -11,7 +11,7 @@ import BottomTabBar from './bottom-tab-bar';
  */
 export default function AppLayout() {
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-on-surface">
+    <div className="flex h-screen supports-[height:100dvh]:h-dvh overflow-hidden bg-background text-on-surface">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
