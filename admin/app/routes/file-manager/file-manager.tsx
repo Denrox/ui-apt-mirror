@@ -43,6 +43,7 @@ import {
   faEdit,
   faSearch,
   faFolder,
+  faLink,
   faFolderPlus,
   faFile,
   faPlay,
@@ -790,8 +791,17 @@ export default function FileManager() {
                       />
                     }
                     title={
-                      <div className="flex align-center w-[180px] md:w-[240px] max-w-[auto] lg:max-w-[360px] flex-shrink-0 lg:w-auto font-medium">
+                      <div
+                        className={classNames(
+                          'flex align-center w-[180px] md:w-[240px] max-w-[auto] lg:max-w-[360px] flex-shrink-0 lg:w-auto font-medium',
+                          { 'italic': item.isSymlink, 'line-through opacity-60': item.isBrokenSymlink },
+                        )}
+                        title={item.isBrokenSymlink ? 'Broken symlink' : item.isSymlink ? 'Symlink' : undefined}
+                      >
                         <Ellipsis>{item.name}</Ellipsis>
+                        {item.isSymlink && (
+                          <FontAwesomeIcon icon={faLink} className="ml-1.5 text-xs text-on-surface-variant self-center" />
+                        )}
                       </div>
                     }
                     metadata={

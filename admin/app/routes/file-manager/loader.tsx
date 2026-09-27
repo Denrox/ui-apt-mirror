@@ -8,6 +8,8 @@ interface FileItem {
   name: string;
   path: string;
   isDirectory: boolean;
+  isSymlink?: boolean;
+  isBrokenSymlink?: boolean;
   size?: number;
   modified?: Date;
 }
@@ -19,13 +21,25 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
 
     for (const item of items) {
       const fullPath = path.join(dirPath, item.name);
-      const stats = await fs.stat(fullPath);
-      const isDirectory = item.isDirectory();
+      const isSymlink = item.isSymbolicLink();
+      // Follow symlinks so linked dirs/files behave like their targets;
+      // a dangling link falls back to the link's own lstat.
+      let stats;
+      let isBrokenSymlink = false;
+      try {
+        stats = await fs.stat(fullPath);
+      } catch (error) {
+        if (!isSymlink) throw error;
+        stats = await fs.lstat(fullPath);
+        isBrokenSymlink = true;
+      }
 
       fileList.push({
         name: item.name,
         path: fullPath,
-        isDirectory: isDirectory,
+        isDirectory: stats.isDirectory(),
+        isSymlink,
+        isBrokenSymlink,
         size: stats.size,
         modified: stats.mtime,
       });
