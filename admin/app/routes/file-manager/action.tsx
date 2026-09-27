@@ -82,9 +82,10 @@ async function createDirectory(dirPath: string): Promise<boolean> {
 
 async function deleteFile(filePath: string): Promise<boolean> {
   try {
-    const stats = await fs.stat(filePath);
+    // lstat: deleting a symlink removes the link, never the target's contents
+    const stats = await fs.lstat(filePath);
     if (stats.isDirectory()) {
-      await fs.rmdir(filePath, { recursive: true });
+      await fs.rm(filePath, { recursive: true });
     } else {
       await fs.unlink(filePath);
     }
@@ -421,9 +422,15 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
 async function searchFiles(rootPath: string, searchQuery: string): Promise<any[]> {
   const results: any[] = [];
   const lowerQuery = searchQuery.toLowerCase();
+  // Real paths already walked, so symlink cycles can't recurse forever
+  const visited = new Set<string>();
 
   async function searchDirectory(dirPath: string): Promise<void> {
     try {
+      const realDirPath = await fs.realpath(dirPath);
+      if (visited.has(realDirPath)) return;
+      visited.add(realDirPath);
+
       const items = await fs.readdir(dirPath);
       
       for (const itemName of items) {
