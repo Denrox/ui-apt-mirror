@@ -10,11 +10,13 @@ import {
 import type { Route } from './+types/root';
 import { ToastContainer } from 'react-toastify';
 import './app.css';
+import { configuredHosts } from './utils/hosts';
 
 export async function loader() {
   return {
     runtimeConfig: {
       isNpmProxyEnabled: process.env.NPM_PROXY_ENABLED === 'true',
+      hosts: configuredHosts(),
     },
   };
 }

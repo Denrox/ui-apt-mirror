@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { hostAddress, withMirrorHost } from '~/utils/hosts';
 import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
 import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
 
@@ -40,7 +41,7 @@ function rewriteSignedByHint(
   const keyringPath = (host: string) => `/etc/apt/keyrings/${host}.asc`;
   const installLines = signedHosts.map(
     (h) =>
-      `# Install pubkey: curl -fsSL http://admin.mirror.intra/api/pubkey/${h.host} | sudo tee ${keyringPath(h.host)} > /dev/null`,
+      `# Install pubkey: curl -fsSL http://${hostAddress('admin')}/api/pubkey/${h.host} | sudo tee ${keyringPath(h.host)} > /dev/null`,
   );
 
   const filtered = content.filter((line) => !/^\s*Signed-By:/i.test(line));
@@ -126,7 +127,10 @@ async function parseRepositoryConfigs(): Promise<{
         .map((host) => ({ host, gpgKey: keysIndex[host] ?? null }));
       const signed = hosts.filter((h) => h.gpgKey);
 
-      const usage = rewriteSignedByHint(config.sectionUsageLines(section), signed);
+      const usage = rewriteSignedByHint(
+        withMirrorHost(config.sectionUsageLines(section), hostAddress('mirror')),
+        signed,
+      );
       activeConfigs.push({
         title: section.title,
         revision: config.sectionRevision(section),

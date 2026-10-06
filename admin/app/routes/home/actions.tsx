@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { configuredHosts, hostAddress } from '~/utils/hosts';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import {
@@ -40,9 +41,7 @@ function isStale(config: MirrorConfig, title: string, formData: FormData): boole
 
 /** Host whose URL is embedded in client-facing Usage snippets. */
 function mirrorDomain(): string {
-  return (
-    appConfig.hosts.find((h) => h.id === 'mirror')?.address ?? 'mirror.intra'
-  );
+  return hostAddress('mirror');
 }
 
 /** Split a whitespace/comma-separated form field into trimmed tokens. */
@@ -292,7 +291,7 @@ export async function action({ request }: { request: Request }) {
   }
 
   if (action === 'checkHealth') {
-    for (const host of appConfig.hosts) {
+    for (const host of configuredHosts()) {
       if (host.id === 'admin') {
         try {
           const response = await fetch(`http://${host.address}/api/health`);

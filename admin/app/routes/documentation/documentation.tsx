@@ -4,7 +4,7 @@ import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutNav from '~/components/shared/layout/page-layout-nav';
 import NavLink from '~/components/shared/nav/nav-link';
-import { useRuntimeConfig } from '~/utils/use-runtime-config';
+import { hostOf, useRuntimeConfig } from '~/utils/use-runtime-config';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
 export async function loader({ request }: { request: Request }) {
@@ -21,7 +21,8 @@ export function meta() {
 }
 
 export default function Documentation() {
-  const { isNpmProxyEnabled } = useRuntimeConfig();
+  const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
+  const npmHost = hostOf(hosts, 'npm');
   const sections = [
     {
       id: 'file-structure',
@@ -337,7 +338,7 @@ export default function Documentation() {
               <h5 className="font-semibold mb-2">Commands:</h5>
               <div className="space-y-2 text-sm font-mono">
                 <div className="bg-surface-container-lowest p-2 rounded">
-                  npm config set registry http://npm.mirror.intra
+                  npm config set registry http://{npmHost}
                 </div>
                 <div className="bg-surface-container-lowest p-2 rounded">
                   npm config set registry http://npm.yourdomain.com
@@ -358,7 +359,7 @@ export default function Documentation() {
                   npm install react
                 </div>
                 <div className="bg-surface-container-lowest p-2 rounded">
-                  curl http://npm.mirror.intra/react
+                  curl http://{npmHost}/react
                 </div>
               </div>
             </div>
@@ -382,14 +383,14 @@ export default function Documentation() {
               </p>
               <div className="space-y-2 text-sm">
                 <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
-                  npm login --registry=http://npm.mirror.intra
+                  npm login --registry=http://{npmHost}
                   --auth-type=legacy
                 </div>
                 <p className="text-on-surface-variant">
                   Enter your username and password when prompted, then verify:
                 </p>
                 <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
-                  npm whoami --registry=http://npm.mirror.intra
+                  npm whoami --registry=http://{npmHost}
                 </div>
               </div>
             </div>
@@ -404,14 +405,14 @@ export default function Documentation() {
               <div className="space-y-2 text-sm">
                 <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs overflow-x-auto">
                   TOKEN=$(curl -X PUT
-                  http://npm.mirror.intra/-/user/org.couchdb.user:admin \<br />
+                  http://{npmHost}/-/user/org.couchdb.user:admin \<br />
                   &nbsp;&nbsp;-H "Content-Type: application/json" \<br />
                   &nbsp;&nbsp;-d '&#123;"name": "admin", "password":
                   "your-password"&#125;' \<br />
                   &nbsp;&nbsp;| jq -r .token)
                 </div>
                 <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
-                  echo "//npm.mirror.intra/:_authToken=$TOKEN" &gt;&gt; ~/.npmrc
+                  echo "//{npmHost}/:_authToken=$TOKEN" &gt;&gt; ~/.npmrc
                 </div>
               </div>
             </div>

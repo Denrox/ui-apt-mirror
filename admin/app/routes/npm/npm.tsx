@@ -6,6 +6,7 @@ import http from 'http';
 import { URL } from 'url';
 import zlib from 'zlib';
 import { isWithin } from '~/utils/safe-path';
+import { hostAddress } from '~/utils/hosts';
 import appConfig from '~/config/config.json';
 import {
   attemptLogin,
@@ -814,7 +815,7 @@ export async function action({ request }: ActionFunctionArgs) {
       return jsonResponse(
         {
           error: 'Authentication required',
-          message: 'You must be authenticated to change packages. Run: npm login --registry=http://npm.mirror.intra',
+          message: `You must be authenticated to change packages. Run: npm login --registry=http://${hostAddress('npm')}`,
         },
         401,
         { 'WWW-Authenticate': 'Bearer realm="npm"' },

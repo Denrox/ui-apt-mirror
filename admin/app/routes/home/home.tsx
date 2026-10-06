@@ -1,6 +1,5 @@
 import classNames from 'classnames';
 import type { Route } from './+types/home';
-import appConfig from '~/config/config.json';
 import { useRuntimeConfig } from '~/utils/use-runtime-config';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import { useEffect, useState } from 'react';
@@ -44,7 +43,7 @@ export function meta({}: Route.MetaArgs) {
 export { loader, action };
 
 export default function Home() {
-  const { isNpmProxyEnabled } = useRuntimeConfig();
+  const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
   const [pagesAvalabilityState, setPagesAvalabilityState] = useState<{
     [key: string]: boolean;
   }>({});
@@ -234,7 +233,7 @@ export default function Home() {
 
   useEffect(() => {
     const checkPagesAvalability = async () => {
-      const pages = appConfig.hosts;
+      const pages = hosts;
       const pagesAvalabilityState = await Promise.all(
         pages.map(async (page) => {
           try {
@@ -625,7 +624,7 @@ export default function Home() {
           Endpoints
         </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {appConfig.hosts
+          {hosts
             .filter((page) => {
               if (page.id === 'npm' && !isNpmProxyEnabled) {
                 return false;

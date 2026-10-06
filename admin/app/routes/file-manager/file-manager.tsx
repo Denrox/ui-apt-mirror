@@ -26,7 +26,7 @@ import {
   useFetcher,
 } from 'react-router';
 import appConfig from '~/config/config.json';
-import { useRuntimeConfig } from '~/utils/use-runtime-config';
+import { hostOf, useRuntimeConfig } from '~/utils/use-runtime-config';
 import { loader } from './loader';
 import { action } from './action';
 import classNames from 'classnames';
@@ -84,7 +84,8 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { isNpmProxyEnabled } = useRuntimeConfig();
+  const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
+  const filesHostAddress = hostOf(hosts, 'files');
   const data = useLoaderData<typeof loader & { __domain: string }>();
   const files = data?.files || [];
   const isLockFilePresent = data?.isLockFilePresent || false;
@@ -420,7 +421,7 @@ export default function FileManager() {
     const fileUrl =
       view === 'private-files'
         ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-        : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+        : `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
     const mediaType = isMediaFile(item.name);
 
     if (mediaType) {
@@ -477,7 +478,7 @@ export default function FileManager() {
     const fileUrl =
       view === 'private-files'
         ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-        : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+        : `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
     const previewType = getPreviewType(item.name);
     if (!previewType) return;
     setFilePreview({
@@ -885,7 +886,7 @@ export default function FileManager() {
                                   view === 'mirrored-packages'
                                     ? rootPath
                                     : appConfig.filesDir;
-                                link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+                                link.href = `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
                                 link.target = '_blank';
                                 link.rel = 'noopener noreferrer';
                                 document.body.appendChild(link);
@@ -1007,7 +1008,7 @@ export default function FileManager() {
         allFiles={currentPathFiles}
         basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
         filesHost={getHostAddress(
-          appConfig.hosts.find((host) => host.id === 'files')?.address ?? '',
+          filesHostAddress,
         )}
       />
 
@@ -1029,7 +1030,7 @@ export default function FileManager() {
         allFiles={currentPathFiles}
         basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
         filesHost={getHostAddress(
-          appConfig.hosts.find((host) => host.id === 'files')?.address ?? '',
+          filesHostAddress,
         )}
       />
 
