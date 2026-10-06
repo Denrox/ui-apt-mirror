@@ -57,6 +57,9 @@ describe('parseGithubUrl', () => {
     ['https://github.com/o/r/blob/main/README.md', 'folder URL'],
     ['https://github.com/o/r/tree/main/..%2F..%2Fetc', 'folder path'],
     ['https://github.com/o/r$/tree/main', 'Invalid owner'],
+    ['https://github.com/tldr-pages/tldr/tree/main/../..', '".."'],
+    ['https://github.com/o/r/tree/main/pages/%2e%2E/x', '".."'],
+    ['github.com/o/r/tree/main/./pages', '".."'],
   ])('rejects %s', (input, message) => {
     expect(() => parseGithubUrl(input)).toThrow(message);
   });
@@ -77,6 +80,12 @@ describe('markdown helpers', () => {
   it('strips markdown syntax and tldr placeholders', () => {
     const md = '# tar\n\n> Archiving [utility](https://x).\n\n- Create:\n\n`tar cf {{target.tar}} {{file}}`';
     expect(markdownToText(md)).toBe('tar Archiving utility. Create: tar cf target.tar file');
+  });
+
+  it('keeps autolinked URLs', () => {
+    expect(markdownToText('> More information: <https://www.gnu.org/software/tar>.')).toBe(
+      'More information: https://www.gnu.org/software/tar .',
+    );
   });
 });
 
@@ -127,6 +136,49 @@ describe('searchEntries', () => {
       entry('tar', markdownToText('# tar\n\n- E[x]tract a (compressed) archive [f]ile:')),
     ];
     expect(searchEntries(tldr, 'extract tar')[0].entry.title).toBe('tar');
+  });
+
+  it('matches at word starts only', () => {
+    const list = [
+      entry('Cataract', 'Clouding of the lens.'),
+      entry('resticprofile', 'Configuration profiles for restic.'),
+      entry('CPR', 'Cardiopulmonary resuscitation. Start CPR right away.'),
+      entry('tar', 'Archiving utility. Create a tarball.'),
+    ];
+    expect(searchEntries(list, 'tar').map((h) => h.entry.title)).toEqual(['tar']);
+    expect(searchEntries(list, 'cpr').map((h) => h.entry.title)).toEqual(['CPR']);
+    expect(searchEntries(list, 'tarb').map((h) => h.entry.title)).toEqual(['tar']);
+  });
+
+  it('ignores accents in the query and the pages', () => {
+    const list = [
+      entry("Sjogren's Syndrome", 'Dry eyes and mouth.'),
+      entry('Dry Mouth', 'A sign of Sjögren syndrome.'),
+    ];
+    expect(searchEntries(list, 'sjögren').map((h) => h.entry.title)).toEqual([
+      "Sjogren's Syndrome",
+      'Dry Mouth',
+    ]);
+    expect(searchEntries(list, 'SJOGREN')).toHaveLength(2);
+    expect(searchEntries(list, 'sjogren')[1].snippet).toContain('Sjögren');
+  });
+
+  it('gives title points to non-ASCII title words', () => {
+    const list = [entry('Ожог', 'Охладите ожог водой.'), entry('Вода', 'Ожог: охладите.')];
+    expect(searchEntries(list, 'ожог')[0].entry.title).toBe('Ожог');
+  });
+
+  it('ranks pages that use the term more often, without a cap', () => {
+    const filler = 'Apply pressure and wait for help to arrive. '.repeat(10);
+    const list = [
+      entry('Appendix A', 'Kit list: tourniquet tourniquet tourniquet tourniquet tourniquet tourniquet.'),
+      entry('Chapter 4', `${filler}Use a tourniquet. ${'Tighten the tourniquet until bleeding stops. '.repeat(12)}`),
+      entry('Allergen', `${filler}Not a tourniquet.`),
+    ];
+    const titles = searchEntries(list, 'tourniquet').map((h) => h.entry.title);
+    expect(titles.indexOf('Allergen')).toBe(2);
+    const scores = searchEntries(list, 'tourniquet').map((h) => h.score);
+    expect(new Set(scores).size).toBe(3);
   });
 
   it('returns nothing for blank or unmatched queries', () => {
