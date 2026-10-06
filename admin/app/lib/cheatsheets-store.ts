@@ -18,7 +18,7 @@ import {
   markdownToText,
   parseCategoriesJson,
   parseGithubUrl,
-  slugify,
+  sourceIdFor,
   type IndexEntry,
 } from './cheatsheets';
 
@@ -82,18 +82,48 @@ async function writeRegistry(sources: CheatsheetSource[]) {
   await fs.rename(tmp, registryPath());
 }
 
+function withRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = registryLock.then(fn);
+  registryLock = run.catch(() => undefined);
+  return run;
+}
+
 function updateRegistry<T>(fn: (sources: CheatsheetSource[]) => T | Promise<T>): Promise<T> {
-  const run = registryLock.then(async () => {
+  return withRegistryLock(async () => {
     const sources = await readRegistry();
     const result = await fn(sources);
     await writeRegistry(sources);
     return result;
   });
-  registryLock = run.catch(() => undefined);
-  return run;
+}
+
+let leftoversCleaned = false;
+
+/** Removes work dirs no download owns and source dirs no registry entry owns (crashes, old races). */
+export function cleanLeftovers(): Promise<void> {
+  return withRegistryLock(async () => {
+    const known = new Set((await readRegistry()).map((s) => s.id));
+    const work = await fs.readdir(root(), { withFileTypes: true }).catch(() => []);
+    for (const e of work) {
+      const id = /^\.tmp-(.+)-\d+$/.exec(e.name)?.[1];
+      if (e.isDirectory() && id && !active.has(id)) {
+        await fs.rm(path.join(root(), e.name), { recursive: true, force: true });
+      }
+    }
+    const dirs = await fs.readdir(path.join(root(), 'sources'), { withFileTypes: true }).catch(() => []);
+    for (const e of dirs) {
+      if (e.isDirectory() && !known.has(e.name) && !active.has(e.name)) {
+        await fs.rm(sourceDir(e.name), { recursive: true, force: true });
+      }
+    }
+  });
 }
 
 export async function listSources(): Promise<CheatsheetSource[]> {
+  if (!leftoversCleaned) {
+    leftoversCleaned = true;
+    await cleanLeftovers().catch((error) => console.error('cheatsheets: cleanup failed:', error));
+  }
   const sources = await readRegistry();
   return sources.map((s) =>
     s.status === 'downloading' && !active.has(s.id)
@@ -104,14 +134,13 @@ export async function listSources(): Promise<CheatsheetSource[]> {
 
 export async function addSource(url: string, name?: string): Promise<CheatsheetSource> {
   const gh = parseGithubUrl(url);
+  let claimed: string | null = null;
   const source = await updateRegistry((sources) => {
     const webUrl = githubWebUrl(gh);
     if (sources.some((s) => s.url.toLowerCase() === webUrl.toLowerCase())) {
       throw new Error('This source has already been added');
     }
-    const base = slugify(`${gh.owner}-${gh.repo}${gh.path ? `-${gh.path}` : ''}`);
-    let id = base;
-    for (let n = 2; sources.some((s) => s.id === id); n++) id = `${base}-${n}`;
+    const id = sourceIdFor(gh, (id) => sources.some((s) => s.id === id));
     const s: CheatsheetSource = {
       id,
       name: name?.trim() || defaultSourceName(gh),
@@ -126,26 +155,39 @@ export async function addSource(url: string, name?: string): Promise<CheatsheetS
       updatedAt: null,
     };
     sources.push(s);
+    active.add(id);
+    claimed = id;
     return s;
+  }).catch((error) => {
+    if (claimed) active.delete(claimed);
+    throw error;
   });
   startDownload(source.id);
   return source;
 }
 
 export async function refreshSource(id: string) {
+  // Claimed before the first await so parallel requests can't both pass the check.
   if (active.has(id)) throw new Error('This source is already downloading');
-  await updateRegistry((sources) => {
-    const s = sources.find((x) => x.id === id);
-    if (!s) throw new Error('Source not found');
-    s.status = 'downloading';
-    s.error = null;
-  });
+  active.add(id);
+  try {
+    await updateRegistry((sources) => {
+      const s = sources.find((x) => x.id === id);
+      if (!s) throw new Error('Source not found');
+      s.status = 'downloading';
+      s.error = null;
+    });
+  } catch (error) {
+    active.delete(id);
+    throw error;
+  }
   startDownload(id);
 }
 
 export async function removeSource(id: string) {
   if (active.has(id)) throw new Error('Wait for the download to finish first');
   await updateRegistry((sources) => {
+    if (active.has(id)) throw new Error('Wait for the download to finish first');
     const i = sources.findIndex((x) => x.id === id);
     if (i === -1) throw new Error('Source not found');
     sources.splice(i, 1);
@@ -154,8 +196,8 @@ export async function removeSource(id: string) {
   await fs.rm(sourceDir(id), { recursive: true, force: true });
 }
 
+/** The caller has already added `id` to `active`. */
 function startDownload(id: string) {
-  active.add(id);
   downloadSource(id)
     .then((result) =>
       updateRegistry((sources) => {
@@ -179,7 +221,10 @@ function startDownload(id: string) {
         s.error = error instanceof Error ? error.message : String(error);
       });
     })
-    .finally(() => active.delete(id));
+    .finally(() => {
+      active.delete(id);
+      return cleanLeftovers().catch(() => undefined);
+    });
 }
 
 async function fetchArchive(s: CheatsheetSource, dest: string) {
@@ -301,8 +346,11 @@ async function downloadSource(id: string) {
     // Swap only once complete, so a failed update keeps the old copy.
     await fs.mkdir(path.join(root(), 'sources'), { recursive: true });
     const old = path.join(work, 'old');
-    await fs.rename(sourceDir(id), old).catch(() => undefined);
-    await fs.rename(staged, sourceDir(id));
+    await updateRegistry(async (sources) => {
+      if (!sources.some((x) => x.id === id)) throw new Error('Source was removed');
+      await fs.rename(sourceDir(id), old).catch(() => undefined);
+      await fs.rename(staged, sourceDir(id));
+    });
     indexCache.delete(id);
 
     let title: string | null = null;
@@ -354,13 +402,7 @@ export async function readPage(id: string, relPath: string): Promise<string | nu
   return fs.readFile(full, 'utf-8');
 }
 
+// Decided by the host nginx routed the request to, never by client headers such as Referer.
 export function isPublicCheatsheetsRequest(request: Request): boolean {
-  if (new URL(request.url).hostname.startsWith('cheatsheets')) return true;
-  const referer = request.headers.get('referer');
-  if (!referer) return false;
-  try {
-    return new URL(referer).hostname.startsWith('cheatsheets');
-  } catch {
-    return false;
-  }
+  return new URL(request.url).hostname.startsWith('cheatsheets');
 }

@@ -196,3 +196,16 @@ body {
 .prose hr {
   @apply border-outline-variant my-6;
 }
+
+.prose table {
+  @apply block w-full overflow-x-auto mb-4 text-sm text-on-surface-variant border-collapse;
+}
+
+.prose th,
+.prose td {
+  @apply border border-outline-variant px-3 py-1.5 text-left align-top;
+}
+
+.prose th {
+  @apply bg-surface-container-lowest font-semibold text-on-surface;
+}

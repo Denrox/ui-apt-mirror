@@ -1,8 +1,12 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import classNames from 'classnames';
+import {
+  filterLogLines,
+  type LogLevel,
+  type LogLevelFilter,
+} from '~/utils/log-lines';
 
-export type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
-export type LogLevelFilter = 'ALL' | LogLevel;
+export type { LogLevel, LogLevelFilter };
 
 interface LogPanelProps {
   readonly content: string;
@@ -15,21 +19,6 @@ interface LogPanelProps {
   /** Height utility for the scroll body, e.g. "max-h-[60vh]". */
   readonly bodyClassName?: string;
   readonly className?: string;
-}
-
-const LEVEL_RE =
-  /\b(ERROR|ERR|FATAL|CRIT(?:ICAL)?|WARN(?:ING)?|INFO|NOTICE|OK|DEBUG|TRACE)\b/i;
-
-/** Classify a log line by the first level keyword it contains. */
-function detectLevel(line: string): LogLevel | null {
-  const match = LEVEL_RE.exec(line);
-  if (!match) return null;
-  const token = match[1].toUpperCase();
-  if (token.startsWith('ERR') || token === 'FATAL' || token.startsWith('CRIT'))
-    return 'ERROR';
-  if (token.startsWith('WARN')) return 'WARN';
-  if (token === 'DEBUG' || token === 'TRACE') return 'DEBUG';
-  return 'INFO';
 }
 
 const LEVEL_TEXT: Record<LogLevel, string> = {
@@ -55,12 +44,7 @@ export default function LogPanel({
   className,
 }: LogPanelProps) {
   const { lines, truncated, total } = useMemo(() => {
-    const all = content.split('\n');
-    const needle = search.trim().toLowerCase();
-    const filtered = all
-      .map((text, i) => ({ text, level: detectLevel(text), n: i + 1 }))
-      .filter((l) => (level === 'ALL' ? true : l.level === level))
-      .filter((l) => (needle ? l.text.toLowerCase().includes(needle) : true));
+    const filtered = filterLogLines(content, search, level);
     const truncated = filtered.length > MAX_LINES;
     return {
       lines: truncated ? filtered.slice(-MAX_LINES) : filtered,
@@ -68,6 +52,14 @@ export default function LogPanel({
       total: filtered.length,
     };
   }, [content, search, level]);
+
+  // Follow the tail unless the user scrolled up.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (body && followRef.current) body.scrollTop = body.scrollHeight;
+  }, [lines]);
 
   return (
     <div
@@ -94,10 +86,18 @@ export default function LogPanel({
       </div>
 
       {/* Body */}
-      <div className={classNames('overflow-auto p-3', bodyClassName)}>
+      <div
+        ref={bodyRef}
+        onScroll={(e) => {
+          const body = e.currentTarget;
+          followRef.current =
+            body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+        }}
+        className={classNames('overflow-auto p-3', bodyClassName)}
+      >
         {lines.length === 0 ? (
           <div className="px-1 py-2 font-mono text-xs text-on-surface-variant">
-            No matching log lines
+            {content === '' ? 'This log is empty' : 'No matching log lines'}
           </div>
         ) : (
           <div className="font-mono text-[13px] leading-5">

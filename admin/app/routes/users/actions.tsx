@@ -1,9 +1,18 @@
-import { appendFileSync, readFileSync } from 'fs';
-import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
+import { data } from 'react-router';
 import appConfig from '~/config/config.json';
+import { hashPassword, writePrivateFile } from '~/utils/htpasswd';
+import { passwordError } from '~/utils/password-rules';
 
-export async function action({ request }: { request: Request }) {
-  const { requireAuth } = await import('~/utils/server-auth');
+type ActionResult = { success: boolean; message?: string; error?: string };
+
+export async function action({
+  request,
+}: {
+  request: Request;
+}): Promise<ActionResult | ReturnType<typeof data<ActionResult>>> {
+  const { requireAuth, revokeUserTokens, createAuthToken, createAuthCookie } =
+    await import('~/utils/server-auth');
   const user = await requireAuth(request);
 
   if (!user) {
@@ -36,23 +45,16 @@ export async function action({ request }: { request: Request }) {
       };
     }
 
-    if (newPassword.length < 4) {
-      return {
-        success: false,
-        error: 'Password must be at least 4 characters long',
-      };
+    const newPasswordError = passwordError(newPassword);
+    if (newPasswordError) {
+      return { success: false, error: newPasswordError };
     }
 
     try {
+      const passwordHash = await hashPassword(newPassword);
       const htpasswdPath = appConfig.htpasswdPath;
       const htpasswdContent = readFileSync(htpasswdPath, 'utf-8');
       const lines = htpasswdContent.split('\n');
-
-      const escapedPassword = newPassword.replace(/'/g, "'\\''");
-      const passwordHash = execSync(
-        `printf '%s' '${escapedPassword}' | openssl passwd -6 -stdin`,
-        { encoding: 'utf-8' },
-      ).trim();
 
       let userFound = false;
       const updatedLines = lines.map((line) => {
@@ -75,13 +77,17 @@ export async function action({ request }: { request: Request }) {
         return { success: false, error: 'User not found' };
       }
 
-      const { writeFileSync } = await import('fs');
-      writeFileSync(htpasswdPath, updatedLines.join('\n'));
+      writePrivateFile(htpasswdPath, updatedLines.join('\n'));
+      revokeUserTokens(username);
 
-      return {
+      const result = {
         success: true,
         message: `Password changed successfully for ${username}`,
       };
+      if (username !== user.username) return result;
+      // The change revoked the current session too; hand out a fresh one.
+      const cookie = createAuthCookie(await createAuthToken(username));
+      return data(result, { headers: { 'Set-Cookie': cookie } });
     } catch (error) {
       console.error('Error changing password:', error);
       return { success: false, error: 'Failed to change password' };
@@ -117,8 +123,8 @@ export async function action({ request }: { request: Request }) {
         return existingUsername !== username;
       });
 
-      const { writeFileSync } = await import('fs');
-      writeFileSync(htpasswdPath, filteredLines.join('\n'));
+      writePrivateFile(htpasswdPath, filteredLines.join('\n'));
+      revokeUserTokens(username);
 
       return {
         success: true,
@@ -150,6 +156,11 @@ export async function action({ request }: { request: Request }) {
       };
     }
 
+    const addPasswordError = passwordError(password);
+    if (addPasswordError) {
+      return { success: false, error: addPasswordError };
+    }
+
     try {
       const htpasswdPath = appConfig.htpasswdPath;
       const htpasswdContent = readFileSync(htpasswdPath, 'utf-8');
@@ -166,13 +177,13 @@ export async function action({ request }: { request: Request }) {
         return { success: false, error: 'User already exists' };
       }
 
-      const escapedPassword = password.replace(/'/g, "'\\''");
-      const passwordHash = execSync(
-        `printf '%s' '${escapedPassword}' | openssl passwd -6 -stdin`,
-        { encoding: 'utf-8' },
-      ).trim();
-
-      appendFileSync(htpasswdPath, `${username}:${passwordHash}\n`);
+      const passwordHash = await hashPassword(password);
+      const current = readFileSync(htpasswdPath, 'utf-8');
+      const separator = current && !current.endsWith('\n') ? '\n' : '';
+      writePrivateFile(
+        htpasswdPath,
+        `${current}${separator}${username}:${passwordHash}\n`,
+      );
 
       return {
         success: true,

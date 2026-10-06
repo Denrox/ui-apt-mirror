@@ -1,9 +1,13 @@
 import fs from 'fs/promises';
+import path from 'path';
 import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { hostAddress, withMirrorHost } from '~/utils/hosts';
 import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
 import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
+import { readTail } from '~/utils/read-tail';
+import { SYNC_LOG } from '~/utils/log-files';
 
 export interface RepositoryHost {
   host: string;
@@ -12,6 +16,8 @@ export interface RepositoryHost {
 
 export interface RepositoryConfig {
   title: string;
+  /** Changes whenever the section's text changes; actions reject a stale one. */
+  revision: string;
   content: string[];
   hosts: RepositoryHost[];
   /** Editable definition for pre-filling the edit form (null if unreconstructable). */
@@ -20,7 +26,14 @@ export interface RepositoryConfig {
 
 export interface CommentedSection {
   title: string;
+  revision: string;
 }
+
+// apt-mirror2 filters only downloads; the published indexes still list every upstream package.
+const FILTERED_NOTE = [
+  '# Filtered mirror: only the selected packages are downloaded, but the index lists all',
+  '# upstream packages. Others (including Recommends) return 404; use --no-install-recommends.',
+];
 
 function rewriteSignedByHint(
   content: string[],
@@ -31,7 +44,7 @@ function rewriteSignedByHint(
   const keyringPath = (host: string) => `/etc/apt/keyrings/${host}.asc`;
   const installLines = signedHosts.map(
     (h) =>
-      `# Install pubkey: curl -fsSL http://admin.mirror.intra/api/pubkey/${h.host} | sudo tee ${keyringPath(h.host)} > /dev/null`,
+      `# Install pubkey: curl -fsSL http://${hostAddress('mirror')}/api/pubkey/${h.host} | sudo tee ${keyringPath(h.host)} > /dev/null`,
   );
 
   const filtered = content.filter((line) => !/^\s*Signed-By:/i.test(line));
@@ -105,7 +118,10 @@ async function parseRepositoryConfigs(): Promise<{
       // A section with no active deb directive is shown as a disabled entry the
       // user can re-enable.
       if (!config.isSectionEnabled(section)) {
-        commentedSections.push({ title: section.title });
+        commentedSections.push({
+          title: section.title,
+          revision: config.sectionRevision(section),
+        });
         continue;
       }
 
@@ -114,10 +130,15 @@ async function parseRepositoryConfigs(): Promise<{
         .map((host) => ({ host, gpgKey: keysIndex[host] ?? null }));
       const signed = hosts.filter((h) => h.gpgKey);
 
+      const usage = rewriteSignedByHint(
+        withMirrorHost(config.sectionUsageLines(section), hostAddress('mirror')),
+        signed,
+      );
       activeConfigs.push({
         title: section.title,
+        revision: config.sectionRevision(section),
         hosts,
-        content: rewriteSignedByHint(config.sectionUsageLines(section), signed),
+        content: config.isSectionFiltered(section) ? [...usage, ...FILTERED_NOTE] : usage,
         editable: config.sectionToInput(section),
       });
     }
@@ -129,38 +150,18 @@ async function parseRepositoryConfigs(): Promise<{
   }
 }
 
-/** Tail of the most-recently-modified mirror log, for the dashboard panel. */
+/** Tail of the sync log, for the dashboard panel. */
 async function readLatestLog(): Promise<{
   name: string;
   content: string;
 } | null> {
   try {
-    const logsDir = appConfig.mirrorLogsDir;
-    const entries = await fs.readdir(logsDir);
-    const logFiles = entries.filter(
-      (f) => f.endsWith('.log') || /\.log.+$/.exec(f),
-    );
-    if (logFiles.length === 0) return null;
-
-    const withMtime = await Promise.all(
-      logFiles.map(async (name) => {
-        try {
-          const stat = await fs.stat(`${logsDir}/${name}`);
-          return { name, mtimeMs: stat.mtimeMs };
-        } catch {
-          return { name, mtimeMs: 0 };
-        }
-      }),
-    );
-    withMtime.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    const latest = withMtime[0];
-
-    const raw = await fs.readFile(`${logsDir}/${latest.name}`, 'utf-8');
-    // Only the tail matters on the dashboard; cap to keep the payload small.
-    const content = raw.split('\n').slice(-400).join('\n');
-    return { name: latest.name, content };
+    const { content } = await readTail(path.join(appConfig.mirrorLogsDir, SYNC_LOG), 64 * 1024);
+    return { name: SYNC_LOG, content: content.split('\n').slice(-400).join('\n') };
   } catch (error) {
-    console.error('Error reading latest log:', error);
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error('Error reading the sync log:', error);
+    }
     return null;
   }
 }

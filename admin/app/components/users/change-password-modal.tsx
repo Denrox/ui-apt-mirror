@@ -4,6 +4,7 @@ import Modal from '~/components/shared/modal/modal';
 import FormField from '~/components/shared/form/form-field';
 import FormInput from '~/components/shared/form/form-input';
 import FormButton from '~/components/shared/form/form-button';
+import { passwordError } from '~/utils/password-rules';
 
 interface ChangePasswordModalProps {
   readonly isOpen: boolean;
@@ -38,8 +39,9 @@ export default function ChangePasswordModal({
       return;
     }
 
-    if (newPassword.length < 4) {
-      setError('Password must be at least 4 characters long');
+    const lengthError = passwordError(newPassword);
+    if (lengthError) {
+      setError(lengthError);
       return;
     }
 

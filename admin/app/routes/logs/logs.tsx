@@ -1,6 +1,6 @@
-import { useLoaderData } from 'react-router';
+import { useLoaderData, useRevalidator, useSearchParams } from 'react-router';
 import type { Route } from './+types/logs';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import classNames from 'classnames';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
@@ -20,26 +20,23 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function LogsPage() {
-  const { logs } = useLoaderData<typeof loader>();
-  const [selectedLog, setSelectedLog] = useState<string | null>(null);
+  const { logs, selected, tailBytes } = useLoaderData<typeof loader>();
+  const [, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [level, setLevel] = useState<LogLevelFilter>('ALL');
+  const revalidator = useRevalidator();
 
-  const sortedLogs = useMemo(
-    () => [...logs].sort((a, b) => (b.name > a.name ? 1 : -1)),
-    [logs],
-  );
-
+  // Reload the selected log while the page is visible.
   useEffect(() => {
-    if (sortedLogs.length > 0) {
-      setSelectedLog(sortedLogs[0].name);
-    }
-  }, [sortedLogs]);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && revalidator.state === 'idle') {
+        revalidator.revalidate();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [revalidator]);
 
-  const selectedLogContent = useMemo(
-    () => sortedLogs.find((log) => log.name === selectedLog)?.content || '',
-    [selectedLog, sortedLogs],
-  );
+  const selectedLog = selected?.name ?? null;
 
   return (
     <PageLayoutFull>
@@ -48,26 +45,28 @@ export default function LogsPage() {
           System Logs
         </h1>
         <p className="text-sm text-on-surface-variant">
-          Mirror, sync and service log output
+          Mirror sync, signing and nginx logs
         </p>
       </div>
 
-      {sortedLogs.length > 0 ? (
+      {logs.length > 0 ? (
         <>
           {/* Log sources */}
           <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
-            {sortedLogs.map((log) => (
+            {logs.map((name) => (
               <button
-                key={log.name}
-                onClick={() => setSelectedLog(log.name)}
+                key={name}
+                onClick={() =>
+                  setSearchParams({ log: name }, { replace: true, preventScrollReset: true })
+                }
                 className={classNames(
                   'whitespace-nowrap rounded-full border px-3 py-1.5 text-sm transition-colors',
-                  selectedLog === log.name
+                  selectedLog === name
                     ? 'border-primary/30 bg-primary/10 font-semibold text-primary'
                     : 'border-outline-variant bg-surface-container text-on-surface-variant hover:text-on-surface',
                 )}
               >
-                {log.name}
+                {name}
               </button>
             ))}
           </div>
@@ -99,8 +98,16 @@ export default function LogsPage() {
             </select>
           </div>
 
+          {selected?.truncated && (
+            <p className="text-xs text-on-surface-variant">
+              Showing the last {tailBytes / 1024} KB of this{' '}
+              {(selected.size / 1024 / 1024).toFixed(1)} MB log; filters apply to
+              this part only.
+            </p>
+          )}
+
           <LogPanel
-            content={selectedLogContent}
+            content={selected?.content ?? ''}
             title={selectedLog ?? undefined}
             search={search}
             level={level}

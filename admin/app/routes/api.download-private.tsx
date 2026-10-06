@@ -2,6 +2,7 @@ import { stat } from 'fs/promises';
 import { createReadStream } from 'fs';
 import path from 'path';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { resolveInside } from '~/utils/safe-path';
 import appConfig from '~/config/config.json';
 import { Readable } from 'stream';
 
@@ -52,20 +53,16 @@ export async function loader({ request }: { request: Request }) {
       throw new Response('File path is required', { status: 400 });
     }
 
-    const decodedPath = decodeURIComponent(filePath);
-    const normalizedFilePath = path.resolve(decodedPath);
-    const normalizedPrivateFilesDir = path.resolve(appConfig.privateFilesDir);
+    // searchParams already decoded the path; resolveInside follows symlinks and
+    // does not mistake a sibling such as files-private-x for the private root.
+    const normalizedFilePath = resolveInside(filePath, [appConfig.privateFilesDir]);
 
-    if (!normalizedFilePath.startsWith(normalizedPrivateFilesDir)) {
+    if (!normalizedFilePath) {
       console.error(
         'Security violation: Attempted to access file outside private files directory:',
-        normalizedFilePath,
+        filePath,
       );
       throw new Response('Access denied: File not in private files directory', { status: 403 });
-    }
-
-    if (normalizedFilePath.includes('..')) {
-      throw new Response('Invalid file path', { status: 400 });
     }
 
     const fileStats = await stat(normalizedFilePath);

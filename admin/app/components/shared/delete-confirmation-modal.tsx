@@ -9,6 +9,8 @@ interface DeleteConfirmationModalProps {
   itemName: string;
   itemType?: string;
   isLoading?: boolean;
+  message?: string;
+  confirmLabel?: string;
 }
 
 export default function DeleteConfirmationModal({
@@ -19,19 +21,21 @@ export default function DeleteConfirmationModal({
   itemName,
   itemType = 'item',
   isLoading = false,
+  message,
+  confirmLabel = 'Delete',
 }: DeleteConfirmationModalProps) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title}>
       <p className="text-on-surface-variant mb-6">
-        Are you sure you want to delete {itemType} "{itemName}"? This action
-        cannot be undone.
+        {message ??
+          `Are you sure you want to delete ${itemType} "${itemName}"? This action cannot be undone.`}
       </p>
       <div className="flex justify-end gap-3">
         <FormButton onClick={onClose} type="secondary" disabled={isLoading}>
           Cancel
         </FormButton>
         <FormButton onClick={onConfirm} type="danger" disabled={isLoading}>
-          Delete
+          {confirmLabel}
         </FormButton>
       </div>
     </Modal>

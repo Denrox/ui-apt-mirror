@@ -3,10 +3,10 @@
 # Health check script for apt-mirror2 container
 # This script monitors the health of nginx and apt-mirror2 services
 
-HEALTH_LOG="/var/log/health-check.log"
+HEALTH_LOG="${HEALTH_LOG:-/var/log/health-check.log}"
 NGINX_PID_FILE="/var/run/nginx.pid"
 MIRROR_LOCK_FILE="/var/run/apt-mirror.lock"
-HEALTH_STATUS_FILE="/var/run/health.status"
+HEALTH_STATUS_FILE="${HEALTH_STATUS_FILE:-/var/run/health.status}"
 
 # Function to log health check messages
 log_health() {
@@ -57,7 +57,7 @@ check_mirror() {
 check_disk() {
     local usage=$(df /var/spool/apt-mirror | tail -1 | awk '{print $5}' | sed 's/%//')
     echo "disk:$usage%"
-    if [ "$usage" -gt 90 ]; then
+    if [ "${usage:-0}" -gt 90 ]; then
         return 1
     fi
     return 0
@@ -88,6 +88,11 @@ get_memory() {
     echo "memory:${usage}%"
 }
 
+json_string() {
+    local s=${1//\\/\\\\}
+    printf '"%s"' "${s//\"/\\\"}"
+}
+
 # Function to perform comprehensive health check
 do_health_check() {
     local status="healthy"
@@ -95,49 +100,59 @@ do_health_check() {
     
     # Check nginx
     local nginx_status=$(check_nginx)
-    details+=("nginx:$nginx_status")
-    if ! echo "$nginx_status" | grep -q "running"; then
+    details+=("$nginx_status")
+    if [[ "$nginx_status" != nginx:running:* ]]; then
         status="unhealthy"
     fi
-    
+
     # Check mirror
     local mirror_status=$(check_mirror)
-    details+=("mirror:$mirror_status")
-    
+    details+=("$mirror_status")
+
     # Check disk
-    local disk_status=$(check_disk)
-    details+=("disk:$disk_status")
-    if echo "$disk_status" | grep -q "9[0-9]%\|100%"; then
+    local disk_status
+    if ! disk_status=$(check_disk) && [ "$status" = "healthy" ]; then
         status="warning"
     fi
-    
+    details+=("$disk_status")
+
     # Get additional info
     details+=("$(check_last_sync)")
     details+=("$(get_uptime)")
     details+=("$(get_memory)")
-    
-    # Write status to file
-    cat > "$HEALTH_STATUS_FILE" << EOF
+
+    # Each detail is "key:value"; write the file whole so readers never see half of it
+    local detail sep="" json=""
+    for detail in "${details[@]}"; do
+        json+="$sep"$'\n'"        $(json_string "${detail%%:*}"): $(json_string "${detail#*:}")"
+        sep=","
+    done
+    cat > "$HEALTH_STATUS_FILE.$$" << EOF
 {
     "status": "$status",
     "timestamp": "$(date -Iseconds)",
-    "details": {
-        $(printf '%s\n' "${details[@]}" | sed 's/:/": "/; s/$/"/; s/^/        "/; s/:/": "/')
+    "details": {$json
     }
 }
 EOF
-    
+    mv -f "$HEALTH_STATUS_FILE.$$" "$HEALTH_STATUS_FILE"
+
     echo "$status"
 }
 
 # Function to run continuous monitoring
 run_monitoring() {
     log_health "Starting health monitoring"
-    
+    local health_status last_status=""
+
     while true; do
-        local health_status=$(do_health_check)
-        log_health "Health check result: $health_status"
-        
+        health_status=$(do_health_check)
+        # Log changes only; the result is checked every 30 s
+        if [ "$health_status" != "$last_status" ]; then
+            log_health "Health check result: $health_status"
+            last_status=$health_status
+        fi
+
         # Sleep for 30 seconds before next check
         sleep 30
     done

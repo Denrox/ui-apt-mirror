@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 interface ProcessInfo {
   name: string;
-  status: 'running' | 'not_running' | 'not_found' | 'error';
+  status: 'running' | 'idle' | 'not_running' | 'not_found' | 'error';
   ramMb: number;
   cpuPercent: number;
 }
@@ -87,6 +87,8 @@ export default function ResourceMonitor() {
     switch (status) {
       case 'running':
         return 'Running';
+      case 'idle':
+        return 'Idle';
       case 'not_running':
         return 'Stopped';
       case 'not_found':

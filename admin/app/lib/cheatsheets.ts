@@ -15,6 +15,11 @@ export function parseGithubUrl(input: string): GithubSource {
   let raw = input.trim();
   if (!raw) throw new Error('GitHub URL is required');
   if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
+  // new URL() resolves "." and ".." (also %2e%2e), so check the path as typed.
+  const rawPath = raw.replace(/^https?:\/\/[^/?#]*/i, '').split(/[?#]/)[0];
+  if (rawPath.split(/[\\/]/).some((s) => /^(\.|%2e){1,2}$/i.test(s))) {
+    throw new Error('The URL must not contain "." or ".." segments');
+  }
 
   let url: URL;
   try {
@@ -71,6 +76,18 @@ export function defaultSourceName(s: GithubSource): string {
   return last ? `${s.repo}/${last}` : `${s.owner}/${s.repo}`;
 }
 
+// Same URL, same id: the owner, repo, branch and folder, plus a hash of the URL if that is taken.
+export function sourceIdFor(s: GithubSource, taken: (id: string) => boolean): string {
+  const base = slugify([s.owner, s.repo, s.ref, s.path].filter(Boolean).join('-'));
+  if (!taken(base)) return base;
+  let h = 0x811c9dc5;
+  for (const c of githubWebUrl(s).toLowerCase()) h = Math.imul(h ^ c.codePointAt(0)!, 0x01000193);
+  const id = `${base.slice(0, 51)}-${(h >>> 0).toString(16).padStart(8, '0')}`;
+  let unique = id;
+  for (let n = 2; taken(unique); n++) unique = `${id}-${n}`;
+  return unique;
+}
+
 export function slugify(value: string): string {
   return (
     value
@@ -93,11 +110,14 @@ export function markdownToText(markdown: string): string {
     .replace(/```[^\n]*\n/g, '\n') // fence openers, keep code
     .replace(/```/g, '')
     .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<((?:https?|ftp|mailto):[^\s<>]+)>/gi, ' $1 ') // autolinks
     .replace(/<[^>]+>/g, ' ')
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\{\{([^}]*)\}\}/g, '$1') // tldr placeholders
     .replace(/(\w)\[(\w)\]|\[(\w)\](?=\w)/g, '$1$2$3') // tldr option hints: E[x]tract, [f]ile
+    .replace(/^[ \t]*\|?[ \t:|-]*-{3,}[ \t:|-]*$/gm, '') // table separator rows
+    .replace(/\|/g, ' ')
     .replace(/^[ \t]*(#{1,6}|>|[-*+]|\d+\.)[ \t]+/gm, '')
     .replace(/[*_`~]+/g, '')
     .replace(/\s+/g, ' ')
@@ -145,15 +165,28 @@ export interface SearchHit {
   snippet: string;
 }
 
-function tokenize(q: string): string[] {
-  return q.toLowerCase().split(/\s+/).filter(Boolean);
+/** Lower case without accents, so "Sjögren" and "sjogren" match. */
+export function foldText(value: string): string {
+  return value.normalize('NFD').replace(/\p{M}+/gu, '').normalize('NFC').toLowerCase();
 }
 
-export function makeSnippet(text: string, terms: string[], radius = 90): string {
-  const lower = text.toLowerCase();
+function tokenize(q: string): string[] {
+  return q.split(/\s+/).filter(Boolean);
+}
+
+// Scripts written without spaces have no word starts to anchor on.
+const NO_SPACES = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}]/u;
+
+// A term matches at the start of a word: "tar" finds "tar" and "tarball", not "cataract".
+function termRegex(term: string): RegExp {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(NO_SPACES.test(term) ? escaped : `(?<![\\p{L}\\p{N}])${escaped}`, 'gu');
+}
+
+export function makeSnippet(text: string, terms: string[], radius = 90, folded = foldText(text)): string {
   let at = -1;
   for (const t of terms) {
-    const i = lower.indexOf(t);
+    const i = folded.search(termRegex(t));
     if (i !== -1 && (at === -1 || i < at)) at = i;
   }
   if (at === -1) at = 0;
@@ -162,39 +195,52 @@ export function makeSnippet(text: string, terms: string[], radius = 90): string 
   return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
 }
 
-// All words must match; title matches rank above body matches.
+const folds = new WeakMap<IndexEntry, { title: string; text: string }>();
+function folded(entry: IndexEntry) {
+  let f = folds.get(entry);
+  if (!f) folds.set(entry, (f = { title: foldText(entry.title), text: foldText(entry.text) }));
+  return f;
+}
+
+// All words must match; title matches rank above body matches. Body matches
+// are weighed like BM25: repeats count less and less, long pages count less.
 export function searchEntries(entries: IndexEntry[], query: string): SearchHit[] {
-  const phrase = query.trim().toLowerCase().replace(/\s+/g, ' ');
-  const terms = tokenize(phrase);
+  const phrase = foldText(query.trim()).replace(/\s+/g, ' ');
+  const terms = tokenize(phrase).map((t) => ({ t, re: termRegex(t) }));
   if (!terms.length) return [];
+  const phraseRe = termRegex(phrase);
+  const avgLength = entries.reduce((n, e) => n + e.text.length, 0) / (entries.length || 1) || 1;
 
   const hits: SearchHit[] = [];
   for (const entry of entries) {
-    const title = entry.title.toLowerCase();
-    const text = entry.text.toLowerCase();
+    const { title, text } = folded(entry);
     let score = 0;
     let all = true;
-    const titleWords = title.split(/[^a-z0-9]+/).filter(Boolean);
-    for (const t of terms) {
-      const inTitle = title.includes(t);
-      if (!inTitle && !text.includes(t)) {
+    const titleWords = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const lengthNorm = 0.25 + (0.75 * text.length) / avgLength;
+    for (const { t, re } of terms) {
+      const inTitle = title.includes(t) && title.search(re) !== -1;
+      const n = text.includes(t) ? (text.match(re)?.length ?? 0) : 0;
+      if (!inTitle && !n) {
         all = false;
         break;
       }
       if (titleWords.includes(t)) score += 30;
-      else if (titleWords.some((w) => w.startsWith(t))) score += 15;
-      else if (inTitle) score += 3;
-      let n = 0;
-      for (let i = text.indexOf(t); i !== -1 && n < 5; i = text.indexOf(t, i + t.length)) n++;
-      score += n;
+      else if (inTitle) score += 15;
+      score += (5 * n * 2.2) / (n + 1.2 * lengthNorm);
     }
     if (!all) continue;
     if (title === phrase) score += 100;
     else if (title.startsWith(phrase)) score += 50;
-    if (terms.length > 1 && text.includes(phrase)) score += 15;
-    hits.push({ entry, score, snippet: makeSnippet(entry.text, [phrase, ...terms]) });
+    if (terms.length > 1 && text.search(phraseRe) !== -1) score += 15;
+    hits.push({ entry, score, snippet: makeSnippet(entry.text, [phrase, ...terms.map((x) => x.t)], 90, text) });
   }
   return hits.sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title));
+}
+
+/** "1 cheatsheet", "2 cheatsheets". */
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 export function isSafeRelativeMdPath(p: string): boolean {
@@ -226,4 +272,53 @@ export function resolvePageLink(fromPath: string, href: string): string | null {
   }
   const resolved = parts.join('/');
   return isSafeRelativeMdPath(resolved) ? resolved : null;
+}
+
+// The open cheatsheet lives in the URL (?sheet=<source>/<path>), so Back closes it and it can be shared.
+export const SHEET_PARAM = 'sheet';
+
+export function parseSheetParam(value: string | null): { source: string; path: string } | null {
+  const slash = value?.indexOf('/') ?? -1;
+  if (!value || slash < 1) return null;
+  const source = value.slice(0, slash);
+  const path = value.slice(slash + 1);
+  return /^[a-z0-9-]+$/.test(source) && isSafeRelativeMdPath(path) ? { source, path } : null;
+}
+
+/** The query string with `page` open, or closed for null; slashes stay readable. */
+export function sheetSearch(current: URLSearchParams, page: { source: string; path: string } | null): string {
+  const params = new URLSearchParams(current);
+  params.delete(SHEET_PARAM);
+  const parts = params.toString() ? [params.toString()] : [];
+  if (page) {
+    const value = [page.source, ...page.path.split('/')].map(encodeURIComponent).join('/');
+    parts.push(`${SHEET_PARAM}=${value}`);
+  }
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+
+/** True when only the open cheatsheet changed, which needs no new page data. */
+export function onlySheetChanged(current: URL, next: URL): boolean {
+  if (current.href === next.href || current.pathname !== next.pathname) return false;
+  const rest = (url: URL) => {
+    const params = new URLSearchParams(url.search);
+    params.delete(SHEET_PARAM);
+    params.sort();
+    return params.toString();
+  };
+  return rest(current) === rest(next);
+}
+
+export const SEARCH_PAGE_SIZE = 200;
+
+/** offset/limit query values, clamped to a sane range. */
+export function parsePaging(offset: string | null, limit: string | null): { offset: number; limit: number } {
+  const int = (v: string | null, fallback: number) => {
+    const n = Number.parseInt(v ?? '', 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return {
+    offset: Math.max(0, int(offset, 0)),
+    limit: Math.min(SEARCH_PAGE_SIZE, Math.max(1, int(limit, SEARCH_PAGE_SIZE))),
+  };
 }

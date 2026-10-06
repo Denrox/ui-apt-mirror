@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { parse } from './parse';
 import { serialize } from './serialize';
 import {
@@ -84,8 +85,22 @@ export class MirrorConfig {
     return this.sections().map((s) => s.title);
   }
 
-  getSection(title: string): SectionNode | undefined {
-    return this.sections().find((s) => s.title === title);
+  /** With a revision, the section of that title whose text matches it (a hand-edited file can repeat a title). */
+  getSection(title: string, revision?: string): SectionNode | undefined {
+    const matches = this.sections().filter((s) => s.title === title);
+    return (revision && matches.find((s) => this.sectionRevision(s) === revision)) || matches[0];
+  }
+
+  /** Fingerprint of a section's text, so a save can detect that it changed in between. */
+  sectionRevision(section: SectionNode): string {
+    return createHash('sha256').update(serialize([section])).digest('hex').slice(0, 16);
+  }
+
+  /** Whether a section restricts which packages are mirrored. */
+  isSectionFiltered(section: SectionNode): boolean {
+    return section.children.some(
+      (c) => c.kind === 'filter' && c.enabled && c.values.length > 0,
+    );
   }
 
   /** A section is enabled when at least one of its deb directives is active. */
@@ -102,6 +117,11 @@ export class MirrorConfig {
       if (host) hosts.add(host);
     }
     return Array.from(hosts);
+  }
+
+  /** Upstream hostnames of every enabled section. */
+  enabledHosts(): string[] {
+    return Array.from(new Set(this.sections().flatMap((s) => this.sectionHosts(s))));
   }
 
   /**
@@ -134,6 +154,12 @@ export class MirrorConfig {
     const primary = binary[0] ?? debs[0];
     if (!primary) return null;
 
+    // The form describes one upstream with one component set; saving anything else
+    // would drop the other sources (e.g. Debian's security.debian.org lines).
+    const urls = new Set(debs.map((d) => normalizeUrl(d.uri)));
+    const componentSets = new Set(debs.map((d) => [...d.components].sort().join(' ')));
+    if (urls.size > 1 || componentSets.size > 1) return null;
+
     const base = normalizeUrl(primary.uri);
     const suites: string[] = [];
     for (const deb of binary.length ? binary : debs) {
@@ -157,7 +183,7 @@ export class MirrorConfig {
     return {
       title: section.title,
       description: firstComment
-        ? firstComment.text.replace(/^#\s?/, '').trim()
+        ? firstComment.text.replace(/^#+\s?/, '').trim()
         : '',
       baseUrl: base,
       suites,
@@ -171,15 +197,19 @@ export class MirrorConfig {
 
   // --- Section mutations ---------------------------------------------------
 
-  /** Comment or uncomment every deb directive in a section. */
-  setSectionEnabled(title: string, enabled: boolean): boolean {
-    const section = this.getSection(title);
+  /**
+   * Comment or uncomment every deb and filter directive in a section. Filters
+   * apply per base URL, so a disabled section's filters would still restrict
+   * other sections with the same upstream.
+   */
+  setSectionEnabled(title: string, enabled: boolean, revision?: string): boolean {
+    const section = this.getSection(title, revision);
     if (!section) return false;
     let changed = false;
-    for (const deb of debChildren(section)) {
-      if (deb.enabled !== enabled) {
-        deb.enabled = enabled;
-        deb.raw = undefined;
+    for (const child of section.children) {
+      if ((child.kind === 'deb' || child.kind === 'filter') && child.enabled !== enabled) {
+        child.enabled = enabled;
+        child.raw = undefined;
         changed = true;
       }
     }
@@ -205,11 +235,15 @@ export class MirrorConfig {
     title: string,
     input: RepositoryInput,
     mirrorDomain: string,
+    revision?: string,
   ): boolean {
-    const section = this.getSection(title);
+    const section = this.getSection(title, revision);
     if (!section) return false;
 
     const oldUrls = baseUrlsOf(section);
+    const oldSignedBy = section.children
+      .filter((c): c is UsageNode => c.kind === 'usage')
+      .flatMap((c) => c.lines.filter((l) => /^#?\s*Signed-By:/i.test(l)));
     // Filters the input does not mention are preserved; mentioned keys override
     // (an empty array clears that directive).
     const mergedFilters = sectionFilters(section);
@@ -224,6 +258,11 @@ export class MirrorConfig {
       { ...input, filters: mergedFilters },
       mirrorDomain,
     );
+    // The generated Usage snippet has no Signed-By; keep the one the section had.
+    if (!input.trusted && oldSignedBy.length) {
+      const usage = rebuilt.children.find((c): c is UsageNode => c.kind === 'usage');
+      if (usage && !usage.lines.some((l) => /Signed-By:/i.test(l))) usage.lines.push(...oldSignedBy);
+    }
     section.title = rebuilt.title;
     section.children = rebuilt.children;
     section.startRaw = rebuilt.startRaw;
@@ -238,12 +277,10 @@ export class MirrorConfig {
   }
 
   /** Remove a section entirely and prune clean directives it alone referenced. */
-  removeSection(title: string): boolean {
-    const index = this.nodes.findIndex(
-      (n) => n.kind === 'section' && n.title === title,
-    );
-    if (index === -1) return false;
-    const section = this.nodes[index] as SectionNode;
+  removeSection(title: string, revision?: string): boolean {
+    const section = this.getSection(title, revision);
+    if (!section) return false;
+    const index = this.nodes.indexOf(section);
     const urls = baseUrlsOf(section);
 
     let removeCount = 1;
@@ -334,7 +371,8 @@ function buildSection(
   const children: SectionChild[] = [];
 
   if (input.description && input.description.trim()) {
-    children.push({ kind: 'comment', text: `# ${input.description.trim()}` });
+    // `##` never parses as a directive, section marker or Usage marker.
+    children.push({ kind: 'comment', text: `## ${input.description.trim()}` });
   }
 
   const arches = (input.arches ?? []).map((a) => a.trim()).filter(Boolean);
@@ -396,7 +434,7 @@ function filterNodesFor(
   const nodes: FilterNode[] = [];
   for (const key of FILTER_KEYS) {
     const values = (filters[key] ?? []).map((v) => v.trim()).filter(Boolean);
-    if (values.length) nodes.push({ kind: 'filter', key, uri: base, values });
+    if (values.length) nodes.push({ kind: 'filter', key, enabled: true, uri: base, values });
   }
   return nodes;
 }

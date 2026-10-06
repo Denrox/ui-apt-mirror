@@ -434,7 +434,8 @@ main() {
     
     print_success "Upgrade completed successfully!"
     echo ""
-    print_status "Your settings (.env), users, repositories and custom configs were kept."
+    print_status "Your settings (.env), users, repositories, nginx overrides and docker-compose.override.yml"
+    print_status "were kept. Hand edits to docker-compose.yml are not; see any warnings above."
     print_status "A backup of the previous configuration is in backups/."
     echo ""
     print_status "The new version is now running. You can access it at:"

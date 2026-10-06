@@ -46,7 +46,7 @@ RUN cd /var/admin && npm install && npm run build
 
 # Nginx site templates, rendered by entrypoint.sh
 COPY nginx/sites/ /etc/nginx/templates/
-COPY nginx/conf.d/log-date.conf /etc/nginx/conf.d/log-date.conf
+COPY nginx/conf.d/ /etc/nginx/conf.d/
 
 # Copy scripts
 COPY scripts/ /usr/local/bin/

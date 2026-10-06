@@ -26,13 +26,14 @@ import {
   useFetcher,
 } from 'react-router';
 import appConfig from '~/config/config.json';
-import { useRuntimeConfig } from '~/utils/use-runtime-config';
+import { hostOf, useRuntimeConfig } from '~/utils/use-runtime-config';
 import { loader } from './loader';
 import { action } from './action';
 import classNames from 'classnames';
 import ChunkedUpload from '~/components/shared/form/chunked-upload';
 import DownloadFile from '~/components/shared/form/download-file';
 import { getHostAddress } from '~/utils/url';
+import { formatDateTime, useHydrated } from '~/utils/use-hydrated';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -84,7 +85,8 @@ function isChildPath(path: string, parentPath: string): boolean {
 }
 
 export default function FileManager() {
-  const { isNpmProxyEnabled } = useRuntimeConfig();
+  const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
+  const filesHostAddress = hostOf(hosts, 'files');
   const data = useLoaderData<typeof loader & { __domain: string }>();
   const files = data?.files || [];
   const isLockFilePresent = data?.isLockFilePresent || false;
@@ -187,6 +189,9 @@ export default function FileManager() {
   const isRootPath = useMemo(() => {
     return currentPath === rootPath;
   }, [currentPath, rootPath]);
+
+  // Machine-managed: the server only allows deleting here.
+  const isManagedView = view === 'mirrored-packages' || view === 'npm-packages';
 
   const shouldShowSyncPlaceholder = useMemo(() => {
     return view === 'mirrored-packages' && isLockFilePresent;
@@ -417,7 +422,7 @@ export default function FileManager() {
     const fileUrl =
       view === 'private-files'
         ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-        : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+        : `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
     const mediaType = isMediaFile(item.name);
 
     if (mediaType) {
@@ -474,7 +479,7 @@ export default function FileManager() {
     const fileUrl =
       view === 'private-files'
         ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-        : `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+        : `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
     const previewType = getPreviewType(item.name);
     if (!previewType) return;
     setFilePreview({
@@ -494,17 +499,8 @@ export default function FileManager() {
     });
   };
 
-  const formatDate = (date: Date): string => {
-    return (
-      date.toLocaleDateString() +
-      ' ' +
-      date.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      })
-    );
-  };
+  const hydrated = useHydrated();
+  const formatDate = (date: Date): string => formatDateTime(date, hydrated);
 
   const parentDirName = useMemo(() => {
     return currentPath.split('/').slice(0, -1).join('/');
@@ -583,14 +579,14 @@ export default function FileManager() {
           {view === 'mirrored-packages' && (
             <FileManagerWarning
               type="warning"
-              message="Manual changes can break mirror functionality"
+              message="Manual changes can break mirror functionality. Only deletion is available here."
             />
           )}
 
           {view === 'npm-packages' && (
             <FileManagerWarning
               type="warning"
-              message="Manual changes can break npm proxy functionality"
+              message="Manual changes can break npm proxy functionality. Only deletion is available here."
             />
           )}
 
@@ -689,7 +685,7 @@ export default function FileManager() {
                         </FormButton>
                       )}
                     </div>
-                    {!isSearching && (
+                    {!isSearching && !isManagedView && (
                       <div className="flex items-center gap-2">
                         <FormButton
                           type="secondary"
@@ -724,7 +720,7 @@ export default function FileManager() {
                       Cancel
                     </FormButton>
                   </div>
-                ) : !isPublicRoute && !isSearching ? (
+                ) : !isPublicRoute && !isSearching && !isManagedView ? (
                   <>
                     {
                       <ChunkedUpload
@@ -882,7 +878,7 @@ export default function FileManager() {
                                   view === 'mirrored-packages'
                                     ? rootPath
                                     : appConfig.filesDir;
-                                link.href = `${getHostAddress(appConfig.hosts.find((host) => host.id === 'files')?.address ?? '')}/downloads${item.path.replace(basePath, '')}`;
+                                link.href = `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
                                 link.target = '_blank';
                                 link.rel = 'noopener noreferrer';
                                 document.body.appendChild(link);
@@ -894,7 +890,7 @@ export default function FileManager() {
                             ↓
                           </FormButton>
                         )}
-                        {!isPublicRoute && (
+                        {!isPublicRoute && !isManagedView && (
                           <>
                             <FormButton
                               type="secondary"
@@ -930,19 +926,21 @@ export default function FileManager() {
                             >
                               <FontAwesomeIcon icon={faEdit} />
                             </FormButton>
-                            <FormButton
-                              type="secondary"
-                              size="small"
-                              disabled={
-                                isOperationInProgress ||
-                                Boolean(fileToCut) ||
-                                isLoading
-                              }
-                              onClick={() => handleDelete(item.path, item.name)}
-                            >
-                              <FontAwesomeIcon icon={faTrash} />
-                            </FormButton>
                           </>
+                        )}
+                        {!isPublicRoute && (
+                          <FormButton
+                            type="secondary"
+                            size="small"
+                            disabled={
+                              isOperationInProgress ||
+                              Boolean(fileToCut) ||
+                              isLoading
+                            }
+                            onClick={() => handleDelete(item.path, item.name)}
+                          >
+                            <FontAwesomeIcon icon={faTrash} />
+                          </FormButton>
                         )}
                       </div>
                     }
@@ -1002,7 +1000,7 @@ export default function FileManager() {
         allFiles={currentPathFiles}
         basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
         filesHost={getHostAddress(
-          appConfig.hosts.find((host) => host.id === 'files')?.address ?? '',
+          filesHostAddress,
         )}
       />
 
@@ -1024,7 +1022,7 @@ export default function FileManager() {
         allFiles={currentPathFiles}
         basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
         filesHost={getHostAddress(
-          appConfig.hosts.find((host) => host.id === 'files')?.address ?? '',
+          filesHostAddress,
         )}
       />
 

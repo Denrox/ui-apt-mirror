@@ -5,16 +5,42 @@ import fsSync from 'fs';
 import https from 'https';
 import http from 'http';
 import { URL } from 'url';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { resolveBelow, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
+import { checkLockFile } from '~/utils/sync';
+import { moveFile } from '~/utils/move-path';
+import {
+  abortUpload,
+  nameTakenError,
+  pathExists,
+  removeStaleTempDirs,
+  sweepStaleUploads,
+  UploadError,
+  writeChunk,
+} from '~/utils/chunk-upload';
+import { scanTrees } from '~/utils/health-scan';
+import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
-const chunkStorage = new Map<
-  string,
-  { tempDir: string; totalChunks: number; fileName: string }
->();
+const IMAGE_NAME_RE = /^[a-z0-9]+(?:[._/:-][a-z0-9]+)*$/i;
+const IMAGE_TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
+const ARCHITECTURES = new Set(['amd64', 'arm64', 'arm', '386', 'ppc64le', 's390x', 'riscv64']);
+
+const OUTSIDE = 'Path is outside the file storage';
+
+const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+
+// Uploads cut off by a restart leave temp dirs behind; uploads stuck in this process are swept.
+for (const dir of [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean)) {
+  removeStaleTempDirs(dir).catch((error) => console.error('Failed to clean upload temp dirs:', error));
+}
+setInterval(() => {
+  sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
+}, 10 * 60 * 1000);
 
 const activeDownloads = new Map<string, { request: any; fileStream: any }>();
 
@@ -29,16 +55,16 @@ setInterval(() => {
 async function cancelAndCleanupDownload(destPath: string): Promise<void> {
   try {
     const activeDownload = activeDownloads.get(destPath);
+    // Without a running download, destPath is an existing file that is not ours to remove.
+    if (!activeDownload) return;
 
-    if (activeDownload) {
-      activeDownload.request.destroy();
+    activeDownload.request.destroy();
 
-      if (activeDownload.fileStream) {
-        activeDownload.fileStream.destroy();
-      }
-
-      activeDownloads.delete(destPath);
+    if (activeDownload.fileStream) {
+      activeDownload.fileStream.destroy();
     }
+
+    activeDownloads.delete(destPath);
 
     try {
       await fs.unlink(destPath);
@@ -46,6 +72,15 @@ async function cancelAndCleanupDownload(destPath: string): Promise<void> {
   } catch (error) {
     console.error('Failed to cancel and cleanup download:', error);
   }
+}
+
+async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise<string | null> {
+  const syncRunning = await checkLockFile();
+  for (const target of targets) {
+    const reason = writeBlockedReason(target, op, syncRunning);
+    if (reason) return reason;
+  }
+  return null;
 }
 
 function isValidFileName(name: string): boolean {
@@ -73,7 +108,7 @@ export function getValidationError(name: string): string | null {
 
 async function createDirectory(dirPath: string): Promise<boolean> {
   try {
-    await fs.mkdir(dirPath, { recursive: true });
+    await mkdirOwned(dirPath);
     return true;
   } catch (error) {
     return false;
@@ -112,34 +147,6 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
   }
 }
 
-async function moveFile(
-  sourcePath: string,
-  destinationPath: string,
-): Promise<boolean> {
-  try {
-    const fileName = path.basename(sourcePath);
-    const newPath = path.join(destinationPath, fileName);
-
-    if (sourcePath === newPath) {
-      return false;
-    }
-
-    if (newPath.startsWith(sourcePath + path.sep)) {
-      return false;
-    }
-
-    try {
-      await fs.access(newPath);
-      return false;
-    } catch (error) {}
-
-    await fs.rename(sourcePath, newPath);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
 async function downloadFile(url: string, destPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     let fileStream: fsSync.WriteStream | undefined;
@@ -154,12 +161,13 @@ async function downloadFile(url: string, destPath: string): Promise<boolean> {
           return;
         }
 
-        fileStream = fsSync.createWriteStream(destPath);
+        fileStream = fsSync.createWriteStream(destPath, { flags: 'wx' });
         response.pipe(fileStream);
 
         fileStream.on('finish', () => {
           fileStream?.close();
           activeDownloads.delete(destPath);
+          giveToDirOwner(destPath);
           resolve(true);
         });
 
@@ -191,13 +199,12 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
   try {
     const destPath = path.join(filePath, file.name);
 
-    const destDir = path.dirname(destPath);
-    await fs.mkdir(destDir, { recursive: true });
+    await mkdirOwned(path.dirname(destPath));
 
     if (file && typeof file?.arrayBuffer === 'function') {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      await fs.writeFile(destPath, buffer);
+      await fs.writeFile(destPath, buffer, { flag: 'wx' });
     } else if (file?.stream) {
       const stream = file.stream();
       const chunks: Buffer[] = [];
@@ -205,13 +212,14 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
         chunks.push(Buffer.from(chunk));
       }
       const buffer = Buffer.concat(chunks);
-      await fs.writeFile(destPath, buffer);
+      await fs.writeFile(destPath, buffer, { flag: 'wx' });
     } else if (file && file.buffer) {
-      await fs.writeFile(destPath, file.buffer);
+      await fs.writeFile(destPath, file.buffer, { flag: 'wx' });
     } else {
       throw new Error('Unsupported file type');
     }
 
+    giveToDirOwner(destPath);
     return true;
   } catch (error) {
     return false;
@@ -222,7 +230,6 @@ async function handleChunkUpload(
   formData: FormData,
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   try {
-    const filePath = formData.get('filePath') as string;
     const chunk = formData.get('chunk') as any;
     const chunkIndex = parseInt(formData.get('chunkIndex') as string);
     const totalChunks = parseInt(formData.get('totalChunks') as string);
@@ -232,10 +239,21 @@ async function handleChunkUpload(
     if (!chunk || !fileName || !fileId) {
       return { success: false, error: 'Missing required chunk data' };
     }
+    if (!UPLOAD_ID_RE.test(fileId)) {
+      return { success: false, error: 'Invalid upload id' };
+    }
+    const filePath = resolveInside(formData.get('filePath'), storageRoots());
+    if (!filePath) {
+      return { success: false, error: OUTSIDE };
+    }
 
     const validationError = getValidationError(fileName);
     if (validationError) {
       return { success: false, error: validationError };
+    }
+    const blocked = await writeBlocked('add', path.join(filePath, fileName));
+    if (blocked) {
+      return { success: false, error: blocked };
     }
 
     let chunkBuffer: Buffer;
@@ -252,37 +270,23 @@ async function handleChunkUpload(
       return { success: false, error: 'Failed to process chunk data' };
     }
 
-    if (!chunkStorage.has(fileId)) {
-      const tempDirName = `.tmp-${fileId}`;
-      const tempDir = path.join(filePath, tempDirName);
-      await fs.mkdir(tempDir, { recursive: true });
-      chunkStorage.set(fileId, { tempDir, totalChunks, fileName });
-    }
-
-    const fileInfo = chunkStorage.get(fileId)!;
-    const tempFilePath = path.join(fileInfo.tempDir, `${fileName}.temp`);
-
-    if (chunkIndex === 0) {
-      await fs.writeFile(tempFilePath, chunkBuffer);
-    } else {
-      await fs.appendFile(tempFilePath, chunkBuffer);
-    }
-
-    if (chunkIndex === totalChunks - 1) {
-      const destPath = path.join(filePath, fileName);
-      await fs.rename(tempFilePath, destPath);
-
-      try {
-        await fs.rm(fileInfo.tempDir, { recursive: true, force: true });
-      } catch (cleanupError) {}
-
-      chunkStorage.delete(fileId);
-
+    const result = await writeChunk({
+      fileId,
+      dir: filePath,
+      fileName,
+      chunkIndex,
+      totalChunks,
+      data: chunkBuffer,
+    });
+    if (result === 'done') {
       return { success: true, message: 'File uploaded successfully' };
     }
 
     return { success: true, message: 'Chunk processed successfully' };
   } catch (error) {
+    if (error instanceof UploadError) {
+      return { success: false, error: error.message };
+    }
     return { success: false, error: 'Failed to process chunk' };
   }
 }
@@ -293,8 +297,18 @@ async function downloadImage(
   destPath: string,
   architecture: string = 'amd64',
 ): Promise<boolean> {
+  // Values end up in skopeo arguments and the file name; accept only what image references allow.
+  if (!IMAGE_NAME_RE.test(imageUrl) || imageUrl.length > 255) {
+    throw new Error('Invalid image name');
+  }
+  if (!IMAGE_TAG_RE.test(imageTag)) {
+    throw new Error('Invalid image tag');
+  }
+  if (!ARCHITECTURES.has(architecture)) {
+    throw new Error('Invalid architecture');
+  }
   try {
-    await fs.mkdir(destPath, { recursive: true });
+    await mkdirOwned(destPath);
 
     const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
     const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
@@ -312,11 +326,12 @@ async function downloadImage(
     }
 
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
-    const archFlag = `--override-arch ${architecture}`;
-    const skopeoCommand = `skopeo copy ${archFlag} docker://${sourceImage} docker-archive:${fullPath}`;
+    const skopeoCopy = (image: string) =>
+      execFileAsync('skopeo', ['copy', '--override-arch', architecture, `docker://${image}`, `docker-archive:${fullPath}`]);
 
     try {
-      await execAsync(skopeoCommand);
+      await skopeoCopy(sourceImage);
+      giveToDirOwner(fullPath);
       return true;
     } catch (dockerError) {
       if (
@@ -325,10 +340,10 @@ async function downloadImage(
         !imageUrl.startsWith('gcr.io/')
       ) {
         const gcrImage = `gcr.io/google-containers/${imageUrl}:${imageTag}`;
-        const gcrCommand = `skopeo copy ${archFlag} docker://${gcrImage} docker-archive:${fullPath}`;
 
         try {
-          await execAsync(gcrCommand);
+          await skopeoCopy(gcrImage);
+          giveToDirOwner(fullPath);
           return true;
         } catch (gcrError) {
           throw dockerError;
@@ -385,7 +400,7 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   if (imageUrl.startsWith('gcr.io/')) {
     return {
       registry: 'gcr.io',
-      repository: imageUrl.substring(8),
+      repository: imageUrl.substring('gcr.io/'.length),
     };
   }
 
@@ -402,7 +417,7 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   if (imageUrl.startsWith('docker.io/')) {
     return {
       registry: 'docker.io',
-      repository: imageUrl.substring(11),
+      repository: imageUrl.substring('docker.io/'.length),
     };
   }
 
@@ -480,6 +495,8 @@ export async function action({ request }: Route.ActionArgs): Promise<{
   output?: string;
   results?: any[];
 }> {
+  await requireAuthMiddleware(request);
+  const roots = storageRoots();
   try {
     const formData = await request.formData();
     const intent = formData.get('intent') as string;
@@ -488,7 +505,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       return { success: true, message: 'Server is working' };
     } else if (intent === 'createFolder') {
       const folderName = formData.get('folderName') as string;
-      const currentPath = formData.get('currentPath') as string;
+      const currentPath = resolveInside(formData.get('currentPath'), roots);
+      if (!currentPath) {
+        return { success: false, error: OUTSIDE };
+      }
 
       const validationError = getValidationError(folderName);
       if (validationError) {
@@ -496,6 +516,13 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
 
       const newPath = path.join(currentPath, folderName);
+      const blocked = await writeBlocked('add', newPath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
+      if (await pathExists(newPath)) {
+        return { success: false, error: nameTakenError(folderName) };
+      }
       const success = await createDirectory(newPath);
 
       if (success) {
@@ -504,7 +531,14 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to create folder' };
       }
     } else if (intent === 'deleteFile') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveBelow(formData.get('filePath'), roots);
+      if (!filePath) {
+        return { success: false, error: OUTSIDE };
+      }
+      const blocked = await writeBlocked('remove', filePath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
       const success = await deleteFile(filePath);
       if (success) {
         return { success: true, message: 'File deleted successfully' };
@@ -512,8 +546,11 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to delete file' };
       }
     } else if (intent === 'renameFile') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveBelow(formData.get('filePath'), roots);
       const newName = formData.get('newName') as string;
+      if (!filePath) {
+        return { success: false, error: OUTSIDE };
+      }
 
       if (!filePath || !newName) {
         return { success: false, error: 'File path and new name are required' };
@@ -522,6 +559,13 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       const validationError = getValidationError(newName);
       if (validationError) {
         return { success: false, error: validationError };
+      }
+
+      const blocked =
+        (await writeBlocked('remove', filePath)) ||
+        (await writeBlocked('add', path.join(path.dirname(filePath), newName)));
+      if (blocked) {
+        return { success: false, error: blocked };
       }
 
       const success = await renameFile(filePath, newName);
@@ -535,14 +579,18 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         };
       }
     } else if (intent === 'moveFile') {
-      const sourcePath = formData.get('sourcePath') as string;
-      const destinationPath = formData.get('destinationPath') as string;
+      const sourcePath = resolveBelow(formData.get('sourcePath'), roots);
+      const destinationPath = resolveInside(formData.get('destinationPath'), roots);
 
       if (!sourcePath || !destinationPath) {
-        return {
-          success: false,
-          error: 'Source path and destination path are required',
-        };
+        return { success: false, error: OUTSIDE };
+      }
+
+      const blocked =
+        (await writeBlocked('remove', sourcePath)) ||
+        (await writeBlocked('add', path.join(destinationPath, path.basename(sourcePath))));
+      if (blocked) {
+        return { success: false, error: blocked };
       }
 
       const success = await moveFile(sourcePath, destinationPath);
@@ -557,10 +605,25 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         };
       }
     } else if (intent === 'uploadFile') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveInside(formData.get('filePath'), roots);
       const file = formData.get('file');
+      if (!filePath) {
+        return { success: false, error: OUTSIDE };
+      }
       if (!file) {
         return { success: false, error: 'No file provided' };
+      }
+      const blocked = await writeBlocked('add', filePath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
+      const name = (file as File).name;
+      const nameError = getValidationError(name ?? '');
+      if (nameError) {
+        return { success: false, error: nameError };
+      }
+      if (await pathExists(path.join(filePath, name))) {
+        return { success: false, error: nameTakenError(name) };
       }
       const success = await uploadFile(filePath, file);
       if (success) {
@@ -569,15 +632,19 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to upload file' };
       }
     } else if (intent === 'cleanupDownload') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveInside(formData.get('filePath'), roots);
       const fileName = formData.get('fileName') as string;
 
-      if (!filePath || !fileName) {
+      if (!filePath || !fileName || getValidationError(fileName)) {
         return { success: false, error: 'Missing required cleanup data' };
       }
 
       try {
         const fullPath = path.join(filePath, fileName);
+        const blocked = await writeBlocked('remove', fullPath);
+        if (blocked) {
+          return { success: false, error: blocked };
+        }
 
         await cancelAndCleanupDownload(fullPath);
 
@@ -586,13 +653,24 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         console.error('Failed to cleanup download:', error);
         return { success: false, error: 'Failed to cleanup download' };
       }
+    } else if (intent === 'abortUpload') {
+      const filePath = resolveInside(formData.get('filePath'), roots);
+      const fileId = formData.get('fileId');
+      if (!filePath || typeof fileId !== 'string' || !UPLOAD_ID_RE.test(fileId)) {
+        return { success: false, error: 'Missing required upload data' };
+      }
+      await abortUpload(fileId, filePath);
+      return { success: true };
     } else if (intent === 'uploadChunk') {
       const res = await handleChunkUpload(formData);
       return res;
     } else if (intent === 'downloadFile') {
       const url = formData.get('url') as string;
       const fileName = formData.get('fileName') as string;
-      const currentPath = formData.get('currentPath') as string;
+      const currentPath = resolveInside(formData.get('currentPath'), roots);
+      if (!currentPath) {
+        return { success: false, error: OUTSIDE };
+      }
 
       if (!url || !fileName) {
         return { success: false, error: 'URL and filename are required' };
@@ -604,6 +682,13 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
 
       const destPath = path.join(currentPath, fileName);
+      const blocked = await writeBlocked('add', destPath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
+      if (await pathExists(destPath)) {
+        return { success: false, error: nameTakenError(fileName) };
+      }
       const success = await downloadFile(url, destPath);
 
       if (success) {
@@ -614,8 +699,15 @@ export async function action({ request }: Route.ActionArgs): Promise<{
     } else if (intent === 'downloadImage') {
       const imageUrl = formData.get('imageUrl') as string;
       const imageTag = formData.get('imageTag') as string;
-      const currentPath = formData.get('currentPath') as string;
+      const currentPath = resolveInside(formData.get('currentPath'), roots);
+      if (!currentPath) {
+        return { success: false, error: OUTSIDE };
+      }
       const architecture = (formData.get('architecture') as string) || 'amd64';
+      const blocked = await writeBlocked('add', currentPath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
 
       if (!imageUrl || !imageUrl.trim()) {
         return { success: false, error: 'Image URL is required' };
@@ -651,7 +743,12 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
     } else if (intent === 'runHealthCheck') {
       try {
-        const dataDirs = [appConfig.filesDir, appConfig.mirroredPackagesDir];
+        const dataDirs = [
+          appConfig.filesDir,
+          appConfig.privateFilesDir,
+          appConfig.mirroredPackagesDir,
+          appConfig.npmPackagesDir,
+        ].filter(Boolean);
         const healthFile = appConfig.healthReportFile;
 
         const initialHealthReport = {
@@ -674,147 +771,13 @@ export async function action({ request }: Route.ActionArgs): Promise<{
 
         (async () => {
           try {
-            const invalidFiles: Array<{
-              path: string;
-              reason: string;
-              size: number;
-            }> = [];
-            const cleanedTmpDirs: string[] = [];
-            const scanErrors: string[] = [];
-            let totalFiles = 0;
-            let totalDirectories = 0;
-
-            const isOlderThanDays = (
-              dirPath: string,
-              maxDays: number,
-            ): boolean => {
-              try {
-                const stats = fsSync.statSync(dirPath);
-                const currentTime = Date.now();
-                const daysOld =
-                  (currentTime - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
-                return daysOld > maxDays;
-              } catch {
-                return false;
-              }
-            };
-
-            const scanDirectory = async (
-              currentPath: string,
-              currentDepth: number,
-              maxDepth: number,
-            ): Promise<void> => {
-              if (currentDepth > maxDepth) return;
-
-              try {
-                const items = await fs.readdir(currentPath);
-
-                for (const itemName of items) {
-                  if (
-                    itemName.startsWith('.') &&
-                    !itemName.startsWith('.tmp-')
-                  ) {
-                    continue;
-                  }
-
-                  const itemPath = path.join(currentPath, itemName);
-
-                  try {
-                    const stats = await fs.stat(itemPath);
-
-                    if (stats.isDirectory()) {
-                      if (itemName.startsWith('.tmp-')) {
-                        if (isOlderThanDays(itemPath, 1)) {
-                          try {
-                            await fs.rm(itemPath, {
-                              recursive: true,
-                              force: true,
-                            });
-                            const relativePath = itemPath.replace(
-                              currentPath + '/',
-                              '',
-                            );
-                            cleanedTmpDirs.push(relativePath);
-                          } catch (removeError) {
-                            const errorMsg = `Failed to remove old .tmp- directory: ${itemPath}`;
-                            scanErrors.push(errorMsg);
-                          }
-                        }
-                      } else {
-                        await scanDirectory(
-                          itemPath,
-                          currentDepth + 1,
-                          maxDepth,
-                        );
-                      }
-                    } else if (stats.isFile()) {
-                      if (stats.size < 16) {
-                        invalidFiles.push({
-                          path: itemPath,
-                          reason: 'suspiciously_small',
-                          size: stats.size,
-                        });
-                      }
-                    }
-                  } catch (itemError) {
-                    const errorMsg = `Error processing item: ${itemPath}`;
-                    scanErrors.push(errorMsg);
-                    console.error(errorMsg, itemError);
-                  }
-                }
-              } catch (readError) {
-                const errorMsg = `Error reading directory: ${currentPath}`;
-                scanErrors.push(errorMsg);
-                console.error(errorMsg, readError);
-              }
-            };
-
-            const countItems = async (
-              targetDir: string,
-            ): Promise<{ files: number; dirs: number }> => {
-              try {
-                const files = await fs.readdir(targetDir);
-                let fileCount = 0;
-                let dirCount = 0;
-
-                for (const item of files) {
-                  try {
-                    const itemPath = path.join(targetDir, item);
-                    const stats = await fs.stat(itemPath);
-                    if (stats.isDirectory()) {
-                      dirCount++;
-                    } else {
-                      fileCount++;
-                    }
-                  } catch {
-                  }
-                }
-
-                return { files: fileCount, dirs: dirCount };
-              } catch {
-                return { files: 0, dirs: 0 };
-              }
-            };
-
-            for (const dir of dataDirs) {
-              try {
-                await scanDirectory(dir, 0, 10);
-              } catch (error) {
-                const errorMsg = `Error scanning directory: ${dir}`;
-                scanErrors.push(errorMsg);
-              }
-            }
-
-            for (const dir of dataDirs) {
-              try {
-                const counts = await countItems(dir);
-                totalFiles += counts.files;
-                totalDirectories += counts.dirs;
-              } catch (error) {
-                const errorMsg = `Error counting items in directory: ${dir}`;
-                scanErrors.push(errorMsg);
-              }
-            }
+            const {
+              totalFiles,
+              totalDirectories,
+              invalidFiles,
+              cleanedTmpDirs,
+              scanErrors,
+            } = await scanTrees(dataDirs);
 
             const healthReport = {
               timestamp: new Date().toISOString(),
@@ -896,14 +859,14 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
     } else if (intent === 'searchFiles') {
       const searchQuery = formData.get('searchQuery') as string;
-      const rootPath = formData.get('rootPath') as string;
+      const rootPath = resolveInside(formData.get('rootPath'), roots);
 
       if (!searchQuery || searchQuery.trim().length < 3) {
         return { success: false, error: 'Search query must be at least 3 characters' };
       }
 
       if (!rootPath) {
-        return { success: false, error: 'Root path is required' };
+        return { success: false, error: OUTSIDE };
       }
 
       try {

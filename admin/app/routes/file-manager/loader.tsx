@@ -1,4 +1,5 @@
 import path from 'path';
+import { resolveInside, storageRoots } from '~/utils/safe-path';
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
@@ -61,29 +62,8 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
 }
 
 function isPathAllowed(requestedPath: string, isPublicRoute: boolean): boolean {
-  const userUploadsDir = appConfig.filesDir;
-  const privateFilesDir = appConfig.privateFilesDir;
-  const mirroredPackagesDir = appConfig.mirroredPackagesDir;
-  const npmPackagesDir = appConfig.npmPackagesDir;
-
-  const normalizedRequestedPath = path.resolve(requestedPath);
-  const normalizedUserUploadsDir = path.resolve(userUploadsDir);
-  const normalizedMirroredPackagesDir = path.resolve(mirroredPackagesDir);
-  const normalizedNpmPackagesDir = path.resolve(npmPackagesDir);
-
-  if (isPublicRoute && privateFilesDir) {
-    const normalizedPrivateFilesDir = path.resolve(privateFilesDir);
-    if (normalizedRequestedPath.startsWith(normalizedPrivateFilesDir)) {
-      return false;
-    }
-  }
-
-  return (
-    normalizedRequestedPath.startsWith(normalizedUserUploadsDir) ||
-    (!isPublicRoute && privateFilesDir && normalizedRequestedPath.startsWith(path.resolve(privateFilesDir))) ||
-    normalizedRequestedPath.startsWith(normalizedMirroredPackagesDir) ||
-    normalizedRequestedPath.startsWith(normalizedNpmPackagesDir)
-  );
+  // The public host never sees private files; symlinks may not lead outside the roots.
+  return resolveInside(requestedPath, storageRoots({ includePrivate: !isPublicRoute })) !== null;
 }
 
 export async function loader({ request }: { request: Request }) {

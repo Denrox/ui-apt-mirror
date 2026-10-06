@@ -2,6 +2,8 @@
 # Sign Release files for every mirrored host that has a GPG key in keys.json.
 # Called from mirror-sync.sh after a successful apt-mirror run, and on demand
 # from the admin UI (single-host mode via $1).
+# The upstream InRelease / Release.gpg are kept as *.upstream; `--restore <host>`
+# puts them back (used before the host's key is deleted).
 
 set -u
 
@@ -20,10 +22,57 @@ fi
 
 export GNUPGHOME="$GPG_HOME"
 
+# Whether a dists/ directory's signatures were made with the given key.
+signed_by() {
+    local dist_dir="$1" fingerprint="$2" status
+    if [ -f "$dist_dir/InRelease" ]; then
+        status=$(gpg --batch --status-fd 1 --verify "$dist_dir/InRelease" 2>/dev/null)
+    elif [ -f "$dist_dir/Release.gpg" ]; then
+        status=$(gpg --batch --status-fd 1 --verify "$dist_dir/Release.gpg" "$dist_dir/Release" 2>/dev/null)
+    else
+        return 1
+    fi
+    grep -q "^\[GNUPG:\] VALIDSIG .*$fingerprint" <<< "$status"
+}
+
+host_fingerprint() {
+    jq -r --arg h "$1" '.[$h].fingerprint // empty' "$KEYS_INDEX"
+}
+
+restore_host() {
+    local host="$1"
+    local fingerprint
+    fingerprint=$(host_fingerprint "$host")
+    if [ -z "$fingerprint" ] || [ ! -d "$MIRROR_ROOT/$host" ]; then
+        return 0
+    fi
+
+    local count=0
+    while IFS= read -r release_file; do
+        [ -z "$release_file" ] && continue
+        local dist_dir f
+        dist_dir=$(dirname "$release_file")
+        if signed_by "$dist_dir" "$fingerprint"; then
+            for f in InRelease Release.gpg; do
+                if [ -f "$dist_dir/$f.upstream" ]; then
+                    mv -f "$dist_dir/$f.upstream" "$dist_dir/$f"
+                else
+                    rm -f "$dist_dir/$f"
+                fi
+            done
+            count=$((count + 1))
+        else
+            rm -f "$dist_dir/InRelease.upstream" "$dist_dir/Release.gpg.upstream"
+        fi
+    done < <(find "$MIRROR_ROOT/$host" -type f -name Release -path '*/dists/*' 2>/dev/null)
+
+    log "Restored upstream signatures of $count Release file(s) for host '$host'."
+}
+
 sign_host() {
     local host="$1"
     local fingerprint
-    fingerprint=$(jq -r --arg h "$host" '.[$h].fingerprint // empty' "$KEYS_INDEX")
+    fingerprint=$(host_fingerprint "$host")
     if [ -z "$fingerprint" ]; then
         log "No key registered for host '$host', skipping."
         return 0
@@ -41,6 +90,14 @@ sign_host() {
         local dist_dir
         dist_dir=$(dirname "$release_file")
 
+        # Signatures that are not ours came from upstream (a fresh sync); keep them for --restore.
+        if ! signed_by "$dist_dir" "$fingerprint"; then
+            local f
+            for f in InRelease Release.gpg; do
+                rm -f "$dist_dir/$f.upstream"
+                [ -f "$dist_dir/$f" ] && cp -p "$dist_dir/$f" "$dist_dir/$f.upstream"
+            done
+        fi
         rm -f "$dist_dir/Release.gpg" "$dist_dir/InRelease"
 
         if ! gpg --batch --yes --pinentry-mode loopback --passphrase '' \
@@ -62,6 +119,12 @@ sign_host() {
 
     log "Signed $count Release file(s) for host '$host' with $fingerprint."
 }
+
+if [ "${1:-}" = "--restore" ]; then
+    [ -n "${2:-}" ] || { echo "Usage: $0 --restore <host>" >&2; exit 1; }
+    restore_host "$2"
+    exit 0
+fi
 
 if [ $# -ge 1 ] && [ -n "$1" ]; then
     sign_host "$1"

@@ -17,19 +17,33 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 mkdir -p /var/log/nginx
+# Access log names contain the date, so nginx workers (www-data) open them per request.
+chown www-data:www-data /var/log/nginx
+find /var/log/nginx -maxdepth 1 -name '*access-*.log' ! -user www-data -exec chown www-data:www-data {} + 2>/dev/null || true
+# Password hashes; only the admin app (root) reads them
+[ -f /var/auth/.htpasswd ] && chmod 600 /var/auth/.htpasswd
 mkdir -p /var/log/apt-mirror
 mkdir -p /var/spool/apt-mirror
 mkdir -p /var/www/mirror.intra
 mkdir -p /var/spool/apt-mirror/gpg/gnupg
 
-chown -R www-data:www-data /var/www
-chown -R www-data:www-data /var/spool/apt-mirror
+# nginx (www-data) only reads the served trees; everything else runs as root.
+chmod o+x /var/spool/apt-mirror 2>/dev/null || true
+chmod o+rx /var/www/files /var/spool/apt-mirror/mirror 2>/dev/null || true
 chmod 700 /var/spool/apt-mirror/gpg/gnupg
-[ -f /var/spool/apt-mirror/gpg/keys.json ] || echo '{}' > /var/spool/apt-mirror/gpg/keys.json
-chown www-data:www-data /var/spool/apt-mirror/gpg/keys.json
+# gpg runs as root and warns on every call about a homedir it does not own
+chown -R root:root /var/spool/apt-mirror/gpg/gnupg
+if [ ! -f /var/spool/apt-mirror/gpg/keys.json ]; then
+    echo '{}' > /var/spool/apt-mirror/gpg/keys.json
+    chown --reference=/var/spool/apt-mirror /var/spool/apt-mirror/gpg/keys.json 2>/dev/null || true
+fi
 
 if [ ! -L /var/www/mirror.intra/mirror ]; then
-    ln -sf /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
+    ln -sfn /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
+fi
+# Older syncs re-ran that ln without -n and left a mirror/mirror link to itself
+if [ "$(readlink /var/spool/apt-mirror/mirror/mirror 2>/dev/null)" = /var/spool/apt-mirror/mirror ]; then
+    rm -f /var/spool/apt-mirror/mirror/mirror
 fi
 
 # Render nginx sites from the image's templates; data/conf/nginx/custom/<name> overrides one.
@@ -62,7 +76,23 @@ if [ -d "$LEGACY_SITES" ]; then
     mv "$LEGACY_SITES" "$NGINX_HOSTCONF/sites-available.migrated-$(date +%Y%m%d%H%M%S)"
 fi
 
-find "$NGINX_CUSTOM" -user 0 -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
+# Overrides hide later stock fixes; keep the new stock copy until the user deletes it.
+check_override() {
+    local tpl=$1 name=$2
+    local hash_file="$NGINX_CUSTOM/.$name.stock-sha256"
+    local stock_copy="$NGINX_CUSTOM/$name.stock"
+    local current recorded
+    current=$(sha256sum "$tpl" | cut -d' ' -f1)
+    recorded=$(cat "$hash_file" 2>/dev/null || true)
+    if [ "$current" != "$recorded" ]; then
+        render_site "$tpl" > "$stock_copy"
+        echo "$current" > "$hash_file"
+    fi
+    if [ -f "$stock_copy" ]; then
+        echo "⚠️  custom/$name may be missing fixes made to the stock $name since it was written."
+        echo "   Compare it with custom/$name.stock, merge what you need, then delete $name.stock."
+    fi
+}
 
 echo "🧩 Rendering nginx sites for $MIRROR_DOMAIN..."
 for tpl in /etc/nginx/templates/*.conf; do
@@ -70,10 +100,13 @@ for tpl in /etc/nginx/templates/*.conf; do
     if [ -f "$NGINX_CUSTOM/$name" ]; then
         cp "$NGINX_CUSTOM/$name" "/etc/nginx/sites-available/$name"
         echo "   $name: custom"
+        check_override "$tpl" "$name"
     else
         render_site "$tpl" > "/etc/nginx/sites-available/$name"
     fi
 done
+
+find "$NGINX_CUSTOM" -user 0 -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
 
 if [ -f /etc/nginx/sites-available/mirror.intra.conf ]; then
     echo "🔗 Enabling nginx sites..."
@@ -81,7 +114,12 @@ if [ -f /etc/nginx/sites-available/mirror.intra.conf ]; then
     ln -sf /etc/nginx/sites-available/mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/admin.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/files.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
-    ln -sf /etc/nginx/sites-available/npm.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
+    if [ "$NPM_PROXY_ENABLED" = "true" ]; then
+        ln -sf /etc/nginx/sites-available/npm.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
+    else
+        rm -f /etc/nginx/sites-enabled/npm.mirror.intra.conf
+        echo "   npm proxy disabled (NPM_PROXY_ENABLED=${NPM_PROXY_ENABLED:-unset})"
+    fi
     ln -sf /etc/nginx/sites-available/cheatsheets.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     echo "✅ Nginx sites enabled"
 else
@@ -121,7 +159,7 @@ echo "🧹 Starting log cleanup service..."
 LOG_CLEANUP_PID=$!
 
 echo "🏥 Starting health check service..."
-/usr/local/bin/health-check.sh &
+/usr/local/bin/health-check.sh monitor &
 HEALTH_PID=$!
 
 echo "🎉 All services started successfully!"

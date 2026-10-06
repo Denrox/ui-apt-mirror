@@ -1,5 +1,6 @@
 import zlib from 'zlib';
 import { spawn } from 'child_process';
+import { checkUpstreamUrl, fetchUpstream, UpstreamFetchError } from './upstream-fetch';
 
 /**
  * Dependency-closure resolver for apt repositories.
@@ -70,9 +71,15 @@ function relationNames(field: string | undefined): string[] {
   return names;
 }
 
+const FETCH_TIMEOUT_MS = 60_000;
+const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
+const MAX_INDEX_BYTES = 512 * 1024 * 1024;
+
 async function gunzip(buf: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) =>
-    zlib.gunzip(buf, (err, out) => (err ? reject(err) : resolve(out))),
+    zlib.gunzip(buf, { maxOutputLength: MAX_INDEX_BYTES }, (err, out) =>
+      err ? reject(err) : resolve(out),
+    ),
   );
 }
 
@@ -81,7 +88,12 @@ async function unxz(buf: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawn('xz', ['-dc']);
     const chunks: Buffer[] = [];
-    child.stdout.on('data', (c) => chunks.push(c));
+    let size = 0;
+    child.stdout.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_INDEX_BYTES) child.kill();
+      else chunks.push(c);
+    });
     child.on('error', reject);
     child.on('close', (code) =>
       code === 0
@@ -108,14 +120,17 @@ async function fetchIndex(
   ];
   for (const { url, kind } of candidates) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const buf = Buffer.from(await res.arrayBuffer());
+      const buf = await fetchUpstream(url, {
+        timeoutMs: FETCH_TIMEOUT_MS,
+        maxBytes: MAX_DOWNLOAD_BYTES,
+      });
+      if (!buf) continue;
       if (kind === 'gz') return (await gunzip(buf)).toString('utf-8');
       if (kind === 'xz') return (await unxz(buf)).toString('utf-8');
       return buf.toString('utf-8');
-    } catch {
-      // try the next compression variant
+    } catch (err) {
+      // A refused address, timeout or oversized answer would repeat for every variant
+      if (err instanceof UpstreamFetchError) throw err;
     }
   }
   return null;
@@ -205,6 +220,23 @@ export function closureFromGraph(
     missingSeeds,
     truncated,
   };
+}
+
+const PATH_TOKEN_RE = /^[A-Za-z0-9._+~-]+(\/[A-Za-z0-9._+~-]+)*$/;
+
+/** Why the options cannot be resolved (bad URL, path traversal), or null. */
+export function closureOptionsError(opts: ClosureOptions): string | null {
+  try {
+    checkUpstreamUrl(opts.baseUrl);
+  } catch (err) {
+    return (err as Error).message;
+  }
+  if (/[?#]/.test(opts.baseUrl)) return 'Base URL cannot contain a query or fragment';
+  const tokens = [opts.suite, ...opts.components, ...opts.arches];
+  if (tokens.some((t) => !PATH_TOKEN_RE.test(t) || t.split('/').some((p) => p === '..' || p === '.'))) {
+    return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ / (no "..")';
+  }
+  return null;
 }
 
 /** Resolve the dependency closure of `seeds` against the upstream indices. */

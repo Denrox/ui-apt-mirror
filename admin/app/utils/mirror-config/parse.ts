@@ -71,13 +71,15 @@ function parseSet(line: string): SetNode | null {
   return { kind: 'set', key: m[1], value: m[2], raw: line };
 }
 
-// `<filter_key> <repo-url> <value> <value> ...` (apt-mirror2 package filters).
+// `<filter_key> <repo-url> <value> <value> ...` (apt-mirror2 package filters), optionally commented.
 function parseFilter(line: string): FilterNode | null {
-  const tokens = line.split(/\s+/).filter(Boolean);
+  const m = /^(#\s*)?(.*)$/.exec(line)!;
+  const tokens = m[2].split(/\s+/).filter(Boolean);
   if (tokens.length < 2 || !FILTER_KEY_SET.has(tokens[0])) return null;
   return {
     kind: 'filter',
     key: tokens[0] as FilterKey,
+    enabled: !m[1],
     uri: tokens[1],
     values: tokens.slice(2),
     raw: line,

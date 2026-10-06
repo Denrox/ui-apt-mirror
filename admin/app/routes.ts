@@ -22,6 +22,7 @@ export default [
   route('api/cheatsheets/search', 'routes/api.cheatsheets.search.tsx'),
   route('api/cheatsheets/page', 'routes/api.cheatsheets.page.tsx'),
   route('api/download-private', 'routes/api.download-private.tsx'),
+  route('api/upload-chunk', 'routes/api.upload-chunk.tsx'),
   route('api/pubkey/:host', 'routes/api.pubkey.$host.tsx'),
   route('npm/*', 'routes/npm/npm.tsx'),
 ] satisfies RouteConfig;

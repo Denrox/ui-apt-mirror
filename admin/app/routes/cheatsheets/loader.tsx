@@ -1,3 +1,4 @@
+import { redirect } from 'react-router';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import {
   categoryCounts,
@@ -22,6 +23,10 @@ export interface SourceView {
 
 export async function loader({ request }: { request: Request }) {
   const isPublic = isPublicCheatsheetsRequest(request);
+  // The public host shows cheatsheets at /, without the admin shell around /cheatsheets.
+  if (isPublic && new URL(request.url).pathname !== '/') {
+    throw redirect('/');
+  }
   if (!isPublic) {
     await requireAuthMiddleware(request);
   }

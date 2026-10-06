@@ -208,8 +208,8 @@ use_current_config() {
     MIRROR_DOMAIN="${CUR_DOMAIN:-mirror.intra}"
     SYNC_FREQUENCY="${CUR_SYNC:-14400}"
     HOST_TIMEZONE="${CUR_TZ:-$host_timezone}"
-    if [ "$CUR_NPM" = "true" ]; then ENABLE_NPM_PROXY="y"; else ENABLE_NPM_PROXY="n"; fi
-    if [ -z "$CUR_NPM" ] && [ "$INSTALL_EXISTS" = false ]; then ENABLE_NPM_PROXY="y"; fi
+    # Unset means enabled: before NPM_PROXY_ENABLED existed the proxy was always on.
+    if [ "$CUR_NPM" = "false" ]; then ENABLE_NPM_PROXY="n"; else ENABLE_NPM_PROXY="y"; fi
 }
 
 show_current_config() {
@@ -338,7 +338,7 @@ generate_htpasswd() {
     
     # Generate SHA-512 hash using openssl
     local pass_hash
-    pass_hash=$(openssl passwd -6 "$admin_pass")
+    pass_hash=$(printf '%s' "$admin_pass" | openssl passwd -6 -stdin)
     if [ -z "$pass_hash" ]; then
         print_error "openssl produced an empty password hash."
         exit 1
@@ -347,15 +347,56 @@ generate_htpasswd() {
     local htpasswd=data/auth/.htpasswd
     local others=""
     [ -f "$htpasswd" ] && others=$(grep -v '^admin:' "$htpasswd" || true)
+    local old_umask
+    old_umask=$(umask)
+    umask 077
+    rm -f "$htpasswd.tmp"
     {
         echo "admin:$pass_hash"
         [ -n "$others" ] && echo "$others"
     } > "$htpasswd.tmp"
+    umask "$old_umask"
+    chmod 600 "$htpasswd.tmp"
+    chown --reference=data/auth "$htpasswd.tmp" 2>/dev/null || true
     mv "$htpasswd.tmp" "$htpasswd"
+
+    # Revokes admin sessions and npm tokens issued with the old password
+    local revoked=data/auth/.tokens-valid-after
+    (umask 077; echo "admin $(date +%s)000" >> "$revoked")
+    chown --reference=data/auth "$revoked" 2>/dev/null || true
 
     print_success "htpasswd file generated successfully."
 }
 
+
+# Same backup as upgrade.sh; old upgrade.sh versions have none
+backup_config() {
+    local items=()
+    local item
+    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth; do
+        [ -e "$item" ] && items+=("$item")
+    done
+    if [ ${#items[@]} -eq 0 ]; then
+        return
+    fi
+
+    mkdir -p backups
+    local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
+    print_status "Backing up configuration to $backup..."
+    local skipped
+    if skipped=$(umask 077; tar -czf "$backup" --ignore-failed-read "${items[@]}" 2>&1 >/dev/null); then
+        chmod 600 "$backup"
+        if [ -n "$skipped" ]; then
+            print_warning "Some files could not be read and are not in the backup:"
+            echo "$skipped" | sed 's/^/  /'
+        fi
+        print_success "Backup saved: $backup"
+    else
+        [ -n "$skipped" ] && echo "$skipped"
+        print_error "Backup failed; aborting before anything is changed."
+        exit 1
+    fi
+}
 
 # Fingerprints of every released docker-compose.src.yml with values blanked;
 # a pre-.env docker-compose.yml matching one was never edited by hand.
@@ -458,10 +499,25 @@ create_data_dirs() {
     # Set proper permissions
     chmod 755 data/
     chmod 755 data/*
+    # Password hashes: owner only
+    [ -f data/auth/.htpasswd ] && chmod 600 data/auth/.htpasswd
     
     print_success "Data directories created."
 }
 
+
+# Older mirror.list files ran a postmirror script that was never shipped (an error on every
+# sync) and so never ran clean.sh; let apt-mirror2 delete unneeded packages itself.
+migrate_mirror_config() {
+    local list=data/conf/apt-mirror/mirror.list
+    grep -qE '^set[[:space:]]+run_postmirror[[:space:]]+1[[:space:]]*$' "$list" || return 0
+    [ -e data/data/apt-mirror/var/postmirror.sh ] && return 0
+    sed -i -E 's/^set([[:space:]]+)run_postmirror([[:space:]]+)1[[:space:]]*$/set\1run_postmirror\20/' "$list"
+    if ! grep -qE '^set[[:space:]]+_autoclean[[:space:]]' "$list"; then
+        sed -i -E '/^set[[:space:]]+run_postmirror[[:space:]]/a set _autoclean 1' "$list"
+    fi
+    print_status "mirror.list: turned off the missing postmirror script; old packages are now deleted after each sync."
+}
 
 # Function to generate apt-mirror2 configuration
 generate_mirror_config() {
@@ -472,6 +528,9 @@ generate_mirror_config() {
     cat > data/conf/apt-mirror/mirror.list << EOF
 # apt-mirror2 configuration for $domain
 # Generated on $(date)
+
+# Repositories are shipped disabled: a full mirror needs hundreds of GB. Enable the ones you
+# need in the admin panel (Repositories), then start a sync.
 
 # Set base_path to the directory where you want to store the mirror
 set base_path    /var/spool/apt-mirror
@@ -495,7 +554,10 @@ set defaultarch  amd64
 set postmirror_script \$var_path/postmirror.sh
 
 # Set run_postmirror to 1 to run the postmirror script
-set run_postmirror 1
+set run_postmirror 0
+
+# Delete packages the mirrored indexes no longer list after each sync (skipped when a download failed)
+set _autoclean 1
 
 # Set nthreads to the number of threads to use (calculated based on RAM)
 set nthreads     $OPTIMAL_THREADS
@@ -522,10 +584,10 @@ set release_files_retries 15
 
 # ---start---Ubuntu Noble---
 # Ubuntu 24.04 (Noble Numbat) repositories - AMD64 architecture
-deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
 # Usage start
 #Types: deb
 #URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
@@ -547,34 +609,34 @@ deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe mu
 #deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 #deb-src http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
 # Usage start
-#deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
-#deb http://mirror.intra/security.debian.org/debian-security bookworm-security main non-free-firmware
-#deb http://mirror.intra/deb.debian.org/debian bookworm-updates main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+#deb http://mirror.intra/security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
 # Usage end
 # ---end---Debian Bookworm---
 
 # ---start---Debian Trixie---
 # Debian 13 (Trixie) repositories - AMD64 and ARM64 architectures
-deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+#deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
 
-deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
-deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+#deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
 # Usage start
-#deb http://mirror.intra/deb.debian.org/debian trixie main non-free-firmware
-#deb http://mirror.intra/security.debian.org/debian-security trixie-security main non-free-firmware
-#deb http://mirror.intra/deb.debian.org/debian trixie-updates main non-free-firmware
-#deb http://mirror.intra/deb.debian.org/debian trixie-backports main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie main contrib non-free non-free-firmware
+#deb http://mirror.intra/security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
 # Usage end
 # ---end---Debian Trixie---
 
 # ---start---Docker Ubuntu Noble---
 # Docker CE for Ubuntu 24.04 (Noble Numbat) - AMD64 architecture
-deb https://download.docker.com/linux/ubuntu noble stable
+#deb https://download.docker.com/linux/ubuntu noble stable
 # Usage start
 #Types: deb
 #URIs: http://mirror.intra/download.docker.com/linux/ubuntu
@@ -586,7 +648,7 @@ deb https://download.docker.com/linux/ubuntu noble stable
 
 # ---start---Docker Debian 13---
 # Docker CE for Debian 13 (Trixie) - AMD64 architecture
-deb https://download.docker.com/linux/debian trixie stable
+#deb https://download.docker.com/linux/debian trixie stable
 # Usage start
 #deb [trusted=yes] http://mirror.intra/download.docker.com/linux/debian trixie stable
 # Usage end
@@ -638,12 +700,55 @@ show_status() {
         echo ""
         print_warning "Custom nginx configs in use (they replace the stock ones):"
         echo "$custom" | sed 's/^/  /'
+        # The container writes the .stock copies while starting
+        local i
+        for i in $(seq 1 30); do
+            docker logs "$CONTAINER_NAME" 2>&1 | grep -q "Starting admin server" && break
+            sleep 1
+        done
+        local changed="" conf
+        for conf in $custom; do
+            [ -f "$conf.stock" ] && changed+="  $conf"$'\n'
+        done
+        if [ -n "$changed" ]; then
+            print_warning "The stock config changed since these were written; they may be missing fixes:"
+            printf '%s' "$changed"
+            print_warning "Compare each with its .stock copy, merge what you need, then delete the .stock file."
+        fi
     fi
 
     echo ""
     print_status "Logs:"
     echo "  docker logs $CONTAINER_NAME"
     echo "  docker compose -f docker-compose.yml logs"
+}
+
+# Things an upgrade from an old release leaves for the admin to do
+print_upgrade_notes() {
+    local mode=$1
+    local cheatsheets=data/data/cheatsheets
+    if [ -n "$(find "$cheatsheets" -maxdepth 1 -type f -name '*.md' -print -quit 2>/dev/null)" ]; then
+        echo ""
+        if ! grep -q '"url"' "$cheatsheets/sources.json" 2>/dev/null; then
+            print_warning "Cheatsheets are no longer bundled. To get the tldr pages back, open Cheatsheets in the"
+            print_warning "admin panel and add https://github.com/tldr-pages/tldr/tree/main/pages as a source."
+        fi
+        print_status "The previously bundled cheatsheets in $cheatsheets/*.md are no longer used. Remove them with:"
+        echo "  find $cheatsheets -maxdepth 1 -type f -name '*.md' -delete"
+    fi
+
+    # Releases before 2.4 run ./setup.sh without --upgrade and then print their own closing lines
+    if [ "$mode" = "default" ] && ps -o args= -p "$PPID" 2>/dev/null | grep -qE '(^|[ /])upgrade\.sh( |$)'; then
+        local domain
+        domain=$(env_get MIRROR_DOMAIN "$ENV_FILE")
+        echo ""
+        print_warning "The previous release's upgrade.sh prints a closing message next; parts of it are outdated:"
+        echo "  - docker-compose.yml is replaced on every upgrade. Keep your changes in"
+        echo "    docker-compose.override.yml instead of re-applying them to docker-compose.yml."
+        if [ -n "$domain" ] && [ "$domain" != "mirror.intra" ]; then
+            echo "  - The addresses are the ones listed above (http://$domain), not mirror.intra."
+        fi
+    fi
 }
 
 # Function to show usage
@@ -729,6 +834,7 @@ main() {
     load_existing_config
     if [ "$INSTALL_EXISTS" = true ]; then
         print_status "Existing installation detected; your configuration will be kept."
+        [ -f "$ENV_FILE" ] || backup_config
     fi
 
     resolve_user_config "$mode"
@@ -746,6 +852,7 @@ main() {
         generate_mirror_config "$MIRROR_DOMAIN"
     else
         print_status "Keeping data/conf/apt-mirror/mirror.list (managed in the admin panel)."
+        migrate_mirror_config
     fi
 
     write_env_file
@@ -771,6 +878,7 @@ main() {
     show_status
 
     print_success "Deployment completed successfully!"
+    print_upgrade_notes "$mode"
 }
 
 # Run main function with all arguments

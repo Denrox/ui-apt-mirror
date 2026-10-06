@@ -1,6 +1,5 @@
 import classNames from 'classnames';
 import type { Route } from './+types/home';
-import appConfig from '~/config/config.json';
 import { useRuntimeConfig } from '~/utils/use-runtime-config';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import { useEffect, useState } from 'react';
@@ -28,10 +27,13 @@ import {
   faSync,
   faPause,
   faTrash,
+  faPowerOff,
   faPen,
   faBox,
   faKey,
+  faCopy,
 } from '@fortawesome/free-solid-svg-icons';
+import { copyText } from '~/utils/copy-text';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -43,24 +45,26 @@ export function meta({}: Route.MetaArgs) {
 export { loader, action };
 
 export default function Home() {
-  const { isNpmProxyEnabled } = useRuntimeConfig();
-  const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
+  const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
   const [pagesAvalabilityState, setPagesAvalabilityState] = useState<{
     [key: string]: boolean;
   }>({});
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<string>('');
+  const [confirmTarget, setConfirmTarget] = useState<{
+    action: 'deleteRepository' | 'removeRepository';
+    title: string;
+    revision: string;
+  } | null>(null);
   const [isActionInProgress, setIsActionInProgress] = useState(false);
   const [showRepoModal, setShowRepoModal] = useState(false);
   const [repoModalMode, setRepoModalMode] = useState<'add' | 'edit'>('add');
   const [editOriginalTitle, setEditOriginalTitle] = useState<string>('');
+  const [editRevision, setEditRevision] = useState<string>('');
   const [repoInitialValues, setRepoInitialValues] =
     useState<NewRepoValues | null>(null);
   const [isRepositoryConfigsExpanded, setIsRepositoryConfigsExpanded] =
     useState(false);
-  const [windowWidth, setWindowWidth] = useState(
-    typeof window !== 'undefined' ? window.innerWidth : 1024,
-  );
+  // The real width is set after hydration, so the server HTML still matches.
+  const [windowWidth, setWindowWidth] = useState(1024);
   const { repositoryConfigs, commentedSections, isLockFilePresent, latestLog } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -75,8 +79,7 @@ export default function Home() {
 
   useEffect(() => {
     if (actionData?.success) {
-      setShowDeleteModal(false);
-      setDeleteTarget('');
+      setConfirmTarget(null);
       setShowRepoModal(false);
       setIsActionInProgress(false);
       if (actionData.message) {
@@ -88,24 +91,15 @@ export default function Home() {
     }
   }, [actionData?.success, actionData?.error, actionData?.message]);
 
-  const handleDeleteClick = (sectionTitle: string) => {
-    setDeleteTarget(sectionTitle);
-    setShowDeleteModal(true);
-  };
-
-  const handleDeleteConfirm = () => {
-    if (isActionInProgress) return;
+  const handleConfirm = () => {
+    if (isActionInProgress || !confirmTarget) return;
 
     setIsActionInProgress(true);
     const formData = new FormData();
-    formData.append('action', 'deleteRepository');
-    formData.append('sectionTitle', deleteTarget);
+    formData.append('action', confirmTarget.action);
+    formData.append('sectionTitle', confirmTarget.title);
+    formData.append('revision', confirmTarget.revision);
     submit(formData, { method: 'post' });
-  };
-
-  const handleDeleteCancel = () => {
-    setShowDeleteModal(false);
-    setDeleteTarget('');
   };
 
   const handleOpenAddRepo = () => {
@@ -121,6 +115,7 @@ export default function Home() {
     const input = config.editable;
     setRepoModalMode('edit');
     setEditOriginalTitle(config.title);
+    setEditRevision(config.revision);
     setRepoInitialValues({
       title: input.title,
       description: input.description ?? '',
@@ -152,6 +147,7 @@ export default function Home() {
     );
     if (repoModalMode === 'edit') {
       formData.append('originalTitle', editOriginalTitle);
+      formData.append('revision', editRevision);
     }
     formData.append('title', values.title);
     formData.append('description', values.description);
@@ -168,18 +164,26 @@ export default function Home() {
     submit(formData, { method: 'post' });
   };
 
-  const handleRestoreClick = (sectionTitle: string) => {
+  const handleRestoreClick = (section: CommentedSection) => {
     if (isActionInProgress) return;
 
     setIsActionInProgress(true);
     const formData = new FormData();
     formData.append('action', 'restoreRepository');
-    formData.append('sectionTitle', sectionTitle);
+    formData.append('sectionTitle', section.title);
+    formData.append('revision', section.revision);
     submit(formData, { method: 'post' });
   };
 
   const handleGenerateGpgKey = (host: string) => {
     if (isActionInProgress) return;
+    if (
+      !confirm(
+        `Sign ${host} with a new key? Its Release files lose their upstream signatures: apt clients that verify it with the upstream key fail until they install the new key from the Usage snippet.`,
+      )
+    ) {
+      return;
+    }
     setIsActionInProgress(true);
     const formData = new FormData();
     formData.append('action', 'generateGpgKey');
@@ -225,19 +229,25 @@ export default function Home() {
     setIsRepositoryConfigsExpanded(!isRepositoryConfigsExpanded);
   };
 
-  const calculateHiddenItems = () => {
-    if (repositoryConfigs.length === 0) return 0;
+  // Collapsed, the list shows its first row of cards.
+  const collapsedCount = windowWidth >= 768 ? 2 : 1;
+  const calculateHiddenItems = () =>
+    Math.max(0, repositoryConfigs.length - collapsedCount);
+  const visibleConfigs = isRepositoryConfigsExpanded
+    ? repositoryConfigs
+    : repositoryConfigs.slice(0, collapsedCount);
 
-    const itemsPerRow = windowWidth >= 768 ? 2 : 1;
-    const maxVisibleRows = 1;
-    const maxVisibleItems = itemsPerRow * maxVisibleRows;
-
-    return Math.max(0, repositoryConfigs.length - maxVisibleItems);
+  const handleCopyUsage = async (config: RepositoryConfig) => {
+    if (await copyText(config.content.join('\n'))) {
+      toast.success(`Copied the ${config.title} sources`);
+    } else {
+      toast.error('Copying failed; select the text instead');
+    }
   };
 
   useEffect(() => {
     const checkPagesAvalability = async () => {
-      const pages = appConfig.hosts;
+      const pages = hosts;
       const pagesAvalabilityState = await Promise.all(
         pages.map(async (page) => {
           try {
@@ -257,18 +267,8 @@ export default function Home() {
     };
 
     checkPagesAvalability();
-
-    if (timer) {
-      clearInterval(timer);
-    }
     const interval = setInterval(checkPagesAvalability, 10000);
-    setTimer(interval);
-
-    return () => {
-      if (timer) {
-        clearInterval(timer);
-      }
-    };
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -286,6 +286,7 @@ export default function Home() {
       setWindowWidth(window.innerWidth);
     };
 
+    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -340,10 +341,10 @@ export default function Home() {
             <DropdownItem onClick={handleOpenAddRepo}>
               Add repository…
             </DropdownItem>
-            {commentedSections.map((section: CommentedSection) => (
+            {commentedSections.map((section: CommentedSection, i: number) => (
               <DropdownItem
-                key={section.title}
-                onClick={() => handleRestoreClick(section.title)}
+                key={`${i}:${section.title}`}
+                onClick={() => handleRestoreClick(section)}
               >
                 Enable: {section.title}
               </DropdownItem>
@@ -358,31 +359,28 @@ export default function Home() {
           Active Repositories
         </h2>
         <div className="relative">
-          <div
-            className={classNames(
-              'relative overflow-hidden transition-all duration-300 ease-in-out',
-              isRepositoryConfigsExpanded ? 'max-h-none pb-8' : 'max-h-[200px]',
-            )}
-          >
+          <div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {repositoryConfigs.length > 0 ? (
-                repositoryConfigs.map((config: RepositoryConfig) => (
+                visibleConfigs.map((config: RepositoryConfig, i: number) => (
                   <div
-                    key={config.title}
-                    className="relative flex max-h-[160px] flex-col gap-3 overflow-y-auto rounded-xl border border-outline-variant bg-surface-container-low p-4"
+                    key={`${i}:${config.title}`}
+                    className="relative flex flex-col gap-3 rounded-xl border border-outline-variant bg-surface-container-low p-4"
                   >
-                    <div className="w-[calc(100%-72px)] shrink-0 truncate font-heading text-base font-semibold text-on-surface">
+                    <div className="w-[calc(100%-140px)] shrink-0 truncate font-heading text-base font-semibold text-on-surface">
                       {config.title}
                     </div>
-                    {config.content.map((line: string, lineIndex: number) => (
-                      <div
-                        key={lineIndex}
-                        className="shrink-0 truncate font-mono text-[12px] text-on-surface-variant"
-                      >
-                        {line}
-                      </div>
-                    ))}
+                    <pre className="whitespace-pre-wrap break-all font-mono text-[12px] text-on-surface-variant">
+                      {config.content.join('\n')}
+                    </pre>
                     <div className="absolute right-3 top-3 flex items-center gap-3">
+                      <button
+                        onClick={() => handleCopyUsage(config)}
+                        className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
+                        title="Copy the sources"
+                      >
+                        <FontAwesomeIcon icon={faCopy} />
+                      </button>
                       {config.hosts.length > 0 && (
                         <Dropdown
                           trigger={
@@ -477,14 +475,40 @@ export default function Home() {
                         </button>
                       )}
                       <button
-                        onClick={() => handleDeleteClick(config.title)}
+                        onClick={() =>
+                          setConfirmTarget({
+                            action: 'deleteRepository',
+                            title: config.title,
+                            revision: config.revision,
+                          })
+                        }
+                        className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                        title={
+                          isActionInProgress
+                            ? 'Action in progress...'
+                            : isLockFilePresent
+                              ? 'Cannot disable while sync is running'
+                              : 'Disable repository'
+                        }
+                        disabled={isLockFilePresent || isActionInProgress}
+                      >
+                        <FontAwesomeIcon icon={faPowerOff} />
+                      </button>
+                      <button
+                        onClick={() =>
+                          setConfirmTarget({
+                            action: 'removeRepository',
+                            title: config.title,
+                            revision: config.revision,
+                          })
+                        }
                         className="cursor-pointer text-on-surface-variant transition-colors hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
                         title={
                           isActionInProgress
                             ? 'Action in progress...'
                             : isLockFilePresent
-                              ? 'Cannot delete while sync is running'
-                              : 'Delete repository configuration'
+                              ? 'Cannot remove while sync is running'
+                              : 'Remove repository'
                         }
                         disabled={isLockFilePresent || isActionInProgress}
                       >
@@ -509,10 +533,10 @@ export default function Home() {
             </div>
             {/* +x more / show less control */}
             {calculateHiddenItems() > 0 && !isRepositoryConfigsExpanded && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-12 items-end justify-center bg-gradient-to-t from-background via-background to-transparent">
+              <div className="mt-2 flex justify-center">
                 <button
                   onClick={handleRepositoryConfigsToggle}
-                  className="pointer-events-auto cursor-pointer rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+                  className="cursor-pointer rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
                   title="Expand and see all repository configurations"
                 >
                   +{calculateHiddenItems()} more
@@ -532,6 +556,49 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {commentedSections.length > 0 && (
+        <section>
+          <h2 className="mb-3 font-heading text-lg font-semibold text-on-surface">
+            Disabled Repositories
+          </h2>
+          <div className="flex flex-col divide-y divide-outline-variant/40 rounded-xl border border-outline-variant bg-surface-container-low">
+            {commentedSections.map((section: CommentedSection, i: number) => (
+              <div
+                key={`${i}:${section.title}`}
+                className="flex items-center justify-between gap-3 px-4 py-2"
+              >
+                <span className="truncate text-sm text-on-surface-variant">
+                  {section.title}
+                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <button
+                    onClick={() => handleRestoreClick(section)}
+                    className="cursor-pointer text-xs font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isLockFilePresent || isActionInProgress}
+                  >
+                    Enable
+                  </button>
+                  <button
+                    onClick={() =>
+                      setConfirmTarget({
+                        action: 'removeRepository',
+                        title: section.title,
+                        revision: section.revision,
+                      })
+                    }
+                    className="cursor-pointer text-on-surface-variant transition-colors hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
+                    title="Remove repository"
+                    disabled={isLockFilePresent || isActionInProgress}
+                  >
+                    <FontAwesomeIcon icon={faTrash} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Service status */}
       <section>
@@ -569,7 +636,7 @@ export default function Home() {
           Endpoints
         </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {appConfig.hosts
+          {hosts
             .filter((page) => {
               if (page.id === 'npm' && !isNpmProxyEnabled) {
                 return false;
@@ -628,14 +695,25 @@ export default function Home() {
         }
       />
 
-      {/* Delete Confirmation Modal */}
+      {/* Disable / Remove Confirmation Modal */}
       <DeleteConfirmationModal
-        isOpen={showDeleteModal}
-        onClose={handleDeleteCancel}
-        onConfirm={handleDeleteConfirm}
-        title="Confirm Deletion"
-        itemName={deleteTarget}
-        itemType="repository configuration"
+        isOpen={!!confirmTarget}
+        onClose={() => setConfirmTarget(null)}
+        onConfirm={handleConfirm}
+        title={
+          confirmTarget?.action === 'removeRepository'
+            ? 'Remove Repository'
+            : 'Disable Repository'
+        }
+        itemName={confirmTarget?.title ?? ''}
+        message={
+          confirmTarget?.action === 'removeRepository'
+            ? `Remove "${confirmTarget.title}" from mirror.list? Its sources and filters are deleted and the title can be reused.`
+            : `Disable "${confirmTarget?.title}"? Its sources and filters are commented out and it is no longer synced. You can enable it again later.`
+        }
+        confirmLabel={
+          confirmTarget?.action === 'removeRepository' ? 'Remove' : 'Disable'
+        }
         isLoading={isActionInProgress}
       />
     </PageLayoutFull>

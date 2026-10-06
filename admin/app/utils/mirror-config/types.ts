@@ -85,6 +85,8 @@ export type FilterKey = (typeof FILTER_KEYS)[number];
 export interface FilterNode {
   kind: 'filter';
   key: FilterKey;
+  /** `false` when commented out along with a disabled section. */
+  enabled: boolean;
   uri: string;
   values: string[];
   raw?: string;
