@@ -7,6 +7,7 @@ import {
   markdownToText,
   parseCategoriesJson,
   parseGithubUrl,
+  resolvePageLink,
   searchEntries,
   type IndexEntry,
 } from './cheatsheets';
@@ -128,5 +129,28 @@ describe('isSafeRelativeMdPath', () => {
     ['notes.txt', false],
   ])('%s -> %s', (p, ok) => {
     expect(isSafeRelativeMdPath(p)).toBe(ok);
+  });
+});
+
+describe('resolvePageLink', () => {
+  it.each([
+    ['Acne.md', 'Scars.md', 'Scars.md'],
+    ['Acne.md', 'Hidradenitis%20Suppurativa.md', 'Hidradenitis Suppurativa.md'],
+    ['common/tar.md', 'gzip.md#usage', 'common/gzip.md'],
+    ['linux/apt.md', '../common/tar.md', 'common/tar.md'],
+  ])('%s + %s -> %s', (from, href, expected) => {
+    expect(resolvePageLink(from, href)).toBe(expected);
+  });
+
+  it.each([
+    'https://medlineplus.gov/scars.html',
+    'mailto:x@y.z',
+    '/etc/passwd.md',
+    '#section',
+    '../../outside.md',
+    'notes.txt',
+    '%E0%A4%A.md',
+  ])('rejects %s', (href) => {
+    expect(resolvePageLink('Acne.md', href)).toBeNull();
   });
 });

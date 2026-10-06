@@ -202,3 +202,28 @@ export function isSafeRelativeMdPath(p: string): boolean {
   if (p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false;
   return p.split('/').every((s) => s !== '' && s !== '.' && s !== '..');
 }
+
+// A link inside a page to another page of the same source (e.g. "Scars.md"),
+// as a path relative to the source; null for web links and anything else.
+export function resolvePageLink(fromPath: string, href: string): string | null {
+  if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('/') || href.startsWith('#')) {
+    return null;
+  }
+  let target: string;
+  try {
+    target = decodeURIComponent(href.split(/[?#]/)[0]);
+  } catch {
+    return null;
+  }
+  const parts = fromPath.split('/').slice(0, -1);
+  for (const segment of target.split('/')) {
+    if (segment === '..') {
+      if (!parts.length) return null;
+      parts.pop();
+    } else if (segment && segment !== '.') {
+      parts.push(segment);
+    }
+  }
+  const resolved = parts.join('/');
+  return isSafeRelativeMdPath(resolved) ? resolved : null;
+}
