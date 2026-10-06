@@ -67,7 +67,7 @@ export function githubWebUrl(s: GithubSource): string {
 }
 
 export function defaultSourceName(s: GithubSource): string {
-  const last = s.path.split('/').filter(Boolean).pop();
+  const last = s.path.split('/').filter(Boolean).pop() || s.ref;
   return last ? `${s.repo}/${last}` : `${s.owner}/${s.repo}`;
 }
 

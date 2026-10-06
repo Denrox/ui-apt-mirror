@@ -27,6 +27,8 @@ const execFileAsync = promisify(execFile);
 export interface CheatsheetSource {
   id: string;
   name: string;
+  /** Set by the admin; otherwise the README's first heading replaces the default. */
+  nameFromUser?: boolean;
   url: string;
   owner: string;
   repo: string;
@@ -113,6 +115,7 @@ export async function addSource(url: string, name?: string): Promise<CheatsheetS
     const s: CheatsheetSource = {
       id,
       name: name?.trim() || defaultSourceName(gh),
+      nameFromUser: !!name?.trim(),
       url: webUrl,
       ...gh,
       status: 'downloading',
@@ -158,7 +161,9 @@ function startDownload(id: string) {
       updateRegistry((sources) => {
         const s = sources.find((x) => x.id === id);
         if (!s) return;
-        Object.assign(s, result, {
+        const { title, ...rest } = result;
+        if (title && !s.nameFromUser) s.name = title;
+        Object.assign(s, rest, {
           status: 'ready',
           error: null,
           updatedAt: new Date().toISOString(),
@@ -300,7 +305,13 @@ async function downloadSource(id: string) {
     await fs.rename(staged, sourceDir(id));
     indexCache.delete(id);
 
-    return { fileCount: index.length, revision };
+    let title: string | null = null;
+    try {
+      const readme = await fs.readFile(path.join(base, 'README.md'), 'utf-8');
+      title = readme.match(/^#[ \t]+(.+?)[ \t#]*$/m)?.[1].trim().slice(0, 100) || null;
+    } catch {}
+
+    return { fileCount: index.length, revision, title };
   } finally {
     await fs.rm(work, { recursive: true, force: true });
   }
