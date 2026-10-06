@@ -259,3 +259,22 @@ export function parseJsonObject(text: string): Record<string, any> | null {
     return null;
   }
 }
+
+/** The package a path is about: /<name>/… or /-/package/<name>/…; null for other registry API paths. */
+export function pathPackage(raw: string): { name: string; rest: string[] } | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw.replace(/^\/+/, '').replace(/\/+$/, ''));
+  } catch {
+    return null;
+  }
+  const segments = decoded.split('/');
+  if (segments[0] === '-') return segments[1] === 'package' ? splitName(segments.slice(2)) : null;
+  return splitName(segments);
+}
+
+/** A version of a private packument by version or dist-tag (/<name>/<spec>), or null. */
+export function privateVersion(doc: PackageDoc, spec: string): Record<string, any> | null {
+  const version = Object.hasOwn(doc['dist-tags'] ?? {}, spec) ? doc['dist-tags'][spec] : spec;
+  return Object.hasOwn(doc.versions ?? {}, version) ? doc.versions[version] : null;
+}

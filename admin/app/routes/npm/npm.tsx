@@ -28,6 +28,8 @@ import {
   nextRev,
   parseJsonObject,
   parseNpmPath,
+  pathPackage,
+  privateVersion,
   publicCachePath,
   revMatches,
   type DocResult,
@@ -468,7 +470,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     await ensureCacheDir();
 
     const route = parseNpmPath(packagePath);
-    const isPrivate = route.kind !== 'other' && (await isPrivatePackage(route.name));
+    const target = pathPackage(packagePath);
+    const isPrivate = !!target && (await isPrivatePackage(target.name));
 
     let data: Buffer;
     let headers: Record<string, string>;
@@ -486,6 +489,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
       if (!privatePackage) return notFound();
       data = privatePackage.data;
       headers = privatePackage.headers;
+    } else if (isPrivate && target) {
+      // A private package is never looked up upstream; /<name>/<version|tag> comes from its packument.
+      const doc =
+        target.rest.length === 1 && !packagePath.startsWith('-/')
+          ? await loadPrivatePackage(request, target.name)
+          : null;
+      const version = doc && privateVersion(JSON.parse(doc.data.toString('utf-8')), target.rest[0]);
+      return version ? jsonResponse(version) : notFound();
     } else {
       // Packuments and tarballs are cached; anything else (search, /<pkg>/<version>, …) is proxied.
       const cacheFile = publicCachePath(route);
@@ -845,6 +856,9 @@ export async function action({ request }: ActionFunctionArgs) {
       return jsonResponse({ error: 'Request failed' }, 500);
     }
   }
+
+  const target = pathPackage(packagePath);
+  if (target && (await isPrivatePackage(target.name))) return notFound();
 
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {

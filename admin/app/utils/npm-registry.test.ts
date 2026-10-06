@@ -9,6 +9,8 @@ import {
   nextRev,
   parseJsonObject,
   parseNpmPath,
+  pathPackage,
+  privateVersion,
   publicCachePath,
   revMatches,
   upstreamHeaders,
@@ -294,5 +296,32 @@ describe('parseJsonObject', () => {
   it('accepts only JSON objects', () => {
     expect(parseJsonObject('{"name":"x"}')).toEqual({ name: 'x' });
     for (const text of ['not json', '', 'null', '[]', '"x"', '1']) expect(parseJsonObject(text)).toBeNull();
+  });
+});
+
+describe('private package routing', () => {
+  it('finds the package any path is about', () => {
+    expect(pathPackage('@acme%2fwidget/1.0.0')).toEqual({ name: '@acme/widget', rest: ['1.0.0'] });
+    expect(pathPackage('@acme/widget/latest')).toEqual({ name: '@acme/widget', rest: ['latest'] });
+    expect(pathPackage('widget')).toEqual({ name: 'widget', rest: [] });
+    expect(pathPackage('widget/-/widget-1.0.0.tgz')?.name).toBe('widget');
+    expect(pathPackage('-/package/@acme%2fwidget/dist-tags/beta')).toEqual({
+      name: '@acme/widget',
+      rest: ['dist-tags', 'beta'],
+    });
+    expect(pathPackage('-/package/widget/collaborators')?.name).toBe('widget');
+    for (const p of ['-/v1/search', '-/npm/v1/security/advisories/bulk', '-/whoami', '-/v1/login', '@acme', '%E0%A4%A']) {
+      expect(pathPackage(p)).toBeNull();
+    }
+  });
+
+  it('serves a private version by number or dist-tag', () => {
+    const doc = published('1.0.0', '1.1.0');
+    doc['dist-tags'].beta = '1.0.0';
+    expect(privateVersion(doc, '1.1.0')?.version).toBe('1.1.0');
+    expect(privateVersion(doc, 'latest')?.version).toBe('1.1.0');
+    expect(privateVersion(doc, 'beta')?.version).toBe('1.0.0');
+    expect(privateVersion(doc, '2.0.0')).toBeNull();
+    expect(privateVersion(doc, 'constructor')).toBeNull();
   });
 });
