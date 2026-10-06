@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { configuredHosts, hostAddress } from '~/utils/hosts';
+import { hostAddress } from '~/utils/hosts';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import {
@@ -304,25 +304,6 @@ export async function action({ request }: { request: Request }) {
         error instanceof Error ? error.message : 'Failed to delete key';
       return { error: msg };
     }
-  }
-
-  if (action === 'checkHealth') {
-    for (const host of configuredHosts()) {
-      if (host.id === 'admin') {
-        try {
-          const response = await fetch(`http://${host.address}/api/health`);
-          if (response.ok) {
-            const healthData = await response.json();
-            if (healthData.status === 'healthy') {
-              return { success: true, message: 'Admin service is healthy' };
-            }
-          }
-        } catch (error) {
-          console.error('Error checking admin health:', error);
-        }
-      }
-    }
-    return { error: 'Admin service not found or not healthy' };
   }
 
   return { error: 'Invalid action' };
