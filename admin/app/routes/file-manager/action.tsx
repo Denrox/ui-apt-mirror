@@ -11,6 +11,14 @@ import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveBelow, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
+import {
+  abortUpload,
+  isStaleTempDir,
+  removeStaleTempDirs,
+  sweepStaleUploads,
+  UploadError,
+  writeChunk,
+} from '~/utils/chunk-upload';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,10 +28,15 @@ const ARCHITECTURES = new Set(['amd64', 'arm64', 'arm', '386', 'ppc64le', 's390x
 
 const OUTSIDE = 'Path is outside the file storage';
 
-const chunkStorage = new Map<
-  string,
-  { tempDir: string; totalChunks: number; fileName: string }
->();
+const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+
+// Uploads cut off by a restart leave temp dirs behind; uploads stuck in this process are swept.
+for (const dir of [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean)) {
+  removeStaleTempDirs(dir).catch((error) => console.error('Failed to clean upload temp dirs:', error));
+}
+setInterval(() => {
+  sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
+}, 10 * 60 * 1000);
 
 const activeDownloads = new Map<string, { request: any; fileStream: any }>();
 
@@ -249,7 +262,7 @@ async function handleChunkUpload(
     if (!chunk || !fileName || !fileId) {
       return { success: false, error: 'Missing required chunk data' };
     }
-    if (!/^[A-Za-z0-9_-]{1,100}$/.test(fileId)) {
+    if (!UPLOAD_ID_RE.test(fileId)) {
       return { success: false, error: 'Invalid upload id' };
     }
     const filePath = resolveInside(formData.get('filePath'), storageRoots());
@@ -280,37 +293,23 @@ async function handleChunkUpload(
       return { success: false, error: 'Failed to process chunk data' };
     }
 
-    if (!chunkStorage.has(fileId)) {
-      const tempDirName = `.tmp-${fileId}`;
-      const tempDir = path.join(filePath, tempDirName);
-      await fs.mkdir(tempDir, { recursive: true });
-      chunkStorage.set(fileId, { tempDir, totalChunks, fileName });
-    }
-
-    const fileInfo = chunkStorage.get(fileId)!;
-    const tempFilePath = path.join(fileInfo.tempDir, `${fileName}.temp`);
-
-    if (chunkIndex === 0) {
-      await fs.writeFile(tempFilePath, chunkBuffer);
-    } else {
-      await fs.appendFile(tempFilePath, chunkBuffer);
-    }
-
-    if (chunkIndex === totalChunks - 1) {
-      const destPath = path.join(filePath, fileName);
-      await fs.rename(tempFilePath, destPath);
-
-      try {
-        await fs.rm(fileInfo.tempDir, { recursive: true, force: true });
-      } catch (cleanupError) {}
-
-      chunkStorage.delete(fileId);
-
+    const result = await writeChunk({
+      fileId,
+      dir: filePath,
+      fileName,
+      chunkIndex,
+      totalChunks,
+      data: chunkBuffer,
+    });
+    if (result === 'done') {
       return { success: true, message: 'File uploaded successfully' };
     }
 
     return { success: true, message: 'Chunk processed successfully' };
   } catch (error) {
+    if (error instanceof UploadError) {
+      return { success: false, error: error.message };
+    }
     return { success: false, error: 'Failed to process chunk' };
   }
 }
@@ -664,6 +663,14 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         console.error('Failed to cleanup download:', error);
         return { success: false, error: 'Failed to cleanup download' };
       }
+    } else if (intent === 'abortUpload') {
+      const filePath = resolveInside(formData.get('filePath'), roots);
+      const fileId = formData.get('fileId');
+      if (!filePath || typeof fileId !== 'string' || !UPLOAD_ID_RE.test(fileId)) {
+        return { success: false, error: 'Missing required upload data' };
+      }
+      await abortUpload(fileId, filePath);
+      return { success: true };
     } else if (intent === 'uploadChunk') {
       const res = await handleChunkUpload(formData);
       return res;
@@ -776,21 +783,6 @@ export async function action({ request }: Route.ActionArgs): Promise<{
             let totalFiles = 0;
             let totalDirectories = 0;
 
-            const isOlderThanDays = (
-              dirPath: string,
-              maxDays: number,
-            ): boolean => {
-              try {
-                const stats = fsSync.statSync(dirPath);
-                const currentTime = Date.now();
-                const daysOld =
-                  (currentTime - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
-                return daysOld > maxDays;
-              } catch {
-                return false;
-              }
-            };
-
             const scanDirectory = async (
               currentPath: string,
               currentDepth: number,
@@ -816,7 +808,7 @@ export async function action({ request }: Route.ActionArgs): Promise<{
 
                     if (stats.isDirectory()) {
                       if (itemName.startsWith('.tmp-')) {
-                        if (isOlderThanDays(itemPath, 1)) {
+                        if (await isStaleTempDir(itemPath)) {
                           try {
                             await fs.rm(itemPath, {
                               recursive: true,

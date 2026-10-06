@@ -38,17 +38,30 @@ export default function ChunkedUpload({
   const fetcher = useFetcher();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeFileIdRef = useRef<string | null>(null);
+
+  const discardPartialUpload = useCallback(() => {
+    const fileId = activeFileIdRef.current;
+    if (!fileId) return;
+    activeFileIdRef.current = null;
+    const formData = new FormData();
+    formData.append('intent', 'abortUpload');
+    formData.append('filePath', currentPath);
+    formData.append('fileId', fileId);
+    fetcher.submit(formData, { method: 'POST', action: '', encType: 'multipart/form-data' });
+  }, [currentPath, fetcher]);
 
   const cancelUpload = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    discardPartialUpload();
     setSelectedFiles([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
     setUploading(false);
-  }, []);
+  }, [discardPartialUpload]);
 
   const generateFileId = () => {
     return Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -153,6 +166,7 @@ export default function ChunkedUpload({
         );
 
         const chunks = splitFileIntoChunks(fileStatus.file);
+        activeFileIdRef.current = chunks[0]?.fileId ?? null;
 
         try {
           for (let i = 0; i < chunks.length; i++) {
@@ -179,6 +193,9 @@ export default function ChunkedUpload({
             );
           }
 
+          if (!abortControllerRef.current?.signal.aborted) {
+            activeFileIdRef.current = null;
+          }
           setSelectedFiles((prev) =>
             prev.map((f, i) =>
               i === fileIndex
@@ -188,6 +205,7 @@ export default function ChunkedUpload({
           );
         } catch (error) {
           console.error('Upload failed for file:', fileStatus.file.name, error);
+          discardPartialUpload();
           setSelectedFiles((prev) =>
             prev.map((f, i) =>
               i === fileIndex
@@ -214,7 +232,7 @@ export default function ChunkedUpload({
     } finally {
       setUploading(false);
     }
-  }, [selectedFiles, currentPath, uploadChunk, onChunkUploaded]);
+  }, [selectedFiles, currentPath, uploadChunk, onChunkUploaded, discardPartialUpload]);
 
   const completedCount = selectedFiles.filter(
     (f) => f.status === 'completed',
