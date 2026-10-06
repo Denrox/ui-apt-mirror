@@ -1,4 +1,7 @@
-import type { PropsWithChildren } from 'react';
+import { useEffect, useId, useRef, type KeyboardEvent, type PropsWithChildren } from 'react';
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 interface ModalProps {
   readonly isOpen: boolean;
@@ -45,6 +48,39 @@ export default function Modal({
     }
   };
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => previous?.focus?.();
+  }, [isOpen]);
+
+  // Esc closes only the innermost dialog; Tab stays inside it.
+  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onClose();
+      return;
+    }
+    if (e.key !== 'Tab' || !dialogRef.current) return;
+    const items = dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE);
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (!first) {
+      e.preventDefault();
+    } else if (e.shiftKey && (active === first || active === dialogRef.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   if (!isOpen) {
     return null;
   }
@@ -56,12 +92,18 @@ export default function Modal({
 
       {/* Modal Content */}
       <div
-        className={`relative bg-surface-container border border-outline-variant rounded-xl shadow-2xl ${getMaxWidthClass(maxWidth)} w-full mx-4 max-h-[90vh] overflow-y-auto`}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        className={`relative focus:outline-none bg-surface-container border border-outline-variant rounded-xl shadow-2xl ${getMaxWidthClass(maxWidth)} w-full mx-4 max-h-[90vh] overflow-y-auto`}
       >
         {/* Header */}
         {title && (
           <div className="flex items-center justify-between p-4 border-b border-outline-variant">
-            <h3 className="font-heading text-lg font-semibold text-on-surface">
+            <h3 id={titleId} className="font-heading text-lg font-semibold text-on-surface">
               {title}
             </h3>
             <button

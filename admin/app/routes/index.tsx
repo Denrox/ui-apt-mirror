@@ -1,4 +1,5 @@
-import { redirect, useLoaderData } from 'react-router';
+import { redirect, useLoaderData, type ShouldRevalidateFunctionArgs } from 'react-router';
+import { onlySheetChanged } from '~/lib/cheatsheets';
 import PublicCheatsheets from './cheatsheets/public-cheatsheets';
 import PublicFileManager from './file-manager/public-file-manager';
 // From the loader's own module: route modules lose their loader export in the
@@ -7,6 +8,16 @@ import { loader as cheatsheetsLoader } from './cheatsheets/loader';
 import { meta as cheatsheetsMeta } from './cheatsheets/cheatsheets';
 import { loader as fileManagerLoader } from './file-manager/loader';
 import { meta as fileManagerMeta } from './file-manager/public-file-manager';
+
+// Opening a cheatsheet only changes ?sheet=.
+export function shouldRevalidate({
+  currentUrl,
+  nextUrl,
+  formMethod,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
+  return !formMethod && onlySheetChanged(currentUrl, nextUrl) ? false : defaultShouldRevalidate;
+}
 
 export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);

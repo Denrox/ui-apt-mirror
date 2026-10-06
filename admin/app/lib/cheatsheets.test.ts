@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   categoriesFor,
+  onlySheetChanged,
+  parseSheetParam,
+  sheetSearch,
   defaultSourceName,
   extractTitle,
   githubWebUrl,
@@ -9,9 +12,11 @@ import {
   parseCategoriesJson,
   parseGithubUrl,
   parsePaging,
+  plural,
   resolvePageLink,
   searchEntries,
   SEARCH_PAGE_SIZE,
+  sourceIdFor,
   type IndexEntry,
 } from './cheatsheets';
 
@@ -62,6 +67,23 @@ describe('parseGithubUrl', () => {
     ['github.com/o/r/tree/main/./pages', '".."'],
   ])('rejects %s', (input, message) => {
     expect(() => parseGithubUrl(input)).toThrow(message);
+  });
+});
+
+describe('sourceIdFor', () => {
+  it('builds the id from owner, repo, branch and folder', () => {
+    const gh = parseGithubUrl('https://github.com/Denrox/offline-library/tree/medicine-first-aid');
+    expect(sourceIdFor(gh, () => false)).toBe('denrox-offline-library-medicine-first-aid');
+    expect(sourceIdFor(parseGithubUrl('github.com/o/r'), () => false)).toBe('o-r');
+  });
+
+  it('adds a hash of the URL when the id is taken, the same one every time', () => {
+    const gh = parseGithubUrl('https://github.com/o/r_x');
+    const taken = new Set(['o-r-x']);
+    const id = sourceIdFor(gh, (id) => taken.has(id));
+    expect(id).toMatch(/^o-r-x-[0-9a-f]{8}$/);
+    expect(sourceIdFor(gh, (id) => taken.has(id))).toBe(id);
+    expect(sourceIdFor(parseGithubUrl('https://github.com/o/r.x'), (id) => taken.has(id))).not.toBe(id);
   });
 });
 
@@ -232,5 +254,41 @@ describe('parsePaging', () => {
     expect(parsePaging('400', '50')).toEqual({ offset: 400, limit: 50 });
     expect(parsePaging('-5', '100000')).toEqual({ offset: 0, limit: SEARCH_PAGE_SIZE });
     expect(parsePaging('abc', '0')).toEqual({ offset: 0, limit: 1 });
+  });
+});
+
+describe('plural', () => {
+  it('uses the singular for one', () => {
+    expect(plural(1, 'cheatsheet')).toBe('1 cheatsheet');
+    expect(plural(0, 'cheatsheet')).toBe('0 cheatsheets');
+    expect(plural(12, 'page')).toBe('12 pages');
+  });
+});
+
+describe('sheet URL', () => {
+  it('parses source and path', () => {
+    expect(parseSheetParam('tldr-pages/common/tar.md')).toEqual({ source: 'tldr-pages', path: 'common/tar.md' });
+    expect(parseSheetParam(null)).toBeNull();
+    expect(parseSheetParam('tldr/../x.md')).toBeNull();
+    expect(parseSheetParam('Bad_Id/x.md')).toBeNull();
+    expect(parseSheetParam('/x.md')).toBeNull();
+  });
+
+  it('writes readable, round-tripping query strings', () => {
+    const page = { source: 'med', path: 'Burns & Scalds/First aid.md' };
+    const search = sheetSearch(new URLSearchParams('path=x&sheet=old/a.md'), page);
+    expect(search).toBe('?path=x&sheet=med/Burns%20%26%20Scalds/First%20aid.md');
+    expect(parseSheetParam(new URLSearchParams(search).get('sheet'))).toEqual(page);
+    expect(sheetSearch(new URLSearchParams(search), null)).toBe('?path=x');
+    expect(sheetSearch(new URLSearchParams('sheet=a/b.md'), null)).toBe('');
+  });
+
+  it('skips reloading only when just the sheet changed', () => {
+    const u = (s: string) => new URL(s, 'http://cheatsheets.x');
+    expect(onlySheetChanged(u('/cheatsheets'), u('/cheatsheets?sheet=a/b.md'))).toBe(true);
+    expect(onlySheetChanged(u('/?path=x&sheet=a/b.md'), u('/?path=x'))).toBe(true);
+    expect(onlySheetChanged(u('/cheatsheets'), u('/cheatsheets'))).toBe(false);
+    expect(onlySheetChanged(u('/?path=x'), u('/?path=y'))).toBe(false);
+    expect(onlySheetChanged(u('/cheatsheets'), u('/home?sheet=a/b.md'))).toBe(false);
   });
 });

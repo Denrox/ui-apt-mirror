@@ -79,6 +79,9 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
       {result && !result.success && result.error && (
         <div className="p-3 bg-error/10 text-error rounded-md text-sm">{result.error}</div>
       )}
+      {result?.success && result.message && (
+        <div className="p-3 bg-primary/10 text-primary rounded-md text-sm">{result.message}</div>
+      )}
 
       {sources.length > 0 && (
         <div className="border border-outline-variant rounded-md">

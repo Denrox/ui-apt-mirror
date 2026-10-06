@@ -76,6 +76,18 @@ export function defaultSourceName(s: GithubSource): string {
   return last ? `${s.repo}/${last}` : `${s.owner}/${s.repo}`;
 }
 
+// Same URL, same id: the owner, repo, branch and folder, plus a hash of the URL if that is taken.
+export function sourceIdFor(s: GithubSource, taken: (id: string) => boolean): string {
+  const base = slugify([s.owner, s.repo, s.ref, s.path].filter(Boolean).join('-'));
+  if (!taken(base)) return base;
+  let h = 0x811c9dc5;
+  for (const c of githubWebUrl(s).toLowerCase()) h = Math.imul(h ^ c.codePointAt(0)!, 0x01000193);
+  const id = `${base.slice(0, 51)}-${(h >>> 0).toString(16).padStart(8, '0')}`;
+  let unique = id;
+  for (let n = 2; taken(unique); n++) unique = `${id}-${n}`;
+  return unique;
+}
+
 export function slugify(value: string): string {
   return (
     value
@@ -226,6 +238,11 @@ export function searchEntries(entries: IndexEntry[], query: string): SearchHit[]
   return hits.sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title));
 }
 
+/** "1 cheatsheet", "2 cheatsheets". */
+export function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
 export function isSafeRelativeMdPath(p: string): boolean {
   if (!p || p.length > 1024 || !/\.md$/i.test(p)) return false;
   if (p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false;
@@ -255,6 +272,41 @@ export function resolvePageLink(fromPath: string, href: string): string | null {
   }
   const resolved = parts.join('/');
   return isSafeRelativeMdPath(resolved) ? resolved : null;
+}
+
+// The open cheatsheet lives in the URL (?sheet=<source>/<path>), so Back closes it and it can be shared.
+export const SHEET_PARAM = 'sheet';
+
+export function parseSheetParam(value: string | null): { source: string; path: string } | null {
+  const slash = value?.indexOf('/') ?? -1;
+  if (!value || slash < 1) return null;
+  const source = value.slice(0, slash);
+  const path = value.slice(slash + 1);
+  return /^[a-z0-9-]+$/.test(source) && isSafeRelativeMdPath(path) ? { source, path } : null;
+}
+
+/** The query string with `page` open, or closed for null; slashes stay readable. */
+export function sheetSearch(current: URLSearchParams, page: { source: string; path: string } | null): string {
+  const params = new URLSearchParams(current);
+  params.delete(SHEET_PARAM);
+  const parts = params.toString() ? [params.toString()] : [];
+  if (page) {
+    const value = [page.source, ...page.path.split('/')].map(encodeURIComponent).join('/');
+    parts.push(`${SHEET_PARAM}=${value}`);
+  }
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+
+/** True when only the open cheatsheet changed, which needs no new page data. */
+export function onlySheetChanged(current: URL, next: URL): boolean {
+  if (current.href === next.href || current.pathname !== next.pathname) return false;
+  const rest = (url: URL) => {
+    const params = new URLSearchParams(url.search);
+    params.delete(SHEET_PARAM);
+    params.sort();
+    return params.toString();
+  };
+  return rest(current) === rest(next);
 }
 
 export const SEARCH_PAGE_SIZE = 200;

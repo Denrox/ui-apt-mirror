@@ -1,5 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useLoaderData, useRevalidator } from 'react-router';
+import {
+  useLoaderData,
+  useLocation,
+  useNavigate,
+  useRevalidator,
+  useSearchParams,
+  type ShouldRevalidateFunctionArgs,
+} from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFileAlt,
@@ -7,6 +14,8 @@ import {
   faEye,
   faTimes,
   faBook,
+  faChevronDown,
+  faChevronUp,
 } from '@fortawesome/free-solid-svg-icons';
 import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
@@ -23,8 +32,26 @@ import CheatsheetModal, {
 } from '~/components/cheatsheets/cheatsheet-modal';
 import SourcesPanel from '~/components/cheatsheets/sources-panel';
 import type { SearchResult } from '~/routes/api.cheatsheets.search';
+import { onlySheetChanged, parseSheetParam, plural, sheetSearch, SHEET_PARAM } from '~/lib/cheatsheets';
 
 export { loader, action };
+
+export function shouldRevalidate({
+  currentUrl,
+  nextUrl,
+  formMethod,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
+  return !formMethod && onlySheetChanged(currentUrl, nextUrl) ? false : defaultShouldRevalidate;
+}
+
+// History state of a popup entry: the page as the results list knew it, and
+// how many popup entries this one is deep.
+interface SheetState {
+  sheet?: CheatsheetRef;
+  depth?: number;
+  fromLink?: boolean;
+}
 
 export function meta() {
   return [
@@ -51,7 +78,46 @@ export default function Cheatsheets() {
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [openPage, setOpenPage] = useState<CheatsheetRef | null>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(sources.length === 0);
+  const [urlParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const sheetState = (location.state ?? {}) as SheetState;
+  const depth = sheetState.depth ?? 0;
+  const sheet = parseSheetParam(urlParams.get(SHEET_PARAM));
+  const openPage: CheatsheetRef | null = !sheet
+    ? null
+    : sheetState.sheet?.source === sheet.source && sheetState.sheet.path === sheet.path
+      ? sheetState.sheet
+      : {
+          ...sheet,
+          sourceName: sources.find((s) => s.id === sheet.source)?.name ?? '',
+          title: '',
+          categories: [],
+        };
+
+  const showPage = (page: CheatsheetRef) => {
+    navigate(
+      { search: sheetSearch(urlParams, page) },
+      {
+        state: {
+          sheet: page,
+          depth: depth + 1,
+          fromLink: depth === 0 ? !!sheet : sheetState.fromLink,
+        } satisfies SheetState,
+        preventScrollReset: true,
+      },
+    );
+  };
+
+  // Back to the entry before the popup; a page opened from a shared link has none.
+  const closePage = () => {
+    if (depth > 0 && !sheetState.fromLink) {
+      navigate(-depth);
+      return;
+    }
+    navigate({ search: sheetSearch(urlParams, null) }, { replace: true, preventScrollReset: true });
+  };
 
   const browsable = sources.filter((s) => s.fileCount > 0);
   const totalPages = browsable.reduce((n, s) => n + s.fileCount, 0);
@@ -154,10 +220,22 @@ export default function Cheatsheets() {
 
       {!isPublic && (
         <ContentBlock className="flex-none mb-4">
-          <h3 className="text-sm font-medium text-on-surface-variant mb-3 flex items-center gap-2">
-            <FontAwesomeIcon icon={faBook} /> Sources
-          </h3>
-          <SourcesPanel sources={sources} />
+          {/* Collapsed on phones, where it would push the search box screens down. */}
+          <button
+            type="button"
+            className="w-full text-left text-sm font-medium text-on-surface-variant flex items-center gap-2 md:pointer-events-none"
+            aria-expanded={sourcesOpen}
+            onClick={() => setSourcesOpen((open) => !open)}
+          >
+            <FontAwesomeIcon icon={faBook} /> Sources ({sources.length})
+            <FontAwesomeIcon
+              icon={sourcesOpen ? faChevronUp : faChevronDown}
+              className="ml-auto md:hidden"
+            />
+          </button>
+          <div className={`mt-3 ${sourcesOpen ? '' : 'hidden md:block'}`}>
+            <SourcesPanel sources={sources} />
+          </div>
         </ContentBlock>
       )}
 
@@ -248,8 +326,8 @@ export default function Cheatsheets() {
               {hasQuery && !searching && !searchError && (
                 <div className="text-sm text-on-surface-variant">
                   {total > results.length
-                    ? `Showing ${results.length} of ${total} cheatsheets`
-                    : `${total} cheatsheets`}
+                    ? `Showing ${results.length} of ${plural(total, 'cheatsheet')}`
+                    : plural(total, 'cheatsheet')}
                   {selectedCategory && (
                     <span>
                       {' '}
@@ -284,7 +362,14 @@ export default function Cheatsheets() {
                         <p className="text-sm mt-2">Try adjusting your search or filters</p>
                       </>
                     ) : (
-                      <p>Search all {totalPages} pages or pick a category</p>
+                      <p>
+                        Search all {plural(totalPages, 'page')}
+                        {categories.length > 0
+                          ? ' or pick a category'
+                          : browsable.length > 1
+                            ? ' or pick a source to see its categories'
+                            : ''}
+                      </p>
                     )}
                   </div>
                 ) : (
@@ -292,7 +377,7 @@ export default function Cheatsheets() {
                     {results.map((r) => (
                       <TableRow
                         key={`${r.source}/${r.path}`}
-                        onClick={() => setOpenPage(r)}
+                        onClick={() => showPage(r)}
                         cursorClass="cursor-pointer min-w-0"
                         icon={
                           <FontAwesomeIcon
@@ -320,7 +405,7 @@ export default function Cheatsheets() {
                           <FormButton
                             type="secondary"
                             size="small"
-                            onClick={() => setOpenPage(r)}
+                            onClick={() => showPage(r)}
                           >
                             <FontAwesomeIcon icon={faEye} />
                           </FormButton>
@@ -346,8 +431,9 @@ export default function Cheatsheets() {
       {openPage && (
         <CheatsheetModal
           page={openPage}
-          isOpen={!!openPage}
-          onClose={() => setOpenPage(null)}
+          onClose={closePage}
+          onOpenLinked={showPage}
+          onBack={depth > 1 ? () => navigate(-1) : undefined}
         />
       )}
     </PageLayoutFull>

@@ -6,7 +6,7 @@ import Tag from '~/components/shared/tag/tag';
 import FormButton from '~/components/shared/form/form-button';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { extractTitle, resolvePageLink } from '~/lib/cheatsheets';
+import { extractTitle, resolvePageLink, sheetSearch } from '~/lib/cheatsheets';
 
 export interface CheatsheetRef {
   source: string;
@@ -18,42 +18,37 @@ export interface CheatsheetRef {
 
 interface CheatsheetModalProps {
   page: CheatsheetRef;
-  isOpen: boolean;
   onClose: () => void;
+  /** Opens a page linked from this one; the caller keeps the history. */
+  onOpenLinked: (page: CheatsheetRef) => void;
+  /** Set when the previous history entry is another page of this popup. */
+  onBack?: () => void;
 }
 
 export default function CheatsheetModal({
-  page: initialPage,
-  isOpen,
+  page,
   onClose,
+  onOpenLinked,
+  onBack,
 }: CheatsheetModalProps) {
-  // Pages opened by following links inside the source; the last one is shown.
-  const [history, setHistory] = useState<CheatsheetRef[]>([initialPage]);
-  const page = history[history.length - 1];
   const [content, setContent] = useState<string>('');
+  // Pages opened from a link or a shared URL only know their file name until loaded.
+  const [loadedTitle, setLoadedTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setHistory([initialPage]);
-  }, [initialPage]);
-
-  useEffect(() => {
-    if (!isOpen) return;
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setLoadedTitle('');
     const params = new URLSearchParams({ source: page.source, path: page.path });
     fetch(`/api/cheatsheets/page?${params}`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error('Failed to load cheatsheet');
         const text = await response.text();
         setContent(text);
-        // Linked pages only know their file name until loaded.
-        if (!page.title) {
-          const title = extractTitle(text, page.path);
-          setHistory((h) => [...h.slice(0, -1), { ...h[h.length - 1], title }]);
-        }
+        setLoadedTitle(extractTitle(text, page.path));
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
@@ -63,31 +58,24 @@ export default function CheatsheetModal({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [isOpen, page.source, page.path]);
+  }, [page.source, page.path]);
 
   const openLinked = (path: string) => {
-    setHistory((h) => [
-      ...h,
-      { source: page.source, sourceName: page.sourceName, path, title: '', categories: [] },
-    ]);
+    onOpenLinked({ source: page.source, sourceName: page.sourceName, path, title: '', categories: [] });
   };
 
   const fallbackTitle = (page.path.split('/').pop() ?? '').replace(/\.md$/i, '');
 
   return (
     <Modal
-      isOpen={isOpen}
+      isOpen
       onClose={onClose}
-      title={page.title || fallbackTitle}
+      title={page.title || loadedTitle || fallbackTitle}
       maxWidth="4xl"
     >
       <div className="flex items-center gap-3 mb-4 pb-4 border-b border-outline-variant">
-        {history.length > 1 && (
-          <FormButton
-            type="secondary"
-            size="small"
-            onClick={() => setHistory((h) => h.slice(0, -1))}
-          >
+        {onBack && (
+          <FormButton type="secondary" size="small" onClick={onBack}>
             <FontAwesomeIcon icon={faArrowLeft} className="mr-1" />
             Back
           </FormButton>
@@ -134,7 +122,7 @@ export default function CheatsheetModal({
                   if (target) {
                     return (
                       <a
-                        href="#"
+                        href={sheetSearch(new URLSearchParams(), { source: page.source, path: target })}
                         onClick={(e) => {
                           e.preventDefault();
                           openLinked(target);

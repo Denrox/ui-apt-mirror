@@ -18,7 +18,7 @@ import {
   markdownToText,
   parseCategoriesJson,
   parseGithubUrl,
-  slugify,
+  sourceIdFor,
   type IndexEntry,
 } from './cheatsheets';
 
@@ -140,9 +140,7 @@ export async function addSource(url: string, name?: string): Promise<CheatsheetS
     if (sources.some((s) => s.url.toLowerCase() === webUrl.toLowerCase())) {
       throw new Error('This source has already been added');
     }
-    const base = slugify(`${gh.owner}-${gh.repo}${gh.path ? `-${gh.path}` : ''}`);
-    let id = base;
-    for (let n = 2; sources.some((s) => s.id === id); n++) id = `${base}-${n}`;
+    const id = sourceIdFor(gh, (id) => sources.some((s) => s.id === id));
     const s: CheatsheetSource = {
       id,
       name: name?.trim() || defaultSourceName(gh),
