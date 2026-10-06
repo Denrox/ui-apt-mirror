@@ -1,15 +1,23 @@
 import { useParams } from 'react-router';
-import { useEffect, useState } from 'react';
+import type { Route } from './+types/documentation';
 import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutNav from '~/components/shared/layout/page-layout-nav';
 import NavLink from '~/components/shared/nav/nav-link';
 import { hostOf, useRuntimeConfig } from '~/utils/use-runtime-config';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import {
+  documentationSections,
+  findDocumentationSection,
+} from '~/utils/documentation-sections';
 
-export async function loader({ request }: { request: Request }) {
+export async function loader({ request, params }: Route.LoaderArgs) {
   await requireAuthMiddleware(request);
 
+  const npmEnabled = process.env.NPM_PROXY_ENABLED === 'true';
+  if (!findDocumentationSection(params.section, npmEnabled)) {
+    throw new Response('Not found', { status: 404 });
+  }
   return null;
 }
 
@@ -23,73 +31,51 @@ export function meta() {
 export default function Documentation() {
   const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
   const npmHost = hostOf(hosts, 'npm');
-  const sections = [
-    {
-      id: 'file-structure',
-      linkName: 'File Structure',
-      title: 'File Structure',
-    },
-    { id: 'commands', linkName: 'Commands', title: 'Commands' },
-    ...(isNpmProxyEnabled
-      ? [
-          {
-            id: 'npm-proxy',
-            linkName: 'NPM Proxy',
-            title: 'NPM Proxy Configuration',
-          },
-        ]
-      : []),
-  ];
-  const [activeSection, setActiveSection] = useState<string>('file-structure');
-  const { section } = useParams();
-
-  useEffect(() => {
-    if (section) {
-      setActiveSection(section);
-    }
-  }, [section]);
+  const sections = documentationSections(isNpmProxyEnabled);
+  const activeSection = useParams().section ?? 'file-structure';
 
   const renderFileStructure = () => (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold mb-4">Data Directory Structure</h3>
-        <div className="bg-surface-container p-4 rounded-lg font-mono text-sm">
-          <pre className="whitespace-pre-wrap">
-            {`data/
-├── auth/
-│   └── .htpasswd                # Admin authentication file
-├── conf/
-│   ├── apt-mirror/
-│   │   └── mirror.list          # apt-mirror2 configuration
-│   └── nginx/
-│       └── sites-available/     # Nginx site configurations
-│           ├── mirror.intra.conf
-│           ├── admin.mirror.intra.conf
-│           ├── files.mirror.intra.conf
-│           ├── cheatsheets.mirror.intra.conf${
+        <h3 className="text-lg font-semibold mb-4">Installation Directory</h3>
+        <div className="bg-surface-container p-4 rounded-lg font-mono text-xs sm:text-sm">
+          <pre className="overflow-x-auto whitespace-pre">
+            {`ui-apt-mirror/
+├── .env                         # Settings, change with ./setup.sh --reconfigure
+├── docker-compose.yml           # Stock file, replaced on upgrade
+├── docker-compose.override.yml  # Optional: your compose changes
+├── backups/                     # Configuration backups made by upgrades
+├── dist/                        # Docker images
+└── data/
+    ├── auth/
+    │   ├── .htpasswd            # Admin users and passwords
+    │   └── .jwt-secret          # Signs login sessions and npm tokens
+    ├── conf/
+    │   ├── apt-mirror/
+    │   │   └── mirror.list      # apt-mirror2 configuration
+    │   └── nginx/
+    │       └── custom/          # Optional overrides of the stock nginx sites
+    ├── data/
+    │   ├── apt-mirror/          # apt-mirror2 working directory
+    │   │   ├── mirror/          # Downloaded package mirrors
+    │   │   ├── gpg/             # Release signing keys
+    │   │   ├── skel/            # Skeleton files
+    │   │   └── var/             # Variable data
+    │   ├── files/               # Public file repository
+    │   ├── files-private/       # Private files, admin login required
+    │   ├── cheatsheets/         # Cheatsheets downloaded from GitHub sources${
               isNpmProxyEnabled
                 ? `
-│           └── npm.mirror.intra.conf`
+    │   └── npm/                 # NPM packages
+    │       ├── private/         # Private published packages
+    │       └── public/          # Cached public packages from npmjs.org`
                 : ''
             }
-├── data/
-│   ├── apt-mirror/              # apt-mirror2 working directory
-│   │   ├── mirror/              # Downloaded package mirrors
-│   │   ├── skel/                # Skeleton files
-│   │   └── var/                 # Variable data
-│   ├── files/                   # Custom file repository
-│   ├── cheatsheets/             # Cheatsheets downloaded from GitHub sources${
-              isNpmProxyEnabled
-                ? `
-│   └── npm/                     # NPM packages
-│       ├── private/             # Private published packages
-│       └── public/              # Cached public packages from npmjs.org`
-                : ''
-            }
-└── logs/
-    ├── apt-mirror/              # apt-mirror2 logs
-    │   └── apt-mirror.log       # Main apt-mirror2 log file
-    └── nginx/                   # Nginx access and error logs`}
+    └── logs/
+        ├── apt-mirror/
+        │   ├── apt-mirror.log    # Mirror sync log
+        │   └── sign-releases.log # Release signing log
+        └── nginx/               # Nginx access and error logs`}
           </pre>
         </div>
       </div>
@@ -98,25 +84,35 @@ export default function Documentation() {
         <h3 className="text-lg font-semibold mb-4">Description</h3>
         <div className="space-y-4">
           <div>
+            <h4 className="font-semibold text-primary">.env</h4>
+            <p className="text-on-surface-variant">
+              Domains, sync frequency, npm proxy and timezone. Change them with
+              ./setup.sh --reconfigure, or edit the file and run ./start.sh.
+            </p>
+          </div>
+          <div>
             <h4 className="font-semibold text-primary">auth/</h4>
             <p className="text-on-surface-variant">
-              Authentication files. Contains the .htpasswd file with admin
-              credentials for accessing the admin panel and protected areas.
+              The .htpasswd file with the admin users, and the secret that
+              signs login sessions and npm tokens.
             </p>
           </div>
           <div>
             <h4 className="font-semibold text-primary">conf/</h4>
             <p className="text-on-surface-variant">
-              Configuration files for apt-mirror and nginx. Contains mirror
-              settings and web server configurations.
+              The mirror list. Nginx sites are generated in the container from
+              .env; a file in conf/nginx/custom/ with the name of a site (e.g.
+              files.mirror.intra.conf) replaces it. Delete the file to go back
+              to the stock site.
             </p>
           </div>
           <div>
             <h4 className="font-semibold text-primary">data/</h4>
             <p className="text-on-surface-variant">
               Main data storage directory. apt-mirror/ contains downloaded
-              package repositories, files/ contains custom file repository,
-              cheatsheets/ contains cheatsheets downloaded from GitHub sources
+              package repositories and signing keys, files/ and files-private/
+              the public and private file repositories, cheatsheets/
+              cheatsheets downloaded from GitHub sources
               {isNpmProxyEnabled
                 ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}
@@ -126,8 +122,8 @@ export default function Documentation() {
           <div>
             <h4 className="font-semibold text-primary">logs/</h4>
             <p className="text-on-surface-variant">
-              Log files from apt-mirror synchronization and nginx web server
-              operations.
+              Mirror sync, release signing and nginx logs, also shown on the
+              Logs page.
             </p>
           </div>
         </div>
@@ -180,11 +176,15 @@ export default function Documentation() {
               <li>
                 Generates .htpasswd file in auth/ directory for authentication
               </li>
-              <li>Cleans up previous installations</li>
+              <li>Writes the settings to .env</li>
               <li>Creates data directories structure</li>
               <li>Generates apt-mirror configuration</li>
               <li>Creates docker-compose.yml from template</li>
               <li>Calls start.sh to load image and start container</li>
+              <li>
+                On an existing install, keeps .env, users, mirror.list and
+                nginx overrides
+              </li>
             </ul>
           </div>
         </div>
@@ -222,6 +222,18 @@ export default function Documentation() {
                   ./start.sh
                 </code>{' '}
                 - Load image and start container
+              </li>
+              <li>
+                <code className="bg-surface-container-lowest px-1 rounded">
+                  ./setup.sh --reconfigure
+                </code>{' '}
+                - Change the settings in .env, offering the current values
+              </li>
+              <li>
+                <code className="bg-surface-container-lowest px-1 rounded">
+                  ./setup.sh --reset-admin-password
+                </code>{' '}
+                - Set a new admin password
               </li>
               <li>
                 <code className="bg-surface-container-lowest px-1 rounded">
@@ -275,9 +287,17 @@ export default function Documentation() {
               </li>
               <li>Prompts user to choose architecture (current or all)</li>
               <li>Downloads latest version from official website</li>
+              <li>Backs up the configuration to backups/</li>
               <li>Extracts archive to temporary directory</li>
               <li>Installs new image files to dist/ directory</li>
-              <li>Runs setup.sh to deploy the upgrade</li>
+              <li>
+                Replaces setup.sh, start.sh, upgrade.sh,
+                docker-compose.src.yml and README.md
+              </li>
+              <li>
+                Runs setup.sh --upgrade, which keeps your settings, users and
+                repositories
+              </li>
               <li>Cleans up temporary files</li>
             </ul>
           </div>
@@ -339,9 +359,6 @@ export default function Documentation() {
               <div className="space-y-2 text-sm font-mono">
                 <div className="bg-surface-container-lowest p-2 rounded">
                   npm config set registry http://{npmHost}
-                </div>
-                <div className="bg-surface-container-lowest p-2 rounded">
-                  npm config set registry http://npm.yourdomain.com
                 </div>
               </div>
             </div>
@@ -432,11 +449,11 @@ export default function Documentation() {
               <ul className="list-disc list-inside space-y-1 text-sm">
                 <li>
                   All published packages are private and stored in
-                  data/npm/private/
+                  data/data/npm/private/
                 </li>
                 <li>
                   Public packages (cached from npmjs.org) are stored in
-                  data/npm/public/
+                  data/data/npm/public/
                 </li>
                 <li>Published packages are never forwarded to npmjs.org</li>
                 <li>
@@ -454,9 +471,9 @@ export default function Documentation() {
           <h3 className="text-lg font-semibold mb-4">File Management</h3>
           <div className="bg-surface-container p-4 rounded-lg">
             <p className="text-on-surface-variant mb-3">
-              NPM packages are organized in the data/npm/ directory: public
-              packages (cached from npmjs.org) in data/npm/public/ and private
-              packages (published locally) in data/npm/private/. Both can be
+              NPM packages are organized in the data/data/npm/ directory:
+              public packages (cached from npmjs.org) in public/ and private
+              packages (published locally) in private/. Both can be
               viewed and managed through the File Manager.
             </p>
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-indigo-300">
@@ -487,20 +504,17 @@ export default function Documentation() {
       ))}
     >
       <>
-        <div className="lg:-translate-x-[132px]">
-          <Title
-            title={
-              sections.find((section) => section.id === activeSection)?.title ??
-              'Documentation'
-            }
-          />
-        </div>
+        <Title
+          noCenter
+          title={
+            sections.find((section) => section.id === activeSection)?.title ??
+            'Documentation'
+          }
+        />
         <ContentBlock className="flex-1">
           {activeSection === 'file-structure' && renderFileStructure()}
           {activeSection === 'commands' && renderCommands()}
-          {activeSection === 'npm-proxy' &&
-            isNpmProxyEnabled &&
-            renderNpmProxy()}
+          {activeSection === 'npm-proxy' && renderNpmProxy()}
         </ContentBlock>
       </>
     </PageLayoutNav>
