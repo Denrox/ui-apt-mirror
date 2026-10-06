@@ -684,6 +684,21 @@ show_status() {
         echo ""
         print_warning "Custom nginx configs in use (they replace the stock ones):"
         echo "$custom" | sed 's/^/  /'
+        # The container writes the .stock copies while starting
+        local i
+        for i in $(seq 1 30); do
+            docker logs "$CONTAINER_NAME" 2>&1 | grep -q "Starting admin server" && break
+            sleep 1
+        done
+        local changed="" conf
+        for conf in $custom; do
+            [ -f "$conf.stock" ] && changed+="  $conf"$'\n'
+        done
+        if [ -n "$changed" ]; then
+            print_warning "The stock config changed since these were written; they may be missing fixes:"
+            printf '%s' "$changed"
+            print_warning "Compare each with its .stock copy, merge what you need, then delete the .stock file."
+        fi
     fi
 
     echo ""
