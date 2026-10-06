@@ -98,6 +98,8 @@ export function markdownToText(markdown: string): string {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\{\{([^}]*)\}\}/g, '$1') // tldr placeholders
     .replace(/(\w)\[(\w)\]|\[(\w)\](?=\w)/g, '$1$2$3') // tldr option hints: E[x]tract, [f]ile
+    .replace(/^[ \t]*\|?[ \t:|-]*-{3,}[ \t:|-]*$/gm, '') // table separator rows
+    .replace(/\|/g, ' ')
     .replace(/^[ \t]*(#{1,6}|>|[-*+]|\d+\.)[ \t]+/gm, '')
     .replace(/[*_`~]+/g, '')
     .replace(/\s+/g, ' ')
