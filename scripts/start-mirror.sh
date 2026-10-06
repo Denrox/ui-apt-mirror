@@ -12,7 +12,7 @@ echo "Script directory: $SCRIPT_DIR"
 
 cd "$SCRIPT_DIR"
 
-if ./mirror-sync.sh status | grep -q "^Sync running"; then
+if ./mirror-sync.sh status | grep -q "^Sync running" || ! flock -n /var/run/apt-mirror.flock true; then
     echo "Mirror sync is already running"
     exit 1
 fi

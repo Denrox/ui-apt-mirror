@@ -89,37 +89,38 @@ export default function ChunkedUpload({
     return chunks;
   };
 
+  // Resolves when the chunk is stored; throws the server's reason when it is refused.
   const uploadChunk = useCallback(
-    async (chunkData: UploadChunk, retries = 3): Promise<boolean> => {
-      for (let attempt = 1; attempt <= retries; attempt++) {
+    async (chunkData: UploadChunk, retries = 3): Promise<void> => {
+      for (let attempt = 1; ; attempt++) {
+        const formData = new FormData();
+        formData.append('intent', 'uploadChunk');
+        formData.append('filePath', currentPath);
+        formData.append('chunk', chunkData.chunk);
+        formData.append('chunkIndex', chunkData.index.toString());
+        formData.append('totalChunks', chunkData.total.toString());
+        formData.append('fileName', chunkData.fileName);
+        formData.append('fileId', chunkData.fileId);
+
+        let result: { success?: boolean; error?: string } | null = null;
         try {
-          const formData = new FormData();
-          formData.append('intent', 'uploadChunk');
-          formData.append('filePath', currentPath);
-          formData.append('chunk', chunkData.chunk);
-          formData.append('chunkIndex', chunkData.index.toString());
-          formData.append('totalChunks', chunkData.total.toString());
-          formData.append('fileName', chunkData.fileName);
-          formData.append('fileId', chunkData.fileId);
-
-          await fetcher.submit(formData, {
+          const response = await fetch('/api/upload-chunk', {
             method: 'POST',
-            action: '',
-            encType: 'multipart/form-data',
+            body: formData,
+            signal: abortControllerRef.current?.signal,
           });
-
-          return true;
+          if (response.redirected) throw new Error('Your session has expired; log in again');
+          result = await response.json();
         } catch (error) {
-          console.error(`Chunk upload attempt ${attempt} failed:`, error);
-          if (attempt === retries) {
-            return false;
-          }
+          if (attempt >= retries || abortControllerRef.current?.signal.aborted) throw error;
           await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+          continue;
         }
+        if (!result?.success) throw new Error(result?.error || 'Upload refused by the server');
+        return;
       }
-      return false;
     },
-    [currentPath, fetcher],
+    [currentPath],
   );
 
   useEffect(() => {
@@ -175,13 +176,7 @@ export default function ChunkedUpload({
             }
 
             const chunk = chunks[i];
-            const success = await uploadChunk(chunk);
-
-            if (!success) {
-              throw new Error(
-                `Failed to upload chunk ${i + 1} of ${chunks.length} after retries`,
-              );
-            }
+            await uploadChunk(chunk);
 
             onChunkUploaded?.(chunk.index, chunk.total);
 
@@ -221,8 +216,9 @@ export default function ChunkedUpload({
         }
       }
 
+      // A refused file stays listed with its reason until the user dismisses or re-selects.
       setTimeout(() => {
-        setSelectedFiles([]);
+        setSelectedFiles((prev) => prev.filter((f) => f.status === 'error'));
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -305,6 +301,18 @@ export default function ChunkedUpload({
                   </span>
                 </div>
               </div>
+            )}
+
+            {selectedFiles.some((f) => f.status === 'error') && (
+              <ul className="space-y-1 text-sm text-error">
+                {selectedFiles
+                  .filter((f) => f.status === 'error')
+                  .map((f) => (
+                    <li key={f.file.name} className="break-words">
+                      {f.file.name}: {f.error}
+                    </li>
+                  ))}
+              </ul>
             )}
 
             <div className="flex justify-end gap-2 pt-4">

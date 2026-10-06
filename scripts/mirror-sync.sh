@@ -78,6 +78,7 @@ create_lock() {
 # Function to remove lock file
 remove_lock() {
     rm -f "$LOCK_FILE"
+    exec 8>&-
 }
 
 # Function to perform sync
@@ -89,7 +90,12 @@ do_sync() {
         return 1
     fi
     
-    # Create lock file
+    # Held for the whole sync, so two runs can never overlap however they were started.
+    exec 8>/var/run/apt-mirror.flock
+    if ! flock -n 8; then
+        log "Sync already running"
+        return 1
+    fi
     create_lock
     
     # Set environment variables for better performance

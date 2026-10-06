@@ -208,8 +208,8 @@ use_current_config() {
     MIRROR_DOMAIN="${CUR_DOMAIN:-mirror.intra}"
     SYNC_FREQUENCY="${CUR_SYNC:-14400}"
     HOST_TIMEZONE="${CUR_TZ:-$host_timezone}"
-    if [ "$CUR_NPM" = "true" ]; then ENABLE_NPM_PROXY="y"; else ENABLE_NPM_PROXY="n"; fi
-    if [ -z "$CUR_NPM" ] && [ "$INSTALL_EXISTS" = false ]; then ENABLE_NPM_PROXY="y"; fi
+    # Unset means enabled: before NPM_PROXY_ENABLED existed the proxy was always on.
+    if [ "$CUR_NPM" = "false" ]; then ENABLE_NPM_PROXY="n"; else ENABLE_NPM_PROXY="y"; fi
 }
 
 show_current_config() {
