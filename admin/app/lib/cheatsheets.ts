@@ -1,26 +1,16 @@
-// Pure helpers for GitHub-sourced cheatsheets: URL parsing, turning markdown
-// into searchable text, and ranking search results. No fs/network here so it
-// can be unit tested and shared between the server modules.
-
 export interface GithubSource {
   owner: string;
   repo: string;
-  /** Branch, tag or commit; null means the repository's default branch. */
+  /** null = default branch */
   ref: string | null;
-  /** Folder inside the repository to import, '' for the whole repo. */
   path: string;
 }
 
 const NAME_RE = /^[A-Za-z0-9_.-]+$/;
 const REF_RE = /^[A-Za-z0-9_.-]+$/;
 
-/**
- * Accepts the URLs people copy from GitHub:
- *   https://github.com/owner/repo(.git)
- *   https://github.com/owner/repo/tree/<ref>/<folder...>
- * The ref is taken as a single path segment, so a branch with a slash in its
- * name can't be expressed through a tree URL.
- */
+// github.com/<owner>/<repo> or github.com/<owner>/<repo>/tree/<ref>/<folder>.
+// The ref is a single segment, so branches containing "/" aren't supported.
 export function parseGithubUrl(input: string): GithubSource {
   let raw = input.trim();
   if (!raw) throw new Error('GitHub URL is required');
@@ -76,7 +66,6 @@ export function githubWebUrl(s: GithubSource): string {
   return `${base}/tree/${s.ref}${s.path ? `/${s.path}` : ''}`;
 }
 
-/** Default display name: the folder if one was picked, otherwise owner/repo. */
 export function defaultSourceName(s: GithubSource): string {
   const last = s.path.split('/').filter(Boolean).pop();
   return last ? `${s.repo}/${last}` : `${s.owner}/${s.repo}`;
@@ -92,7 +81,6 @@ export function slugify(value: string): string {
   );
 }
 
-/** First markdown H1 (`# Title`), else the file name without `.md`. */
 export function extractTitle(markdown: string, filePath: string): string {
   const m = markdown.match(/^#[ \t]+(.+?)[ \t#]*$/m);
   if (m) return m[1].trim();
@@ -100,7 +88,6 @@ export function extractTitle(markdown: string, filePath: string): string {
   return base.replace(/\.md$/i, '');
 }
 
-/** Markdown -> plain text for indexing and snippets. */
 export function markdownToText(markdown: string): string {
   return markdown
     .replace(/```[^\n]*\n/g, '\n') // fence openers, keep code
@@ -118,7 +105,6 @@ export function markdownToText(markdown: string): string {
 }
 
 export interface IndexEntry {
-  /** Path relative to the source's content folder, always ending in .md. */
   path: string;
   title: string;
   categories: string[];
@@ -127,11 +113,7 @@ export interface IndexEntry {
 
 export const GENERAL_CATEGORY = 'General';
 
-/**
- * Categories for a file: an explicit categories.json in the imported folder
- * wins ({ "Category": ["relative/path.md", ...] }); otherwise the first
- * sub-folder is the category (tldr's pages/common, pages/linux, ...).
- */
+// categories.json ({ "Category": ["path.md", ...] }) wins, else the first sub-folder.
 export function categoriesFor(
   relPath: string,
   explicit: Map<string, string[]> | null,
@@ -142,7 +124,6 @@ export function categoriesFor(
   return segments.length > 1 ? [segments[0]] : [GENERAL_CATEGORY];
 }
 
-/** Invert a categories.json object into path -> categories. */
 export function parseCategoriesJson(json: unknown): Map<string, string[]> | null {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return null;
   const map = new Map<string, string[]>();
@@ -181,11 +162,7 @@ export function makeSnippet(text: string, terms: string[], radius = 90): string 
   return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
 }
 
-/**
- * Every query word must appear in the title or text. Title matches dominate
- * (exact title, then title prefix, then words in title), then the whole phrase
- * in the body, then how often the words occur.
- */
+// All words must match; title matches rank above body matches.
 export function searchEntries(entries: IndexEntry[], query: string): SearchHit[] {
   const phrase = query.trim().toLowerCase().replace(/\s+/g, ' ');
   const terms = tokenize(phrase);
@@ -204,7 +181,6 @@ export function searchEntries(entries: IndexEntry[], query: string): SearchHit[]
         all = false;
         break;
       }
-      // A whole title word beats a word prefix beats a substring ("tar" in "ptargrep").
       if (titleWords.includes(t)) score += 30;
       else if (titleWords.some((w) => w.startsWith(t))) score += 15;
       else if (inTitle) score += 3;
@@ -221,7 +197,6 @@ export function searchEntries(entries: IndexEntry[], query: string): SearchHit[]
   return hits.sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title));
 }
 
-/** A relative .md path that can't escape its folder. */
 export function isSafeRelativeMdPath(p: string): boolean {
   if (!p || p.length > 1024 || !/\.md$/i.test(p)) return false;
   if (p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false;

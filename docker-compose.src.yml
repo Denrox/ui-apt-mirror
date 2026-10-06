@@ -1,5 +1,4 @@
-# Stock file: upgrades replace it. Settings come from .env (written by
-# setup.sh); put your own changes in docker-compose.override.yml.
+# Replaced on upgrade: settings go in .env, changes in docker-compose.override.yml.
 services:
   ui-apt-mirror:
     image: ui-apt-mirror:latest
@@ -11,8 +10,6 @@ services:
       - ./data/data/apt-mirror:/var/spool/apt-mirror
       - ./data/logs/apt-mirror:/var/log/apt-mirror
       - ./data/conf/apt-mirror:/etc/apt
-      # Site configs are generated from the image's templates at start;
-      # put overrides in data/conf/nginx/custom/<same file name>.
       - ./data/conf/nginx:/etc/nginx/hostconf
       - ./data/auth:/var/auth
       - ./data/logs/nginx:/var/log/nginx

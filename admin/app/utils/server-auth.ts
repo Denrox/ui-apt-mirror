@@ -5,10 +5,8 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
 
-// Each install signs logins with its own random secret, created on first use
-// next to .htpasswd (data/auth/.jwt-secret on the host) so it survives
-// upgrades. Never ship a secret in config: anyone who knows it can forge an
-// admin login.
+// Per-install secret, created on first use next to .htpasswd. Never ship one
+// in config: whoever knows it can forge an admin login.
 let jwtSecret: string | null = null;
 
 export function getJwtSecret(): string {
@@ -17,9 +15,7 @@ export function getJwtSecret(): string {
   try {
     const existing = readFileSync(file, 'utf-8').trim();
     if (existing.length >= 32) return (jwtSecret = existing);
-  } catch {
-    // Missing: create it below.
-  }
+  } catch {}
   const secret = randomBytes(48).toString('base64url');
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, `${secret}\n`, { mode: 0o600 });

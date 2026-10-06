@@ -1,7 +1,6 @@
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { addSource, refreshSource, removeSource } from '~/lib/cheatsheets-store';
 
-// Source management is admin-only, also when reached through the public host.
 export async function action({ request }: { request: Request }) {
   await requireAuthMiddleware(request);
 

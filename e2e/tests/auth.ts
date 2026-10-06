@@ -3,11 +3,8 @@ import { readFileSync } from 'fs';
 import jwt from 'jsonwebtoken';
 
 /**
- * The Dockerized admin app authenticates via an `auth_token` JWT cookie signed
- * with the install's own secret, which the app creates on first start in
- * data/auth/.jwt-secret. We mint that token directly so tests don't depend on
- * the (unknown, user-set) htpasswd password. Override the location with
- * E2E_JWT_SECRET_FILE when the stack runs from another directory.
+ * We mint the `auth_token` JWT directly (signed with the install's
+ * data/auth/.jwt-secret) so tests don't depend on the htpasswd password.
  */
 const SECRET_FILE =
   process.env.E2E_JWT_SECRET_FILE ??

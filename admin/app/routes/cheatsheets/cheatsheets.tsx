@@ -54,7 +54,6 @@ export default function Cheatsheets() {
 
   const browsable = sources.filter((s) => s.fileCount > 0);
   const totalPages = browsable.reduce((n, s) => n + s.fileCount, 0);
-  // With a single source there is nothing to pick, so treat it as selected.
   const activeSource =
     selectedSource ?? (browsable.length === 1 ? browsable[0].id : null);
   const categories = useMemo(
@@ -62,7 +61,6 @@ export default function Cheatsheets() {
     [browsable, activeSource],
   );
 
-  // Poll while a download runs so status and page counts update by themselves.
   const downloading = sources.some((s) => s.status === 'downloading');
   useEffect(() => {
     if (!downloading) return;

@@ -17,8 +17,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-// GET /api/cheatsheets/search?q=&source=&category=
-// With q: ranked full-text results. Without q: every page in the category.
+// Without q, lists the whole category.
 export async function loader({ request }: { request: Request }) {
   if (!isPublicCheatsheetsRequest(request)) {
     await requireAuthMiddleware(request);
@@ -56,7 +55,7 @@ export async function loader({ request }: { request: Request }) {
   }
 
   results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
-  // Plain Response rather than Response.json(): the image runs Ubuntu's Node 18.
+  // Not Response.json(): the image runs Node 18.
   const body = {
     total: results.length,
     results: results.slice(0, MAX_RESULTS).map(({ score: _score, ...r }) => r),

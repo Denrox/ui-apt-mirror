@@ -22,7 +22,6 @@ function formatDate(iso: string | null | undefined) {
   return iso ? new Date(iso).toLocaleString() : 'never';
 }
 
-/** Admin-only: add, update and remove GitHub sources. */
 export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
   const fetcher = useFetcher<ActionResult>();
   const [url, setUrl] = useState('');
@@ -31,7 +30,6 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
   const busy = fetcher.state !== 'idle';
   const result = fetcher.data;
 
-  // Clear the form once a source was accepted.
   useEffect(() => {
     if (fetcher.state === 'idle' && result?.success && result.intent === 'addSource') {
       setUrl('');

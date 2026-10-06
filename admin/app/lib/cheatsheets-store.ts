@@ -1,12 +1,5 @@
-// Server-side storage for GitHub-sourced cheatsheets.
-//
-// Layout under appConfig.cheatsheetsDir:
-//   sources.json                 registry of sources (see CheatsheetSource)
-//   sources/<id>/files/**.md     the imported markdown, folder structure kept
-//   sources/<id>/index.json      IndexEntry[] used for listing and search
-//
-// A download replaces a source's folder only after the new copy is complete,
-// so a failed or interrupted update leaves the previous content in place.
+// cheatsheetsDir/sources.json lists the sources; each one's content lives in
+// sources/<id>/files and its search index in sources/<id>/index.json.
 
 import { execFile } from 'child_process';
 import { createWriteStream } from 'fs';
@@ -42,7 +35,6 @@ export interface CheatsheetSource {
   status: 'downloading' | 'ready' | 'error';
   error: string | null;
   fileCount: number;
-  /** Short commit id of the downloaded snapshot. */
   revision: string | null;
   addedAt: string;
   updatedAt: string | null;
@@ -52,7 +44,6 @@ const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
 const MAX_FILES = 50_000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_INDEXED_TEXT = 20_000;
-// Repository housekeeping, not cheatsheets.
 const SKIP_FILES = new Set([
   'readme.md',
   'license.md',
@@ -62,18 +53,14 @@ const SKIP_FILES = new Set([
   'security.md',
 ]);
 
-// Absolute, so the containment checks below compare like with like (the dev
-// config uses a relative path).
+// Absolute: the dev config path is relative, which breaks the containment checks.
 const root = () => path.resolve(appConfig.cheatsheetsDir);
 const registryPath = () => path.join(root(), 'sources.json');
 const sourceDir = (id: string) => path.join(root(), 'sources', id);
 const filesDir = (id: string) => path.join(sourceDir(id), 'files');
 const indexPath = (id: string) => path.join(sourceDir(id), 'index.json');
 
-// ---- registry --------------------------------------------------------------
-
-// Downloads currently running in this process. A source marked 'downloading'
-// in sources.json but absent here was interrupted by a restart.
+// 'downloading' in sources.json but not in here means a restart interrupted it.
 const active = new Set<string>();
 let registryLock: Promise<unknown> = Promise.resolve();
 
@@ -93,7 +80,6 @@ async function writeRegistry(sources: CheatsheetSource[]) {
   await fs.rename(tmp, registryPath());
 }
 
-/** Serialize read-modify-write cycles on sources.json. */
 function updateRegistry<T>(fn: (sources: CheatsheetSource[]) => T | Promise<T>): Promise<T> {
   const run = registryLock.then(async () => {
     const sources = await readRegistry();
@@ -165,9 +151,6 @@ export async function removeSource(id: string) {
   await fs.rm(sourceDir(id), { recursive: true, force: true });
 }
 
-// ---- download --------------------------------------------------------------
-
-/** Runs in the background; the UI polls sources.json for the outcome. */
 function startDownload(id: string) {
   active.add(id);
   downloadSource(id)
@@ -234,7 +217,7 @@ async function collectMarkdown(base: string): Promise<string[]> {
     for (const e of entries) {
       if (e.name.startsWith('.')) continue;
       const relPath = rel ? `${rel}/${e.name}` : e.name;
-      // Dirent types come from lstat, so symlinks are neither files nor dirs here.
+      // Symlinks are skipped: Dirent types come from lstat.
       if (e.isDirectory()) {
         await walk(path.join(dir, e.name), relPath);
       } else if (
@@ -268,7 +251,7 @@ async function downloadSource(id: string) {
     await execFileAsync('tar', ['-xzf', archive, '-C', extract, '--no-same-owner', '--no-same-permissions']);
     await fs.rm(archive, { force: true });
 
-    // GitHub archives contain one top folder: <owner>-<repo>-<sha>.
+    // Single top folder: <owner>-<repo>-<sha>.
     const [top] = await fs.readdir(extract);
     if (!top) throw new Error('Downloaded archive is empty');
     const revision = top.split('-').pop() || null;
@@ -310,7 +293,7 @@ async function downloadSource(id: string) {
     }
     await fs.writeFile(path.join(staged, 'index.json'), JSON.stringify(index));
 
-    // Swap in the new copy.
+    // Swap only once complete, so a failed update keeps the old copy.
     await fs.mkdir(path.join(root(), 'sources'), { recursive: true });
     const old = path.join(work, 'old');
     await fs.rename(sourceDir(id), old).catch(() => undefined);
@@ -322,8 +305,6 @@ async function downloadSource(id: string) {
     await fs.rm(work, { recursive: true, force: true });
   }
 }
-
-// ---- reading ---------------------------------------------------------------
 
 const indexCache = new Map<string, { mtimeMs: number; entries: IndexEntry[] }>();
 
@@ -342,7 +323,6 @@ export async function loadIndex(id: string): Promise<IndexEntry[]> {
   }
 }
 
-/** Category name -> number of pages, alphabetical. */
 export async function categoryCounts(id: string): Promise<{ name: string; count: number }[]> {
   const counts = new Map<string, number>();
   for (const e of await loadIndex(id)) {
@@ -363,7 +343,6 @@ export async function readPage(id: string, relPath: string): Promise<string | nu
   return fs.readFile(full, 'utf-8');
 }
 
-/** The public cheatsheets host (cheatsheets.<domain>) is readable without login. */
 export function isPublicCheatsheetsRequest(request: Request): boolean {
   if (new URL(request.url).hostname.startsWith('cheatsheets')) return true;
   const referer = request.headers.get('referer');

@@ -1,7 +1,6 @@
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { isPublicCheatsheetsRequest, readPage } from '~/lib/cheatsheets-store';
 
-// GET /api/cheatsheets/page?source=<id>&path=<relative .md path>
 export async function loader({ request }: { request: Request }) {
   if (!isPublicCheatsheetsRequest(request)) {
     await requireAuthMiddleware(request);

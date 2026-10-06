@@ -32,10 +32,7 @@ if [ ! -L /var/www/mirror.intra/mirror ]; then
     ln -sf /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
 fi
 
-# Nginx sites are rendered from the templates baked into the image, so every
-# upgrade ships its own site configs. A file with the same name in
-# data/conf/nginx/custom/ (mounted at /etc/nginx/hostconf/custom) replaces the
-# stock one and is never overwritten.
+# Render nginx sites from the image's templates; data/conf/nginx/custom/<name> overrides one.
 NGINX_HOSTCONF=/etc/nginx/hostconf
 NGINX_CUSTOM="$NGINX_HOSTCONF/custom"
 MIRROR_DOMAIN="${MIRROR_DOMAIN:-mirror.intra}"
@@ -47,10 +44,7 @@ render_site() {
 
 mkdir -p "$NGINX_CUSTOM"
 
-# One-time migration from installs where the host held the live site configs
-# (data/conf/nginx/sites-available). Files that differ from the stock config
-# for this domain were edited by the user, so they become custom overrides;
-# the old folder is then renamed so this runs only once.
+# One-time migration: edited legacy site configs become custom overrides.
 LEGACY_SITES="$NGINX_HOSTCONF/sites-available"
 if [ -d "$LEGACY_SITES" ]; then
     for legacy in "$LEGACY_SITES"/*.conf; do

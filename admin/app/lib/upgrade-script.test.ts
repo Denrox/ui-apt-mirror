@@ -2,11 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import path from 'path';
 
-// Released upgrade.sh versions overwrite themselves in place, then bash keeps
-// reading the new file from the byte where the old one ended. upgrade.sh has a
-// landing block with an `exit 0` line starting at each of those offsets; this
-// guards it against edits that shift the bytes.
-// Only the 8192-byte release (1272e81) installs a new copy of itself.
+// See the landing block at the top of upgrade.sh.
 const RELEASED_UPGRADE_SH_SIZES = [8192];
 
 describe('upgrade.sh landing block', () => {

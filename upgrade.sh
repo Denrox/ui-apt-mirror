@@ -1,13 +1,7 @@
 #!/bin/bash
-#
-# LANDING BLOCK - keep this block at the top of the file and do not change its size.
-#
-# The previous release's upgrade.sh (8192 bytes) copies the new upgrade.sh over
-# itself in place; when it finishes, bash keeps reading this new file from byte
-# 8192. The 'exit 0' line starting at that offset makes it end cleanly instead
-# of running a fragment of this script. Normal runs skip the block. Older
-# releases never replace their own upgrade.sh, so they need no offset here.
-# admin/app/lib/upgrade-script.test.ts checks the offset.
+# Landing block: keep at the top, don't change its size. The previous release's
+# upgrade.sh overwrites itself with this file and bash resumes reading at byte
+# 8192, where it hits 'exit 0'. Normal runs skip it. See upgrade-script.test.ts.
 if false; then
 ###############################################################################
 ###############################################################################
@@ -104,7 +98,11 @@ if false; then
 ###############################################################################
 ###############################################################################
 ###############################################################################
-############################
+###############################################################################
+###############################################################################
+###############################################################################
+###############################################################################
+####
 exit 0
 fi
 
@@ -307,8 +305,7 @@ extract_and_install() {
     for file in "${files_to_copy[@]}"; do
         if [ -f "$TEMP_DIR/$file" ]; then
             print_status "Installing $file..."
-            # Copy then rename: replacing the file in place would corrupt this
-            # very script (upgrade.sh) while bash is still reading it.
+            # Rename, don't overwrite: bash is still reading upgrade.sh
             cp "$TEMP_DIR/$file" "./$file.new"
             mv -f "./$file.new" "./$file"
             print_success "Installed $file"
@@ -320,7 +317,7 @@ extract_and_install() {
     print_success "Additional project files installed successfully"
 }
 
-# Function to back up everything the user configured before touching anything
+# Function to back up the configuration
 backup_config() {
     local items=()
     local item
@@ -355,8 +352,6 @@ run_setup() {
     fi
 
     print_status "Starting setup process..."
-    # --upgrade keeps the current settings, users, repositories and custom
-    # nginx configs; it only replaces program files and the stock compose file.
     ./setup.sh --upgrade
 }
 
@@ -421,7 +416,7 @@ main() {
     # Download latest version
     download_latest
     
-    # Back up configuration, then extract and install
+    # Back up, then extract and install
     backup_config
     extract_and_install
     
@@ -445,6 +440,5 @@ main() {
     echo "  - File Repository: http://files.$domain"
 }
 
-# Run main function with all arguments. Exit on the same line so bash never
-# reads further from this file after the upgrade replaced it.
+# Run main function with all arguments (exit before bash reads a replaced file)
 main "$@"; exit $? 

@@ -10,7 +10,7 @@ export interface SourceView {
   name: string;
   fileCount: number;
   categories: { name: string; count: number }[];
-  // Admin-only details; omitted on the public host.
+  // Admin only:
   url?: string;
   ref?: string | null;
   path?: string;
@@ -30,8 +30,6 @@ export async function loader({ request }: { request: Request }) {
     const sources = await listSources();
     const views: SourceView[] = [];
     for (const s of sources) {
-      // Visitors only see sources that have content; admins see everything,
-      // including ones still downloading or that failed.
       if (isPublic && s.fileCount === 0) continue;
       const base = {
         id: s.id,
