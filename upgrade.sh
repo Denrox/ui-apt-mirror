@@ -331,10 +331,16 @@ backup_config() {
     mkdir -p backups
     local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
     print_status "Backing up configuration to $backup..."
-    if tar -czf "$backup" "${items[@]}"; then
+    local skipped
+    if skipped=$(tar -czf "$backup" --ignore-failed-read "${items[@]}" 2>&1 >/dev/null); then
         chmod 600 "$backup"
+        if [ -n "$skipped" ]; then
+            print_warning "Some files could not be read and are not in the backup:"
+            echo "$skipped" | sed 's/^/  /'
+        fi
         print_success "Backup saved: $backup"
     else
+        [ -n "$skipped" ] && echo "$skipped" 
         print_error "Backup failed; aborting before anything is changed."
         rm -rf "$TEMP_DIR"
         exit 1

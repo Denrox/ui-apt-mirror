@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
+import { giveToDirOwner } from './file-owner';
 
 // Per-install secret, created on first use next to .htpasswd. Never ship one
 // in config: whoever knows it can forge an admin login.
@@ -11,14 +12,19 @@ let jwtSecret: string | null = null;
 
 export function getJwtSecret(): string {
   if (jwtSecret) return jwtSecret;
-  const file = path.join(path.dirname(appConfig.htpasswdPath), '.jwt-secret');
+  const dir = path.dirname(appConfig.htpasswdPath);
+  const file = path.join(dir, '.jwt-secret');
   try {
     const existing = readFileSync(file, 'utf-8').trim();
-    if (existing.length >= 32) return (jwtSecret = existing);
+    if (existing.length >= 32) {
+      giveToDirOwner(file);
+      return (jwtSecret = existing);
+    }
   } catch {}
   const secret = randomBytes(48).toString('base64url');
-  mkdirSync(path.dirname(file), { recursive: true });
+  mkdirSync(dir, { recursive: true });
   writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  giveToDirOwner(file);
   return (jwtSecret = secret);
 }
 const COOKIE_NAME = 'auth_token';

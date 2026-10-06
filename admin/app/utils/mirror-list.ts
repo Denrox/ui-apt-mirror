@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { giveToDirOwner } from './file-owner';
 import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
 
 /**
@@ -22,6 +23,9 @@ export async function atomicWriteFile(
   const tempPath = `${filePath}.${process.pid}.tmp`;
   await fs.writeFile(tempPath, content);
   try {
+    const previous = await fs.stat(filePath).catch(() => null);
+    if (previous) await fs.chmod(tempPath, previous.mode & 0o7777);
+    giveToDirOwner(tempPath);
     await fs.rename(tempPath, filePath);
   } catch (error) {
     await fs.rm(tempPath, { force: true });
