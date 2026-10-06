@@ -188,6 +188,9 @@ export default function FileManager() {
     return currentPath === rootPath;
   }, [currentPath, rootPath]);
 
+  // Machine-managed: the server only allows deleting here.
+  const isManagedView = view === 'mirrored-packages' || view === 'npm-packages';
+
   const shouldShowSyncPlaceholder = useMemo(() => {
     return view === 'mirrored-packages' && isLockFilePresent;
   }, [view, isLockFilePresent]);
@@ -583,14 +586,14 @@ export default function FileManager() {
           {view === 'mirrored-packages' && (
             <FileManagerWarning
               type="warning"
-              message="Manual changes can break mirror functionality"
+              message="Manual changes can break mirror functionality. Only deletion is available here."
             />
           )}
 
           {view === 'npm-packages' && (
             <FileManagerWarning
               type="warning"
-              message="Manual changes can break npm proxy functionality"
+              message="Manual changes can break npm proxy functionality. Only deletion is available here."
             />
           )}
 
@@ -689,7 +692,7 @@ export default function FileManager() {
                         </FormButton>
                       )}
                     </div>
-                    {!isSearching && (
+                    {!isSearching && !isManagedView && (
                       <div className="flex items-center gap-2">
                         <FormButton
                           type="secondary"
@@ -724,7 +727,7 @@ export default function FileManager() {
                       Cancel
                     </FormButton>
                   </div>
-                ) : !isPublicRoute && !isSearching ? (
+                ) : !isPublicRoute && !isSearching && !isManagedView ? (
                   <>
                     {
                       <ChunkedUpload
@@ -894,7 +897,7 @@ export default function FileManager() {
                             ↓
                           </FormButton>
                         )}
-                        {!isPublicRoute && (
+                        {!isPublicRoute && !isManagedView && (
                           <>
                             <FormButton
                               type="secondary"
@@ -930,19 +933,21 @@ export default function FileManager() {
                             >
                               <FontAwesomeIcon icon={faEdit} />
                             </FormButton>
-                            <FormButton
-                              type="secondary"
-                              size="small"
-                              disabled={
-                                isOperationInProgress ||
-                                Boolean(fileToCut) ||
-                                isLoading
-                              }
-                              onClick={() => handleDelete(item.path, item.name)}
-                            >
-                              <FontAwesomeIcon icon={faTrash} />
-                            </FormButton>
                           </>
+                        )}
+                        {!isPublicRoute && (
+                          <FormButton
+                            type="secondary"
+                            size="small"
+                            disabled={
+                              isOperationInProgress ||
+                              Boolean(fileToCut) ||
+                              isLoading
+                            }
+                            onClick={() => handleDelete(item.path, item.name)}
+                          >
+                            <FontAwesomeIcon icon={faTrash} />
+                          </FormButton>
                         )}
                       </div>
                     }

@@ -2,7 +2,14 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { isWithin, resolveBelow, resolveInside } from './safe-path';
+import {
+  isWithin,
+  MANAGED_DIR_ERROR,
+  resolveBelow,
+  resolveInside,
+  SYNC_RUNNING_ERROR,
+  writeBlockedReason,
+} from './safe-path';
 
 let base: string;
 let files: string;
@@ -61,5 +68,26 @@ describe('resolveBelow', () => {
     expect(resolveBelow(files, [files])).toBeNull();
     expect(resolveBelow(`${files}/`, [files])).toBeNull();
     expect(resolveBelow(path.join(files, 'docs'), [files])).toBe(path.join(files, 'docs'));
+  });
+});
+
+describe('writeBlockedReason', () => {
+  const dirs = () => ({ mirror: path.join(base, 'apt-mirror'), npm: path.join(base, 'npm') });
+
+  it('allows anything outside the managed dirs, even during a sync', () => {
+    expect(writeBlockedReason(path.join(files, 'new'), 'add', true, dirs())).toBeNull();
+    expect(writeBlockedReason(path.join(files, 'docs'), 'remove', true, dirs())).toBeNull();
+  });
+
+  it('only allows removal in the mirror and npm dirs', () => {
+    for (const dir of Object.values(dirs())) {
+      expect(writeBlockedReason(path.join(dir, 'x'), 'add', false, dirs())).toBe(MANAGED_DIR_ERROR);
+      expect(writeBlockedReason(path.join(dir, 'x'), 'remove', false, dirs())).toBeNull();
+    }
+  });
+
+  it('blocks every write in the mirror while a sync runs, but not in npm', () => {
+    expect(writeBlockedReason(path.join(dirs().mirror, 'x'), 'remove', true, dirs())).toBe(SYNC_RUNNING_ERROR);
+    expect(writeBlockedReason(path.join(dirs().npm, 'x'), 'remove', true, dirs())).toBeNull();
   });
 });

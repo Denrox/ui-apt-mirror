@@ -9,7 +9,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { resolveBelow, resolveInside, storageRoots } from '~/utils/safe-path';
+import { resolveBelow, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
+import { checkLockFile } from '~/utils/sync';
 
 const execFileAsync = promisify(execFile);
 
@@ -54,6 +55,15 @@ async function cancelAndCleanupDownload(destPath: string): Promise<void> {
   } catch (error) {
     console.error('Failed to cancel and cleanup download:', error);
   }
+}
+
+async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise<string | null> {
+  const syncRunning = await checkLockFile();
+  for (const target of targets) {
+    const reason = writeBlockedReason(target, op, syncRunning);
+    if (reason) return reason;
+  }
+  return null;
 }
 
 function isValidFileName(name: string): boolean {
@@ -250,6 +260,10 @@ async function handleChunkUpload(
     const validationError = getValidationError(fileName);
     if (validationError) {
       return { success: false, error: validationError };
+    }
+    const blocked = await writeBlocked('add', path.join(filePath, fileName));
+    if (blocked) {
+      return { success: false, error: blocked };
     }
 
     let chunkBuffer: Buffer;
@@ -524,6 +538,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
 
       const newPath = path.join(currentPath, folderName);
+      const blocked = await writeBlocked('add', newPath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
       const success = await createDirectory(newPath);
 
       if (success) {
@@ -535,6 +553,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       const filePath = resolveBelow(formData.get('filePath'), roots);
       if (!filePath) {
         return { success: false, error: OUTSIDE };
+      }
+      const blocked = await writeBlocked('remove', filePath);
+      if (blocked) {
+        return { success: false, error: blocked };
       }
       const success = await deleteFile(filePath);
       if (success) {
@@ -558,6 +580,13 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: validationError };
       }
 
+      const blocked =
+        (await writeBlocked('remove', filePath)) ||
+        (await writeBlocked('add', path.join(path.dirname(filePath), newName)));
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
+
       const success = await renameFile(filePath, newName);
 
       if (success) {
@@ -574,6 +603,13 @@ export async function action({ request }: Route.ActionArgs): Promise<{
 
       if (!sourcePath || !destinationPath) {
         return { success: false, error: OUTSIDE };
+      }
+
+      const blocked =
+        (await writeBlocked('remove', sourcePath)) ||
+        (await writeBlocked('add', path.join(destinationPath, path.basename(sourcePath))));
+      if (blocked) {
+        return { success: false, error: blocked };
       }
 
       const success = await moveFile(sourcePath, destinationPath);
@@ -596,6 +632,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (!file) {
         return { success: false, error: 'No file provided' };
       }
+      const blocked = await writeBlocked('add', filePath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
       const success = await uploadFile(filePath, file);
       if (success) {
         return { success: true, message: 'File uploaded successfully' };
@@ -612,6 +652,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
 
       try {
         const fullPath = path.join(filePath, fileName);
+        const blocked = await writeBlocked('remove', fullPath);
+        if (blocked) {
+          return { success: false, error: blocked };
+        }
 
         await cancelAndCleanupDownload(fullPath);
 
@@ -641,6 +685,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
 
       const destPath = path.join(currentPath, fileName);
+      const blocked = await writeBlocked('add', destPath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
       const success = await downloadFile(url, destPath);
 
       if (success) {
@@ -656,6 +704,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: OUTSIDE };
       }
       const architecture = (formData.get('architecture') as string) || 'amd64';
+      const blocked = await writeBlocked('add', currentPath);
+      if (blocked) {
+        return { success: false, error: blocked };
+      }
 
       if (!imageUrl || !imageUrl.trim()) {
         return { success: false, error: 'Image URL is required' };

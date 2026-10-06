@@ -52,3 +52,18 @@ export function resolveBelow(p: unknown, roots: string[]): string | null {
   if (!real) return null;
   return roots.some((root) => realPathOf(root) === real) ? null : real;
 }
+
+export const MANAGED_DIR_ERROR = 'This folder is managed by the mirror; only deletion is allowed here';
+export const SYNC_RUNNING_ERROR = 'A mirror sync is running; try again after it finishes';
+
+/** Why a write to real path `target` is refused: mirror and npm dirs only allow removal, the mirror none during a sync. */
+export function writeBlockedReason(
+  target: string,
+  op: 'add' | 'remove',
+  syncRunning: boolean,
+  dirs = { mirror: appConfig.mirroredPackagesDir, npm: appConfig.npmPackagesDir },
+): string | null {
+  if (syncRunning && resolveInside(target, [dirs.mirror])) return SYNC_RUNNING_ERROR;
+  if (op === 'add' && resolveInside(target, [dirs.mirror, dirs.npm])) return MANAGED_DIR_ERROR;
+  return null;
+}
