@@ -723,6 +723,34 @@ show_status() {
     echo "  docker compose -f docker-compose.yml logs"
 }
 
+# Things an upgrade from an old release leaves for the admin to do
+print_upgrade_notes() {
+    local mode=$1
+    local cheatsheets=data/data/cheatsheets
+    if [ -n "$(find "$cheatsheets" -maxdepth 1 -type f -name '*.md' -print -quit 2>/dev/null)" ]; then
+        echo ""
+        if ! grep -q '"url"' "$cheatsheets/sources.json" 2>/dev/null; then
+            print_warning "Cheatsheets are no longer bundled. To get the tldr pages back, open Cheatsheets in the"
+            print_warning "admin panel and add https://github.com/tldr-pages/tldr/tree/main/pages as a source."
+        fi
+        print_status "The previously bundled cheatsheets in $cheatsheets/*.md are no longer used. Remove them with:"
+        echo "  find $cheatsheets -maxdepth 1 -type f -name '*.md' -delete"
+    fi
+
+    # Releases before 2.4 run ./setup.sh without --upgrade and then print their own closing lines
+    if [ "$mode" = "default" ] && ps -o args= -p "$PPID" 2>/dev/null | grep -qE '(^|[ /])upgrade\.sh( |$)'; then
+        local domain
+        domain=$(env_get MIRROR_DOMAIN "$ENV_FILE")
+        echo ""
+        print_warning "The previous release's upgrade.sh prints a closing message next; parts of it are outdated:"
+        echo "  - docker-compose.yml is replaced on every upgrade. Keep your changes in"
+        echo "    docker-compose.override.yml instead of re-applying them to docker-compose.yml."
+        if [ -n "$domain" ] && [ "$domain" != "mirror.intra" ]; then
+            echo "  - The addresses are the ones listed above (http://$domain), not mirror.intra."
+        fi
+    fi
+}
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS]"
@@ -850,6 +878,7 @@ main() {
     show_status
 
     print_success "Deployment completed successfully!"
+    print_upgrade_notes "$mode"
 }
 
 # Run main function with all arguments
