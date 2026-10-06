@@ -1,8 +1,10 @@
+import { data } from 'react-router';
 import {
-  validateCredentials,
+  attemptLogin,
   createAuthToken,
   createAuthCookie,
 } from '~/utils/server-auth';
+import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 
 export async function action({ request }: { request: Request }): Promise<any> {
   const formData = await request.formData();
@@ -16,8 +18,14 @@ export async function action({ request }: { request: Request }): Promise<any> {
     };
   }
 
-  const isValid = await validateCredentials({ username, password });
-  if (!isValid) {
+  const { ok, retryAfter } = await attemptLogin(request, { username, password });
+  if (retryAfter) {
+    return data(
+      { error: tooManyAttemptsMessage(retryAfter) },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+    );
+  }
+  if (!ok) {
     return {
       error: 'Invalid username or password',
     };

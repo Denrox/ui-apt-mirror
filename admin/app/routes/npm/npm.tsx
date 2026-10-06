@@ -8,10 +8,11 @@ import zlib from 'zlib';
 import { isWithin } from '~/utils/safe-path';
 import appConfig from '~/config/config.json';
 import {
-  validateCredentials,
+  attemptLogin,
   createNpmAuthToken,
   validateNpmAuthToken,
 } from '~/utils/server-auth';
+import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org';
 const PRIVATE_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'private');
@@ -536,11 +537,28 @@ export async function action({ request }: ActionFunctionArgs) {
       const body = JSON.parse(bodyText);
 
       // The token is issued for the user whose password was checked.
-      const isValid =
-        (body.name === undefined || body.name === username) &&
-        (await validateCredentials({ username, password: body.password }));
+      const login =
+        body.name === undefined || body.name === username
+          ? await attemptLogin(request, { username, password: body.password })
+          : { ok: false };
 
-      if (!isValid) {
+      if (login.retryAfter) {
+        return new Response(
+          JSON.stringify({
+            error: 'Too many requests',
+            reason: tooManyAttemptsMessage(login.retryAfter),
+          }),
+          {
+            status: 429,
+            headers: {
+              'Content-Type': 'application/json',
+              'Retry-After': String(login.retryAfter),
+            },
+          },
+        );
+      }
+
+      if (!login.ok) {
         return new Response(
           JSON.stringify({
             error: 'Unauthorized',

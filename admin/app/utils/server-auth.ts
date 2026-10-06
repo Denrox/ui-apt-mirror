@@ -1,10 +1,11 @@
-import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
 import { giveToDirOwner } from './file-owner';
+import { checkCredentials, isTokenCurrent, revokeTokens } from './htpasswd';
+import { beginLoginAttempt, clientIp, loginSucceeded } from './login-limiter';
 
 // Per-install secret, created on first use next to .htpasswd. Never ship one
 // in config: whoever knows it can forge an admin login.
@@ -34,6 +35,8 @@ export interface AuthUser {
   username: string;
   exp: number;
   type?: 'web' | 'npm';
+  iat?: number;
+  iatMs?: number;
 }
 
 export interface LoginCredentials {
@@ -44,57 +47,34 @@ export interface LoginCredentials {
 export function validateCredentials(
   credentials: LoginCredentials,
 ): Promise<boolean> {
-  return new Promise(async (resolve) => {
-    try {
-      const htpasswdPath = appConfig.htpasswdPath;
-      const htpasswdContent = readFileSync(htpasswdPath, 'utf-8');
-
-      const lines = htpasswdContent.split('\n').filter((line) => line.trim());
-
-      for (const line of lines) {
-        if (line.startsWith('#')) continue;
-
-        const colonIndex = line.indexOf(':');
-        if (colonIndex === -1) continue;
-
-        const username = line.substring(0, colonIndex);
-        const hash = line.substring(colonIndex + 1);
-
-        if (username === credentials.username) {
-          if (hash.startsWith('$6$')) {
-            try {
-              const parts = hash.split('$');
-              if (parts.length === 4) {
-                const salt = parts[2];
-                const escapedPassword = credentials.password.replace(
-                  /'/g,
-                  "'\\''",
-                );
-                const result = execSync(
-                  `printf '%s' '${escapedPassword}' | openssl passwd -6 -stdin -salt '${salt}'`,
-                  { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] },
-                ).trim();
-
-                resolve(result === hash);
-                return;
-              }
-            } catch (error) {
-              console.error('Error validating password with openssl:', error);
-              resolve(false);
-              return;
-            }
-          }
-          resolve(false);
-          return;
-        }
-      }
-
-      resolve(false);
-    } catch (error) {
-      console.error('Error validating credentials:', error);
-      resolve(false);
-    }
+  return checkCredentials(
+    appConfig.htpasswdPath,
+    credentials.username,
+    credentials.password,
+  ).catch((error) => {
+    console.error('Error validating credentials:', error);
+    return false;
   });
+}
+
+/** validateCredentials behind the per-IP and per-user failure limit. */
+export async function attemptLogin(
+  request: Request,
+  credentials: LoginCredentials,
+): Promise<{ ok: boolean; retryAfter?: number }> {
+  const ip = clientIp(request);
+  const retryAfter = beginLoginAttempt(ip, credentials.username);
+  if (retryAfter > 0) return { ok: false, retryAfter };
+  const ok = await validateCredentials(credentials);
+  if (ok) loginSucceeded(ip, credentials.username);
+  return { ok };
+}
+
+const NPM_TOKEN_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** Revokes every web session and npm token issued to the user so far. */
+export function revokeUserTokens(username: string): void {
+  revokeTokens(appConfig.htpasswdPath, username, NPM_TOKEN_MAX_AGE_MS);
 }
 
 export async function createAuthToken(username: string): Promise<string> {
@@ -102,6 +82,7 @@ export async function createAuthToken(username: string): Promise<string> {
     username,
     exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
     type: 'web',
+    iatMs: Date.now(),
   };
 
   return jwt.sign(payload, getJwtSecret());
@@ -110,8 +91,9 @@ export async function createAuthToken(username: string): Promise<string> {
 export async function createNpmAuthToken(username: string): Promise<string> {
   const payload: AuthUser = {
     username,
-    exp: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
+    exp: Math.floor(Date.now() / 1000) + NPM_TOKEN_MAX_AGE_MS / 1000,
     type: 'npm',
+    iatMs: Date.now(),
   };
 
   return jwt.sign(payload, getJwtSecret());
@@ -129,6 +111,11 @@ export async function validateAuthToken(
     }
     // npm tokens live a year; they must not open web sessions (and vice versa).
     if ((decoded.type ?? 'web') !== type) {
+      return null;
+    }
+    const issuedAtMs =
+      decoded.iatMs ?? (decoded.iat !== undefined ? decoded.iat * 1000 : undefined);
+    if (!isTokenCurrent(appConfig.htpasswdPath, decoded.username, issuedAtMs)) {
       return null;
     }
 

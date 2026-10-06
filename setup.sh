@@ -338,7 +338,7 @@ generate_htpasswd() {
     
     # Generate SHA-512 hash using openssl
     local pass_hash
-    pass_hash=$(openssl passwd -6 "$admin_pass")
+    pass_hash=$(printf '%s' "$admin_pass" | openssl passwd -6 -stdin)
     if [ -z "$pass_hash" ]; then
         print_error "openssl produced an empty password hash."
         exit 1
@@ -347,11 +347,23 @@ generate_htpasswd() {
     local htpasswd=data/auth/.htpasswd
     local others=""
     [ -f "$htpasswd" ] && others=$(grep -v '^admin:' "$htpasswd" || true)
+    local old_umask
+    old_umask=$(umask)
+    umask 077
+    rm -f "$htpasswd.tmp"
     {
         echo "admin:$pass_hash"
         [ -n "$others" ] && echo "$others"
     } > "$htpasswd.tmp"
+    umask "$old_umask"
+    chmod 600 "$htpasswd.tmp"
+    chown --reference=data/auth "$htpasswd.tmp" 2>/dev/null || true
     mv "$htpasswd.tmp" "$htpasswd"
+
+    # Revokes admin sessions and npm tokens issued with the old password
+    local revoked=data/auth/.tokens-valid-after
+    (umask 077; echo "admin $(date +%s)000" >> "$revoked")
+    chown --reference=data/auth "$revoked" 2>/dev/null || true
 
     print_success "htpasswd file generated successfully."
 }
@@ -458,6 +470,8 @@ create_data_dirs() {
     # Set proper permissions
     chmod 755 data/
     chmod 755 data/*
+    # Password hashes: owner only
+    [ -f data/auth/.htpasswd ] && chmod 600 data/auth/.htpasswd
     
     print_success "Data directories created."
 }
