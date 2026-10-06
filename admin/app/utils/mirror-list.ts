@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import fs from 'fs/promises';
 import { giveToDirOwner } from './file-owner';
 import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
@@ -15,12 +16,21 @@ import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
 /** Re-exported for callers that predate the {@link MirrorConfig} model. */
 export type NewRepositoryInput = RepositoryInput;
 
+let mirrorListQueue: Promise<unknown> = Promise.resolve();
+
+/** Run read-modify-write cycles on mirror.list one at a time, so none is lost. */
+export function withMirrorListLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = mirrorListQueue.then(fn);
+  mirrorListQueue = run.catch(() => undefined);
+  return run;
+}
+
 /** Write a file atomically: write to a sibling temp file, then rename. */
 export async function atomicWriteFile(
   filePath: string,
   content: string,
 ): Promise<void> {
-  const tempPath = `${filePath}.${process.pid}.tmp`;
+  const tempPath = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   await fs.writeFile(tempPath, content);
   try {
     const previous = await fs.stat(filePath).catch(() => null);

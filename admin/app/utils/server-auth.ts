@@ -119,11 +119,16 @@ export async function createNpmAuthToken(username: string): Promise<string> {
 
 export async function validateAuthToken(
   token: string,
+  type: 'web' | 'npm' = 'web',
 ): Promise<AuthUser | null> {
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as AuthUser;
+    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as AuthUser;
 
     if (decoded.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+    // npm tokens live a year; they must not open web sessions (and vice versa).
+    if ((decoded.type ?? 'web') !== type) {
       return null;
     }
 
@@ -168,5 +173,5 @@ export async function requireAuth(request: Request): Promise<AuthUser | null> {
 }
 
 export async function validateNpmAuthToken(token: string): Promise<AuthUser | null> {
-  return await validateAuthToken(token);
+  return await validateAuthToken(token, 'npm');
 }

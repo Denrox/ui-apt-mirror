@@ -292,8 +292,38 @@ async function isPrivatePackage(packagePath: string): Promise<boolean> {
   return await isCached(metadataPath);
 }
 
+/** Where clients reach this registry: npm.<domain>/ maps to /npm/ in nginx, other hosts need /npm. */
+function registryBase(request: Request): string {
+  const url = new URL(request.url);
+  const host = request.headers.get('host') ?? url.host;
+  return `${url.protocol}//${host}${host.startsWith('npm.') ? '' : '/npm'}`;
+}
+
+function tarballUrl(request: Request, packageName: string, tarballFile: string): string {
+  return `${registryBase(request)}/${packageName}/-/${tarballFile}`;
+}
+
+/**
+ * Whether an unscoped name already belongs to a public package (upstream, or in our cache when
+ * offline). Publishing such a name privately would replace the real package for every client.
+ */
+async function isPublicPackageName(packageName: string): Promise<boolean> {
+  if (packageName.startsWith('@')) return false;
+  if (await isCached(path.join(PUBLIC_PACKAGES_DIR, packageName))) return true;
+  try {
+    const res = await fetch(`${NPM_REGISTRY_URL}/${packageName}`, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
 async function loadPrivatePackage(
   packagePath: string,
+  request: Request,
 ): Promise<{ data: Buffer; headers: Record<string, string> }> {
   let privatePath: string;
   let contentType: string;
@@ -306,7 +336,19 @@ async function loadPrivatePackage(
     contentType = 'application/json';
   }
 
-  const data = await fs.readFile(privatePath);
+  let data = await fs.readFile(privatePath);
+
+  // Tarball URLs are computed per request: ones stored by older versions pointed at /npm/npm/….
+  if (contentType === 'application/json') {
+    const doc = JSON.parse(data.toString('utf-8'));
+    for (const version of Object.values<any>(doc.versions ?? {})) {
+      const stored = version?.dist?.tarball;
+      if (typeof stored === 'string' && stored.includes('/-/')) {
+        version.dist.tarball = tarballUrl(request, doc.name, stored.slice(stored.lastIndexOf('/-/') + 3));
+      }
+    }
+    data = Buffer.from(JSON.stringify(doc));
+  }
 
   const headers: Record<string, string> = {
     'content-type': contentType,
@@ -377,7 +419,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     let headers: Record<string, string>;
 
     if (isPrivate) {
-      const privatePackage = await loadPrivatePackage(packagePath);
+      const privatePackage = await loadPrivatePackage(packagePath, request);
       data = privatePackage.data;
       headers = privatePackage.headers;
     } else {
@@ -485,15 +527,18 @@ export async function action({ request }: ActionFunctionArgs) {
     packagePath.startsWith('-/user/org.couchdb.user:')
   ) {
     try {
-      const username = packagePath.substring('-/user/org.couchdb.user:'.length);
-      
+      let username = packagePath.substring('-/user/org.couchdb.user:'.length);
+      try {
+        username = decodeURIComponent(username);
+      } catch {}
+
       const bodyText = await request.text();
       const body = JSON.parse(bodyText);
 
-      const isValid = await validateCredentials({
-        username: body.name || username,
-        password: body.password,
-      });
+      // The token is issued for the user whose password was checked.
+      const isValid =
+        (body.name === undefined || body.name === username) &&
+        (await validateCredentials({ username, password: body.password }));
 
       if (!isValid) {
         return new Response(
@@ -589,6 +634,16 @@ export async function action({ request }: ActionFunctionArgs) {
         });
       }
 
+      if (!(await isPrivatePackage(packageName)) && (await isPublicPackageName(packageName))) {
+        return new Response(
+          JSON.stringify({
+            error: 'Forbidden',
+            reason: `"${packageName}" is a public npm package; publish private packages under a scope (e.g. @yourorg/${packageName})`,
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+
       for (const version in versions) {
         const versionData = versions[version];
         
@@ -608,10 +663,8 @@ export async function action({ request }: ActionFunctionArgs) {
 
           console.log(`Saved tarball: ${tarballPath} (${tarballBuffer.length} bytes)`);
 
-          const url = new URL(request.url);
-          const baseUrl = `${url.protocol}//${url.host}`;
           versionData.dist = versionData.dist || {};
-          versionData.dist.tarball = `${baseUrl}/npm/${packageName}/-/${tarballName}`;
+          versionData.dist.tarball = tarballUrl(request, packageName, tarballName);
         }
       }
 

@@ -17,6 +17,9 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 mkdir -p /var/log/nginx
+# Access log names contain the date, so nginx workers (www-data) open them per request.
+chown www-data:www-data /var/log/nginx
+find /var/log/nginx -maxdepth 1 -name '*access-*.log' ! -user www-data -exec chown www-data:www-data {} + 2>/dev/null || true
 mkdir -p /var/log/apt-mirror
 mkdir -p /var/spool/apt-mirror
 mkdir -p /var/www/mirror.intra

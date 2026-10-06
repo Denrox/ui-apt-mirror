@@ -134,6 +134,12 @@ export class MirrorConfig {
     const primary = binary[0] ?? debs[0];
     if (!primary) return null;
 
+    // The form describes one upstream with one component set; saving anything else
+    // would drop the other sources (e.g. Debian's security.debian.org lines).
+    const urls = new Set(debs.map((d) => normalizeUrl(d.uri)));
+    const componentSets = new Set(debs.map((d) => [...d.components].sort().join(' ')));
+    if (urls.size > 1 || componentSets.size > 1) return null;
+
     const base = normalizeUrl(primary.uri);
     const suites: string[] = [];
     for (const deb of binary.length ? binary : debs) {
@@ -210,6 +216,9 @@ export class MirrorConfig {
     if (!section) return false;
 
     const oldUrls = baseUrlsOf(section);
+    const oldSignedBy = section.children
+      .filter((c): c is UsageNode => c.kind === 'usage')
+      .flatMap((c) => c.lines.filter((l) => /^#?\s*Signed-By:/i.test(l)));
     // Filters the input does not mention are preserved; mentioned keys override
     // (an empty array clears that directive).
     const mergedFilters = sectionFilters(section);
@@ -224,6 +233,11 @@ export class MirrorConfig {
       { ...input, filters: mergedFilters },
       mirrorDomain,
     );
+    // The generated Usage snippet has no Signed-By; keep the one the section had.
+    if (!input.trusted && oldSignedBy.length) {
+      const usage = rebuilt.children.find((c): c is UsageNode => c.kind === 'usage');
+      if (usage && !usage.lines.some((l) => /Signed-By:/i.test(l))) usage.lines.push(...oldSignedBy);
+    }
     section.title = rebuilt.title;
     section.children = rebuilt.children;
     section.startRaw = rebuilt.startRaw;

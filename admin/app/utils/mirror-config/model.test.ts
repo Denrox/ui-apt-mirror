@@ -345,3 +345,46 @@ include_binary_packages http://deb.debian.org/debian steam libc6
     expect(cfg.serialize()).not.toContain('include_source_name');
   });
 });
+
+describe('editing repositories the form cannot represent', () => {
+  const MULTI = `# ---start---Debian Trixie---
+# Debian 13
+deb http://deb.debian.org/debian trixie main contrib
+deb http://security.debian.org/debian-security trixie-security main contrib
+# Usage start
+#Types: deb
+# Usage end
+# ---end---Debian Trixie---
+`;
+
+  it('treats a section with several upstreams as not editable', () => {
+    const cfg = MirrorConfig.parse(MULTI);
+    expect(cfg.sectionToInput(cfg.getSection('Debian Trixie')!)).toBeNull();
+  });
+
+  it('treats a section with different component sets as not editable', () => {
+    const cfg = MirrorConfig.parse(`# ---start---Mixed---
+deb http://deb.debian.org/debian trixie main
+deb http://deb.debian.org/debian trixie-updates main contrib
+# ---end---Mixed---
+`);
+    expect(cfg.sectionToInput(cfg.getSection('Mixed')!)).toBeNull();
+  });
+
+  it('keeps the Signed-By line of the Usage snippet when editing', () => {
+    const cfg = MirrorConfig.parse(`# ---start---Ubuntu Noble---
+deb http://archive.ubuntu.com/ubuntu noble main
+# Usage start
+#Types: deb
+#URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
+#Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+# Usage end
+# ---end---Ubuntu Noble---
+`);
+    const current = cfg.sectionToInput(cfg.getSection('Ubuntu Noble')!)!;
+    expect(current).not.toBeNull();
+    cfg.editSection('Ubuntu Noble', { ...current, suites: ['noble', 'noble-updates'] }, 'mirror.intra');
+    expect(cfg.serialize()).toContain('#Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg');
+    expect(cfg.serialize()).toContain('deb http://archive.ubuntu.com/ubuntu noble-updates main');
+  });
+});

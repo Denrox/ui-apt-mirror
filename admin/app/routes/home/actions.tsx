@@ -10,7 +10,7 @@ import {
   assertValidHost,
 } from '~/lib/gpg';
 import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
-import { atomicWriteFile, validateRepositoryInput } from '~/utils/mirror-list';
+import { atomicWriteFile, validateRepositoryInput, withMirrorListLock } from '~/utils/mirror-list';
 
 const execAsync = promisify(exec);
 
@@ -90,25 +90,27 @@ export async function action({ request }: { request: Request }) {
 
     const enable = action === 'restoreRepository';
     try {
-      const mirrorListPath = appConfig.mirrorListPath;
-      const content = await fs.readFile(mirrorListPath, 'utf-8');
-      const config = MirrorConfig.parse(content);
+      return await withMirrorListLock(async () => {
+        const mirrorListPath = appConfig.mirrorListPath;
+        const content = await fs.readFile(mirrorListPath, 'utf-8');
+        const config = MirrorConfig.parse(content);
 
-      if (!config.getSection(sectionTitle)) {
-        return { error: `Repository section "${sectionTitle}" not found` };
-      }
+        if (!config.getSection(sectionTitle)) {
+          return { error: `Repository section "${sectionTitle}" not found` };
+        }
 
-      // Toggle only the deb/deb-src directives in the section; comments (the
-      // description) and the client-facing Usage snippet are left untouched.
-      config.setSectionEnabled(sectionTitle, enable);
-      await atomicWriteFile(mirrorListPath, config.serialize());
+        // Toggle only the deb/deb-src directives in the section; comments (the
+        // description) and the client-facing Usage snippet are left untouched.
+        config.setSectionEnabled(sectionTitle, enable);
+        await atomicWriteFile(mirrorListPath, config.serialize());
 
-      return {
-        success: true,
-        message: `Repository section "${sectionTitle}" ${
-          enable ? 'enabled' : 'disabled'
-        } successfully`,
-      };
+        return {
+          success: true,
+          message: `Repository section "${sectionTitle}" ${
+            enable ? 'enabled' : 'disabled'
+          } successfully`,
+        };
+      });
     } catch (error) {
       console.error('Error toggling repository section:', error);
       return {
@@ -120,23 +122,25 @@ export async function action({ request }: { request: Request }) {
   if (action === 'addRepository') {
     const input = readRepositoryInput(formData);
     try {
-      const mirrorListPath = appConfig.mirrorListPath;
-      const content = await fs.readFile(mirrorListPath, 'utf-8');
-      const config = MirrorConfig.parse(content);
+      return await withMirrorListLock(async () => {
+        const mirrorListPath = appConfig.mirrorListPath;
+        const content = await fs.readFile(mirrorListPath, 'utf-8');
+        const config = MirrorConfig.parse(content);
 
-      const validationError = validateRepositoryInput(
-        input,
-        config.sectionTitles(),
-      );
-      if (validationError) return { error: validationError };
+        const validationError = validateRepositoryInput(
+          input,
+          config.sectionTitles(),
+        );
+        if (validationError) return { error: validationError };
 
-      config.addSection(input, mirrorDomain());
-      await atomicWriteFile(mirrorListPath, config.serialize());
+        config.addSection(input, mirrorDomain());
+        await atomicWriteFile(mirrorListPath, config.serialize());
 
-      return {
-        success: true,
-        message: `Repository "${input.title}" added successfully`,
-      };
+        return {
+          success: true,
+          message: `Repository "${input.title}" added successfully`,
+        };
+      });
     } catch (error) {
       console.error('Error adding repository:', error);
       return { error: 'Failed to add repository' };
@@ -151,29 +155,31 @@ export async function action({ request }: { request: Request }) {
     const input = readRepositoryInput(formData);
 
     try {
-      const mirrorListPath = appConfig.mirrorListPath;
-      const content = await fs.readFile(mirrorListPath, 'utf-8');
-      const config = MirrorConfig.parse(content);
+      return await withMirrorListLock(async () => {
+        const mirrorListPath = appConfig.mirrorListPath;
+        const content = await fs.readFile(mirrorListPath, 'utf-8');
+        const config = MirrorConfig.parse(content);
 
-      if (!config.getSection(originalTitle)) {
-        return { error: `Repository "${originalTitle}" not found` };
-      }
+        if (!config.getSection(originalTitle)) {
+          return { error: `Repository "${originalTitle}" not found` };
+        }
 
-      // A rename to the same title is fine; only collisions with *other*
-      // sections are rejected.
-      const otherTitles = config
-        .sectionTitles()
-        .filter((t) => t !== originalTitle);
-      const validationError = validateRepositoryInput(input, otherTitles);
-      if (validationError) return { error: validationError };
+        // A rename to the same title is fine; only collisions with *other*
+        // sections are rejected.
+        const otherTitles = config
+          .sectionTitles()
+          .filter((t) => t !== originalTitle);
+        const validationError = validateRepositoryInput(input, otherTitles);
+        if (validationError) return { error: validationError };
 
-      config.editSection(originalTitle, input, mirrorDomain());
-      await atomicWriteFile(mirrorListPath, config.serialize());
+        config.editSection(originalTitle, input, mirrorDomain());
+        await atomicWriteFile(mirrorListPath, config.serialize());
 
-      return {
-        success: true,
-        message: `Repository "${input.title}" updated successfully`,
-      };
+        return {
+          success: true,
+          message: `Repository "${input.title}" updated successfully`,
+        };
+      });
     } catch (error) {
       console.error('Error editing repository:', error);
       return { error: 'Failed to edit repository' };

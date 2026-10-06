@@ -473,6 +473,9 @@ generate_mirror_config() {
 # apt-mirror2 configuration for $domain
 # Generated on $(date)
 
+# Repositories are shipped disabled: a full mirror needs hundreds of GB. Enable the ones you
+# need in the admin panel (Repositories), then start a sync.
+
 # Set base_path to the directory where you want to store the mirror
 set base_path    /var/spool/apt-mirror
 
@@ -522,10 +525,10 @@ set release_files_retries 15
 
 # ---start---Ubuntu Noble---
 # Ubuntu 24.04 (Noble Numbat) repositories - AMD64 architecture
-deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
-deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
+#deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
 # Usage start
 #Types: deb
 #URIs: http://mirror.intra/archive.ubuntu.com/ubuntu
@@ -555,15 +558,15 @@ deb http://archive.ubuntu.com/ubuntu noble-backports main restricted universe mu
 
 # ---start---Debian Trixie---
 # Debian 13 (Trixie) repositories - AMD64 and ARM64 architectures
-deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+#deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+#deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
 
-deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
-deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+#deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+#deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
 # Usage start
 #deb http://mirror.intra/deb.debian.org/debian trixie main non-free-firmware
 #deb http://mirror.intra/security.debian.org/debian-security trixie-security main non-free-firmware
@@ -574,7 +577,7 @@ deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-
 
 # ---start---Docker Ubuntu Noble---
 # Docker CE for Ubuntu 24.04 (Noble Numbat) - AMD64 architecture
-deb https://download.docker.com/linux/ubuntu noble stable
+#deb https://download.docker.com/linux/ubuntu noble stable
 # Usage start
 #Types: deb
 #URIs: http://mirror.intra/download.docker.com/linux/ubuntu
@@ -586,7 +589,7 @@ deb https://download.docker.com/linux/ubuntu noble stable
 
 # ---start---Docker Debian 13---
 # Docker CE for Debian 13 (Trixie) - AMD64 architecture
-deb https://download.docker.com/linux/debian trixie stable
+#deb https://download.docker.com/linux/debian trixie stable
 # Usage start
 #deb [trusted=yes] http://mirror.intra/download.docker.com/linux/debian trixie stable
 # Usage end
