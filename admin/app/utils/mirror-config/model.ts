@@ -85,8 +85,10 @@ export class MirrorConfig {
     return this.sections().map((s) => s.title);
   }
 
-  getSection(title: string): SectionNode | undefined {
-    return this.sections().find((s) => s.title === title);
+  /** With a revision, the section of that title whose text matches it (a hand-edited file can repeat a title). */
+  getSection(title: string, revision?: string): SectionNode | undefined {
+    const matches = this.sections().filter((s) => s.title === title);
+    return (revision && matches.find((s) => this.sectionRevision(s) === revision)) || matches[0];
   }
 
   /** Fingerprint of a section's text, so a save can detect that it changed in between. */
@@ -195,8 +197,8 @@ export class MirrorConfig {
    * apply per base URL, so a disabled section's filters would still restrict
    * other sections with the same upstream.
    */
-  setSectionEnabled(title: string, enabled: boolean): boolean {
-    const section = this.getSection(title);
+  setSectionEnabled(title: string, enabled: boolean, revision?: string): boolean {
+    const section = this.getSection(title, revision);
     if (!section) return false;
     let changed = false;
     for (const child of section.children) {
@@ -228,8 +230,9 @@ export class MirrorConfig {
     title: string,
     input: RepositoryInput,
     mirrorDomain: string,
+    revision?: string,
   ): boolean {
-    const section = this.getSection(title);
+    const section = this.getSection(title, revision);
     if (!section) return false;
 
     const oldUrls = baseUrlsOf(section);
@@ -269,12 +272,10 @@ export class MirrorConfig {
   }
 
   /** Remove a section entirely and prune clean directives it alone referenced. */
-  removeSection(title: string): boolean {
-    const index = this.nodes.findIndex(
-      (n) => n.kind === 'section' && n.title === title,
-    );
-    if (index === -1) return false;
-    const section = this.nodes[index] as SectionNode;
+  removeSection(title: string, revision?: string): boolean {
+    const section = this.getSection(title, revision);
+    if (!section) return false;
+    const index = this.nodes.indexOf(section);
     const urls = baseUrlsOf(section);
 
     let removeCount = 1;

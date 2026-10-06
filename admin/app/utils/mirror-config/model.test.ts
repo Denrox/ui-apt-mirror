@@ -465,3 +465,49 @@ describe('sectionRevision', () => {
     expect(a.sectionRevision(a.getSection('Ubuntu Noble')!)).toBe(rev);
   });
 });
+
+describe('duplicate titles (hand-edited file)', () => {
+  const DUP = BASE.replace(
+    '# Clean up old packages',
+    `# ---start---Ubuntu Noble---
+deb http://archive.ubuntu.com/ubuntu noble-updates main
+# ---end---Ubuntu Noble---
+
+# Clean up old packages`,
+  );
+
+  it('acts on the section whose revision matches, not the first one', () => {
+    const cfg = MirrorConfig.parse(DUP);
+    const [first, second] = cfg.sections();
+    const secondRev = cfg.sectionRevision(second);
+    expect(cfg.getSection('Ubuntu Noble', secondRev)).toBe(second);
+
+    cfg.setSectionEnabled('Ubuntu Noble', false, secondRev);
+    expect(cfg.isSectionEnabled(first)).toBe(true);
+    expect(cfg.isSectionEnabled(second)).toBe(false);
+    expect(cfg.serialize()).toContain('# deb http://archive.ubuntu.com/ubuntu noble-updates main');
+  });
+
+  it('removes the matching section', () => {
+    const cfg = MirrorConfig.parse(DUP);
+    const second = cfg.sections()[1];
+    cfg.removeSection('Ubuntu Noble', cfg.sectionRevision(second));
+    expect(cfg.serialize()).not.toContain('noble-updates');
+    expect(cfg.serialize()).toContain('noble main restricted');
+  });
+
+  it('can disable both copies of identical sections in turn', () => {
+    const section = BASE.slice(BASE.indexOf('# ---start---'), BASE.indexOf('# Clean up'));
+    const cfg = MirrorConfig.parse(BASE.replace('# Clean up', `${section}# Clean up`));
+    const rev = cfg.sectionRevision(cfg.sections()[0]);
+    cfg.setSectionEnabled('Ubuntu Noble', false, rev);
+    cfg.setSectionEnabled('Ubuntu Noble', false, rev);
+    expect(cfg.sections().every((s) => !cfg.isSectionEnabled(s))).toBe(true);
+  });
+
+  it('falls back to the first match without a revision', () => {
+    const cfg = MirrorConfig.parse(DUP);
+    expect(cfg.getSection('Ubuntu Noble')).toBe(cfg.sections()[0]);
+    expect(cfg.getSection('Ubuntu Noble', 'unknown')).toBe(cfg.sections()[0]);
+  });
+});

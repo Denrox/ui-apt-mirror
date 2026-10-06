@@ -326,9 +326,9 @@ export default function Home() {
             <DropdownItem onClick={handleOpenAddRepo}>
               Add repository…
             </DropdownItem>
-            {commentedSections.map((section: CommentedSection) => (
+            {commentedSections.map((section: CommentedSection, i: number) => (
               <DropdownItem
-                key={section.title}
+                key={`${i}:${section.title}`}
                 onClick={() => handleRestoreClick(section)}
               >
                 Enable: {section.title}
@@ -352,9 +352,9 @@ export default function Home() {
           >
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {repositoryConfigs.length > 0 ? (
-                repositoryConfigs.map((config: RepositoryConfig) => (
+                repositoryConfigs.map((config: RepositoryConfig, i: number) => (
                   <div
-                    key={config.title}
+                    key={`${i}:${config.title}`}
                     className="relative flex max-h-[160px] flex-col gap-3 overflow-y-auto rounded-xl border border-outline-variant bg-surface-container-low p-4"
                   >
                     <div className="w-[calc(100%-72px)] shrink-0 truncate font-heading text-base font-semibold text-on-surface">
@@ -551,9 +551,9 @@ export default function Home() {
             Disabled Repositories
           </h2>
           <div className="flex flex-col divide-y divide-outline-variant/40 rounded-xl border border-outline-variant bg-surface-container-low">
-            {commentedSections.map((section: CommentedSection) => (
+            {commentedSections.map((section: CommentedSection, i: number) => (
               <div
-                key={section.title}
+                key={`${i}:${section.title}`}
                 className="flex items-center justify-between gap-3 px-4 py-2"
               >
                 <span className="truncate text-sm text-on-surface-variant">

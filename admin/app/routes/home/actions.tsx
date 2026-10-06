@@ -32,11 +32,16 @@ async function runScript(path: string): Promise<{ ok: boolean; message: string }
 const STALE_ERROR =
   'This repository changed since you opened it (another tab or user saved it). Reload the page and try again.';
 
+function formRevision(formData: FormData): string | undefined {
+  const revision = formData.get('revision');
+  return typeof revision === 'string' && revision !== '' ? revision : undefined;
+}
+
 /** A stale revision means the client acted on an outdated view of the section. */
 function isStale(config: MirrorConfig, title: string, formData: FormData): boolean {
-  const revision = formData.get('revision');
-  const section = config.getSection(title);
-  return !!section && typeof revision === 'string' && revision !== '' && revision !== config.sectionRevision(section);
+  const revision = formRevision(formData);
+  const section = config.getSection(title, revision);
+  return !!section && !!revision && revision !== config.sectionRevision(section);
 }
 
 /** Host whose URL is embedded in client-facing Usage snippets. */
@@ -105,7 +110,7 @@ export async function action({ request }: { request: Request }) {
         }
         if (isStale(config, sectionTitle, formData)) return { error: STALE_ERROR };
 
-        config.removeSection(sectionTitle);
+        config.removeSection(sectionTitle, formRevision(formData));
         await atomicWriteFile(mirrorListPath, config.serialize());
         return { success: true, message: `Repository "${sectionTitle}" removed` };
       });
@@ -135,7 +140,7 @@ export async function action({ request }: { request: Request }) {
 
         // Toggle only the deb and filter directives in the section; comments (the
         // description) and the client-facing Usage snippet are left untouched.
-        config.setSectionEnabled(sectionTitle, enable);
+        config.setSectionEnabled(sectionTitle, enable, formRevision(formData));
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {
@@ -207,7 +212,7 @@ export async function action({ request }: { request: Request }) {
         const validationError = validateRepositoryInput(input, otherTitles);
         if (validationError) return { error: validationError };
 
-        config.editSection(originalTitle, input, mirrorDomain());
+        config.editSection(originalTitle, input, mirrorDomain(), formRevision(formData));
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {
