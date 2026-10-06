@@ -27,11 +27,14 @@ mkdir -p /var/spool/apt-mirror
 mkdir -p /var/www/mirror.intra
 mkdir -p /var/spool/apt-mirror/gpg/gnupg
 
-chown -R www-data:www-data /var/www
-chown -R www-data:www-data /var/spool/apt-mirror
+# nginx (www-data) only reads the served trees; everything else runs as root.
+chmod o+x /var/spool/apt-mirror 2>/dev/null || true
+chmod o+rx /var/www/files /var/spool/apt-mirror/mirror 2>/dev/null || true
 chmod 700 /var/spool/apt-mirror/gpg/gnupg
-[ -f /var/spool/apt-mirror/gpg/keys.json ] || echo '{}' > /var/spool/apt-mirror/gpg/keys.json
-chown www-data:www-data /var/spool/apt-mirror/gpg/keys.json
+if [ ! -f /var/spool/apt-mirror/gpg/keys.json ]; then
+    echo '{}' > /var/spool/apt-mirror/gpg/keys.json
+    chown --reference=/var/spool/apt-mirror /var/spool/apt-mirror/gpg/keys.json 2>/dev/null || true
+fi
 
 if [ ! -L /var/www/mirror.intra/mirror ]; then
     ln -sf /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
