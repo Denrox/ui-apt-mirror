@@ -1,3 +1,4 @@
+# Replaced on upgrade: settings go in .env, changes in docker-compose.override.yml.
 services:
   ui-apt-mirror:
     image: ui-apt-mirror:latest
@@ -9,15 +10,11 @@ services:
       - ./data/data/apt-mirror:/var/spool/apt-mirror
       - ./data/logs/apt-mirror:/var/log/apt-mirror
       - ./data/conf/apt-mirror:/etc/apt
-      - ./data/conf/nginx/sites-available/mirror.intra.conf:/etc/nginx/sites-available/mirror.intra.conf
-      - ./data/conf/nginx/sites-available/admin.mirror.intra.conf:/etc/nginx/sites-available/admin.mirror.intra.conf
-      - ./data/conf/nginx/sites-available/files.mirror.intra.conf:/etc/nginx/sites-available/files.mirror.intra.conf
-      - ./data/conf/nginx/sites-available/npm.mirror.intra.conf:/etc/nginx/sites-available/npm.mirror.intra.conf
-      - ./data/conf/nginx/sites-available/cheatsheets.mirror.intra.conf:/etc/nginx/sites-available/cheatsheets.mirror.intra.conf
-      - ./data/conf/nginx/conf.d/log-date.conf:/etc/nginx/conf.d/log-date.conf
+      - ./data/conf/nginx:/etc/nginx/hostconf
       - ./data/auth:/var/auth
       - ./data/logs/nginx:/var/log/nginx
       - ./data/data/files:/var/www/files
+      - ./data/data/files-private:/var/www/files-private
       - ./data/data/npm:/var/www/npm
       - ./data/data/cheatsheets:/var/www/cheatsheets
     environment:

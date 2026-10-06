@@ -16,6 +16,9 @@ NC='\033[0m' # No Color
 IMAGE_NAME="ui-apt-mirror"
 CONTAINER_NAME="ui-apt-mirror"
 DIST_DIR="dist"
+ENV_FILE=".env"
+COMPOSE_HAND_EDITED=""
+COMPOSE_HASH_FILE=".docker-compose.yml.sha256"
 
 # Function to print colored output
 print_status() {
@@ -154,79 +157,177 @@ validate_dist() {
     print_success "Found image file: $tar_file"
 }
 
-# Function to get user configuration
-get_user_config() {
-    print_status "Getting user configuration..."
-    
-    # Default values
-    local default_domain="mirror.intra"
-    local default_sync_freq="14400"
-    local default_admin_pass="admin"
-    
-    # Get custom domain
+# Settings live in .env (read by docker compose); upgrades never touch it.
+
+# Read KEY from a KEY=VALUE file without sourcing it
+env_get() {
+    grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2-
+}
+
+# Read "- KEY=value" from a pre-.env docker-compose.yml
+compose_get() {
+    local value
+    value=$(grep -E "^[[:space:]]*-[[:space:]]*$1=" "$2" 2>/dev/null | head -n 1 | sed -E "s/^[[:space:]]*-[[:space:]]*$1=//")
+    case "$value" in
+        *'${'*) echo "" ;;
+        *) echo "$value" ;;
+    esac
+}
+
+# Function to load the current settings, if any
+load_existing_config() {
+    INSTALL_EXISTS=false
+    CONFIG_SOURCE=""
+    CUR_DOMAIN=""
+    CUR_SYNC=""
+    CUR_TZ=""
+    CUR_NPM=""
+
+    if [ -f "$ENV_FILE" ]; then
+        CONFIG_SOURCE="$ENV_FILE"
+        CUR_DOMAIN=$(env_get MIRROR_DOMAIN "$ENV_FILE")
+        CUR_SYNC=$(env_get SYNC_FREQUENCY "$ENV_FILE")
+        CUR_TZ=$(env_get TZ "$ENV_FILE")
+        CUR_NPM=$(env_get NPM_PROXY_ENABLED "$ENV_FILE")
+    elif [ -f "docker-compose.yml" ]; then
+        CONFIG_SOURCE="docker-compose.yml"
+        CUR_DOMAIN=$(compose_get MIRROR_DOMAIN docker-compose.yml)
+        CUR_SYNC=$(compose_get SYNC_FREQUENCY docker-compose.yml)
+        CUR_TZ=$(compose_get TZ docker-compose.yml)
+        CUR_NPM=$(compose_get NPM_PROXY_ENABLED docker-compose.yml)
+    fi
+
+    if [ -n "$CONFIG_SOURCE" ] || [ -s data/auth/.htpasswd ]; then
+        INSTALL_EXISTS=true
+    fi
+}
+
+use_current_config() {
+    local host_timezone
+    host_timezone=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "UTC")
+    MIRROR_DOMAIN="${CUR_DOMAIN:-mirror.intra}"
+    SYNC_FREQUENCY="${CUR_SYNC:-14400}"
+    HOST_TIMEZONE="${CUR_TZ:-$host_timezone}"
+    if [ "$CUR_NPM" = "true" ]; then ENABLE_NPM_PROXY="y"; else ENABLE_NPM_PROXY="n"; fi
+    if [ -z "$CUR_NPM" ] && [ "$INSTALL_EXISTS" = false ]; then ENABLE_NPM_PROXY="y"; fi
+}
+
+show_current_config() {
     echo ""
-    read -p "Enter your custom domain (default: $default_domain): " custom_domain
-    custom_domain=${custom_domain:-$default_domain}
-    
-    # Get sync frequency
+    echo "Current settings (from $CONFIG_SOURCE):"
+    echo "  Domain:         $MIRROR_DOMAIN"
+    echo "  Sync frequency: every $((SYNC_FREQUENCY / 3600)) hours ($SYNC_FREQUENCY s)"
+    echo "  Timezone:       $HOST_TIMEZONE"
+    echo "  npm proxy:      $([ "$ENABLE_NPM_PROXY" = "y" ] && echo enabled || echo disabled)"
+}
+
+# Function to ask for every setting, defaulting to the current values
+prompt_user_config() {
+    print_status "Getting user configuration..."
+
+    echo ""
+    read -p "Enter your custom domain (default: $MIRROR_DOMAIN): " custom_domain
+    MIRROR_DOMAIN=${custom_domain:-$MIRROR_DOMAIN}
+
+    local current_choice=""
+    case $SYNC_FREQUENCY in
+        14400) current_choice=1 ;;
+        43200) current_choice=2 ;;
+        86400) current_choice=3 ;;
+    esac
     echo ""
     echo "Sync frequency options:"
     echo "  1. Every 4 hours"
     echo "  2. Every 12 hours"
     echo "  3. Every 24 hours"
-    read -p "Select sync frequency (1-3, default: 1): " sync_choice
-    sync_choice=${sync_choice:-1}
-    
-    # Convert choice to seconds
-    case $sync_choice in
-        1)
-            sync_freq="14400"
-            ;;
-        2)
-            sync_freq="43200"
-            ;;
-        3)
-            sync_freq="86400"
-            ;;
-        *)
-            print_error "Invalid choice. Using default (Every 4 hours)."
-            sync_freq="14400"
-            ;;
+    read -p "Select sync frequency (1-3, Enter keeps current: every $((SYNC_FREQUENCY / 3600)) hours): " sync_choice
+    case ${sync_choice:-keep} in
+        1) SYNC_FREQUENCY="14400" ;;
+        2) SYNC_FREQUENCY="43200" ;;
+        3) SYNC_FREQUENCY="86400" ;;
+        keep) ;;
+        *) print_error "Invalid choice. Keeping the current value." ;;
     esac
-    
-    # Get admin password
-    echo ""
-    read -s -p "Enter admin password (default: $default_admin_pass): " admin_pass
-    echo ""
-    admin_pass=${admin_pass:-$default_admin_pass}
-    
-    # Ask about npm proxy
+
     echo ""
     echo "NPM Proxy Configuration:"
     echo "  The npm proxy provides a local caching proxy for npm packages."
     echo "  This can speed up npm installs and reduce bandwidth usage."
-    read -p "Do you need a caching npm proxy? (Y/n): " enable_npm_proxy
-    enable_npm_proxy=${enable_npm_proxy:-y}
-    
-    # Detect host timezone
-    local host_timezone=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "UTC")
+    local npm_hint="Y/n"
+    [ "$ENABLE_NPM_PROXY" = "y" ] || npm_hint="y/N"
+    read -p "Do you need a caching npm proxy? ($npm_hint): " enable_npm_proxy
+    case ${enable_npm_proxy:-keep} in
+        y|Y) ENABLE_NPM_PROXY="y" ;;
+        n|N) ENABLE_NPM_PROXY="n" ;;
+    esac
+
     echo ""
-    read -p "Enter timezone (default: $host_timezone): " custom_timezone
-    custom_timezone=${custom_timezone:-$host_timezone}
-    
-    # Set global variables for use in other functions
-    MIRROR_DOMAIN="$custom_domain"
-    ADMIN_DOMAIN="admin.$custom_domain"
-    FILES_DOMAIN="files.$custom_domain"
-    NPM_DOMAIN="npm.$custom_domain"
-    CHEATSHEETS_DOMAIN="cheatsheets.$custom_domain"
-    SYNC_FREQUENCY="$sync_freq"
-    ADMIN_PASSWORD="$admin_pass"
-    HOST_TIMEZONE="$custom_timezone"
-    ENABLE_NPM_PROXY="$enable_npm_proxy"
-    
+    read -p "Enter timezone (default: $HOST_TIMEZONE): " custom_timezone
+    HOST_TIMEZONE=${custom_timezone:-$HOST_TIMEZONE}
+
     print_success "Configuration completed."
 }
+
+prompt_admin_password() {
+    local default_admin_pass="admin"
+    echo ""
+    read -s -p "Enter admin password (default: $default_admin_pass): " admin_pass
+    echo ""
+    ADMIN_PASSWORD=${admin_pass:-$default_admin_pass}
+}
+
+resolve_user_config() {
+    local mode=$1
+    use_current_config
+
+    if [ "$INSTALL_EXISTS" = false ]; then
+        prompt_user_config
+        return
+    fi
+
+    if [ "$mode" = "reconfigure" ]; then
+        prompt_user_config
+        return
+    fi
+
+    if [ -z "$CONFIG_SOURCE" ]; then
+        print_warning "Existing install found but no saved settings; using defaults."
+    else
+        show_current_config
+    fi
+
+    if [ "$mode" = "upgrade" ]; then
+        print_status "Keeping current settings (run ./setup.sh --reconfigure to change them)."
+        return
+    fi
+
+    echo ""
+    read -p "Keep these settings? (Y/n): " keep_settings
+    case ${keep_settings:-y} in
+        n|N) prompt_user_config ;;
+        *) print_status "Keeping current settings." ;;
+    esac
+}
+
+write_env_file() {
+    local npm_enabled="false"
+    [ "$ENABLE_NPM_PROXY" = "y" ] && npm_enabled="true"
+
+    print_status "Saving settings to $ENV_FILE..."
+    cat > "$ENV_FILE" <<ENVEOF
+# ui-apt-mirror settings. Change with ./setup.sh --reconfigure, or edit and run ./start.sh.
+MIRROR_DOMAIN=$MIRROR_DOMAIN
+ADMIN_DOMAIN=admin.$MIRROR_DOMAIN
+FILES_DOMAIN=files.$MIRROR_DOMAIN
+NPM_DOMAIN=npm.$MIRROR_DOMAIN
+CHEATSHEETS_DOMAIN=cheatsheets.$MIRROR_DOMAIN
+SYNC_FREQUENCY=$SYNC_FREQUENCY
+NPM_PROXY_ENABLED=$npm_enabled
+TZ=$HOST_TIMEZONE
+ENVEOF
+    print_success "Settings saved."
+}
+
 
 generate_htpasswd() {
     local admin_pass=$1
@@ -242,83 +343,89 @@ generate_htpasswd() {
         print_error "openssl produced an empty password hash."
         exit 1
     fi
-    echo "admin:$pass_hash" > data/auth/.htpasswd
-    
+    # Keep the other users
+    local htpasswd=data/auth/.htpasswd
+    local others=""
+    [ -f "$htpasswd" ] && others=$(grep -v '^admin:' "$htpasswd" || true)
+    {
+        echo "admin:$pass_hash"
+        [ -n "$others" ] && echo "$others"
+    } > "$htpasswd.tmp"
+    mv "$htpasswd.tmp" "$htpasswd"
+
     print_success "htpasswd file generated successfully."
 }
 
-# Function to update admin app configuration files
-update_admin_config() {
-    local domain=$1
-    
-    print_status "Updating admin app configuration files..."
-    
-    # Generate a random JWT secret
-    local jwt_secret
-    jwt_secret=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
-    if [ -z "$jwt_secret" ]; then
-        print_error "Failed to generate JWT secret with openssl."
-        exit 1
-    fi
-    print_status "Generated JWT secret: ${jwt_secret:0:8}..."
 
-    # Update config.json
-    if [ -f "admin/app/config/config.json" ]; then
-        # Replace domain placeholders
-        sed -i "s/domain/$domain/g" admin/app/config/config.json
-        # Replace JWT secret
-        sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.json
-    fi
+# Fingerprints of every released docker-compose.src.yml with values blanked;
+# a pre-.env docker-compose.yml matching one was never edited by hand.
+LEGACY_COMPOSE_FINGERPRINTS="24a1f8ce60550fc1 1a5fddfd8e7c4736 bdd1748a8142e672 67213f824f6d9873 2cabb2f42d493772 830e2a450d30f66d c5ed624d685be465 7fcfd9624207e48d 6d21328162dc297d 8f8e4cf1bb2e2fbb 8311e9dc94b89163"
 
-    # Update config.build.json
-    if [ -f "admin/app/config/config.build.json" ]; then
-        # Replace domain placeholders
-        sed -i "s/domain/$domain/g" admin/app/config/config.build.json
-        # Replace JWT secret
-        sed -i "s/\"jwtSecret\": \"your-secret-key-change-in-production\"/\"jwtSecret\": \"$jwt_secret\"/g" admin/app/config/config.build.json
-    fi
-    
-    print_success "Admin app configuration files updated successfully."
-    print_success "JWT secret generated and configured in both config files."
+compose_fingerprint() {
+    sed -E 's/^([[:space:]]*-[[:space:]]*)([A-Z_]+)=.*/\1\2=/' "$1" \
+        | sed -E 's/[[:space:]]+$//' | sha256sum | cut -c1-16
 }
 
-# Function to generate docker-compose.yml from template
-generate_docker_compose() {
-    local domain=$1
-    local sync_freq=$2
-    local timezone=$3
-    
-    print_status "Generating docker-compose.yml from template..."
-    
-    # Remove existing docker-compose.yml if it exists
-    if [ -f "docker-compose.yml" ]; then
-        print_status "Removing existing docker-compose.yml..."
-        rm docker-compose.yml
+install_docker_compose() {
+    if [ "$CONFIG_SOURCE" = "docker-compose.yml" ]; then
+        mkdir -p backups
+        local backup="backups/docker-compose.yml.before-env-$(date +%Y%m%d%H%M%S)"
+        cp docker-compose.yml "$backup"
+        local fingerprint
+        fingerprint=$(compose_fingerprint docker-compose.yml)
+        case " $LEGACY_COMPOSE_FINGERPRINTS " in
+            *" $fingerprint "*)
+                print_status "docker-compose.yml settings moved to $ENV_FILE (previous file: $backup)."
+                ;;
+            *)
+                COMPOSE_HAND_EDITED="$backup"
+                print_warning "Your docker-compose.yml had hand edits (ports, volumes...)."
+                print_warning "It is saved as $backup."
+                print_warning "Move those edits to docker-compose.override.yml; upgrades never touch that file."
+                ;;
+        esac
     fi
-    
-    # Copy source template
+
+    # Differs from the file we installed last time: hand edits
+    if [ "$CONFIG_SOURCE" = "$ENV_FILE" ] && [ -f docker-compose.yml ]; then
+        local recorded current
+        recorded=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null || true)
+        current=$(sha256sum docker-compose.yml | cut -d' ' -f1)
+        if [ "$current" != "$recorded" ] && ! cmp -s docker-compose.yml docker-compose.src.yml; then
+            mkdir -p backups
+            local edited="backups/docker-compose.yml.edited-$(date +%Y%m%d%H%M%S)"
+            cp docker-compose.yml "$edited"
+            COMPOSE_HAND_EDITED="$edited"
+            print_warning "docker-compose.yml was changed by hand; saved as $edited."
+            print_warning "Move those edits to docker-compose.override.yml; upgrades never touch that file."
+        fi
+    fi
+
+    print_status "Installing docker-compose.yml..."
     cp docker-compose.src.yml docker-compose.yml
-    
-    # Replace environment variable references with actual values
-    sed -i "s/\${SYNC_FREQUENCY:-3600}/$sync_freq/g" docker-compose.yml
-    sed -i "s/\${MIRROR_DOMAIN:-mirror.intra}/$domain/g" docker-compose.yml
-    sed -i "s/\${ADMIN_DOMAIN:-admin.mirror.intra}/admin.$domain/g" docker-compose.yml
-    sed -i "s/\${FILES_DOMAIN:-files.mirror.intra}/files.$domain/g" docker-compose.yml
-    sed -i "s/\${NPM_DOMAIN:-npm.mirror.intra}/npm.$domain/g" docker-compose.yml
-    sed -i "s/\${CHEATSHEETS_DOMAIN:-cheatsheets.mirror.intra}/cheatsheets.$domain/g" docker-compose.yml
+    sha256sum docker-compose.yml | cut -d' ' -f1 > "$COMPOSE_HASH_FILE"
+    print_success "docker-compose.yml installed."
+}
 
-    # Substitute npm proxy enabled flag
-    local npm_enabled="false"
-    if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
-        npm_enabled="true"
+# Older versions had no volume for private files; copy them out before the container goes
+preserve_private_files() {
+    if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+        return
     fi
-    sed -i "s/\${NPM_PROXY_ENABLED:-false}/$npm_enabled/g" docker-compose.yml
+    if docker inspect -f '{{range .Mounts}}{{println .Destination}}{{end}}' "$CONTAINER_NAME" \
+        | grep -qx "/var/www/files-private"; then
+        return
+    fi
 
-    # Escape timezone for sed (replace / with \/)
-    local escaped_timezone=$(echo "$timezone" | sed 's/\//\\\//g')
-    sed -i "s/\${TZ:-UTC}/$escaped_timezone/g" docker-compose.yml
-    
-    print_success "docker-compose.yml generated successfully."
+    print_status "Copying private files out of the existing container..."
+    mkdir -p data/data/files-private
+    if docker cp "$CONTAINER_NAME:/var/www/files-private/." data/data/files-private/ >/dev/null 2>&1; then
+        local count
+        count=$(find data/data/files-private -type f | wc -l)
+        print_success "Private files saved to data/data/files-private ($count files)."
+    else
+        print_status "No private files found in the existing container."
+    fi
 }
 
 # Function to clean up previous installation
@@ -346,7 +453,7 @@ cleanup_previous() {
 create_data_dirs() {
     print_status "Creating data directories..."
     
-    mkdir -p data/{data/apt-mirror,data/files,data/npm,data/cheatsheets,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/sites-available,conf/nginx/conf.d}
+    mkdir -p data/{data/apt-mirror,data/files,data/files-private,data/npm,data/cheatsheets,logs/apt-mirror,logs/nginx,conf/apt-mirror,conf/nginx/custom,auth}
     
     # Set proper permissions
     chmod 755 data/
@@ -354,6 +461,7 @@ create_data_dirs() {
     
     print_success "Data directories created."
 }
+
 
 # Function to generate apt-mirror2 configuration
 generate_mirror_config() {
@@ -496,48 +604,42 @@ EOF
     print_success "apt-mirror2 configuration generated with $OPTIMAL_THREADS threads and $OPTIMAL_CONNECTIONS connections."
 }
 
+
 # Function to show status
 show_status() {
     print_status "Container status:"
     docker ps --filter "name=$CONTAINER_NAME" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-    
-    echo ""
-    print_status "Resource Configuration:"
-    echo "  Threads: $OPTIMAL_THREADS (1 per 700MB RAM)"
-    echo "  Connections: $OPTIMAL_CONNECTIONS (6 per 700MB RAM)"
-    
+
+    local domain
+    domain=$(env_get MIRROR_DOMAIN "$ENV_FILE")
+    domain=${domain:-mirror.intra}
+
     echo ""
     print_status "Access URLs:"
-    if [ -f "docker-compose.yml" ]; then
-        # Extract values from generated docker-compose.yml
-        local mirror_domain=$(grep "MIRROR_DOMAIN" docker-compose.yml | sed 's/.*MIRROR_DOMAIN: //')
-        local admin_domain=$(grep "ADMIN_DOMAIN" docker-compose.yml | sed 's/.*ADMIN_DOMAIN: //')
-        local files_domain=$(grep "FILES_DOMAIN" docker-compose.yml | sed 's/.*FILES_DOMAIN: //')
-        local cheatsheets_domain=$(grep "CHEATSHEETS_DOMAIN" docker-compose.yml | sed 's/.*CHEATSHEETS_DOMAIN: //')
-        
-        echo "  Main Repository: http://$mirror_domain"
-        echo "  Admin Panel: http://$admin_domain (admin/[password])"
-        echo "  File Repository: http://$files_domain"
-        echo "  Cheatsheets: http://$cheatsheets_domain"
-        
-        # Show npm proxy URL if enabled
-        if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
-            echo "  NPM Proxy: http://npm.$mirror_domain"
-            echo "    Usage: npm config set registry http://npm.$mirror_domain"
-        fi
-    else
-        echo "  Main Repository: http://mirror.intra"
-        echo "  Admin Panel: http://admin.mirror.intra (admin/[password])"
-        echo "  File Repository: http://files.mirror.intra"
-        echo "  Cheatsheets: http://cheatsheets.mirror.intra"
-        
-        # Show npm proxy URL if enabled
-        if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
-            echo "  NPM Proxy: http://npm.mirror.intra"
-            echo "    Usage: npm config set registry http://npm.mirror.intra"
-        fi
+    echo "  Main Repository: http://$domain"
+    echo "  Admin Panel: http://admin.$domain (admin/[password])"
+    echo "  File Repository: http://files.$domain"
+    echo "  Cheatsheets: http://cheatsheets.$domain"
+    if [ "$(env_get NPM_PROXY_ENABLED "$ENV_FILE")" = "true" ]; then
+        echo "  NPM Proxy: http://npm.$domain"
+        echo "    Usage: npm config set registry http://npm.$domain"
     fi
-    
+
+    if [ -n "$COMPOSE_HAND_EDITED" ] && [ ! -f docker-compose.override.yml ]; then
+        echo ""
+        print_warning "Reminder: your hand edits to docker-compose.yml are NOT active."
+        print_warning "Compare $COMPOSE_HAND_EDITED with docker-compose.yml and move them to"
+        print_warning "docker-compose.override.yml, then run ./start.sh."
+    fi
+
+    local custom
+    custom=$(ls data/conf/nginx/custom/*.conf 2>/dev/null || true)
+    if [ -n "$custom" ]; then
+        echo ""
+        print_warning "Custom nginx configs in use (they replace the stock ones):"
+        echo "$custom" | sed 's/^/  /'
+    fi
+
     echo ""
     print_status "Logs:"
     echo "  docker logs $CONTAINER_NAME"
@@ -549,22 +651,19 @@ show_usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --config-only     Only generate configuration, don't start container"
-    echo "  --no-cleanup      Skip cleanup of previous installation"
-    echo "  --help            Show this help message"
+    echo "  --upgrade               Keep current settings without asking (used by upgrade.sh)"
+    echo "  --reconfigure           Ask for every setting, offering the current values"
+    echo "  --reset-admin-password  Set a new password for the admin user"
+    echo "  --config-only           Only write configuration, don't start the container"
+    echo "  --no-cleanup            Skip cleanup of previous installation"
+    echo "  --help                  Show this help message"
     echo ""
-    echo "This script will:"
-    echo "  1. Detect your system architecture"
-    echo "  2. Calculate optimal resource limits based on available RAM"
-    echo "  3. Validate that required image files exist"
-    echo "  4. Get your custom configuration"
-    echo "  5. Clean up previous installation"
-    echo "  6. Create data directories and generate configurations"
-    echo "  7. Call start.sh to load image and start container"
-    echo ""
-    echo "Resource Calculation:"
-    echo "  - Threads: 1 per 700MB RAM (min: 1, max: 8)"
-    echo "  - Connections: 6 per 700MB RAM (min: 6, max: 48)"
+    echo "On a fresh install this asks for the domain, sync frequency, npm proxy,"
+    echo "timezone and admin password. On an existing install it keeps what is"
+    echo "configured and never overwrites:"
+    echo "  - .env (settings)                       - data/conf/apt-mirror/mirror.list"
+    echo "  - data/auth/.htpasswd (users)           - data/conf/nginx/custom/ (nginx overrides)"
+    echo "  - docker-compose.override.yml"
     echo ""
     echo "Prerequisites:"
     echo "  - Docker installed and running (with Compose v2 plugin)"
@@ -572,63 +671,28 @@ show_usage() {
     echo "  - openssl, curl, tar, gzip, procps (free), awk, sed"
 }
 
-# Function to update nginx configuration files with custom domain
-update_nginx_configs() {
-    local domain=$1
-    
-    print_status "Updating nginx configuration files with domain: $domain..."
-
-    # Create nginx sites-available directory if it doesn't exist
-    mkdir -p data/conf/nginx/sites-available
-
-    # Generate log-date.conf for nginx daily log rotation
-    mkdir -p data/conf/nginx/conf.d
-    cat > data/conf/nginx/conf.d/log-date.conf <<'EOF'
-map $time_iso8601 $log_date {
-    default                       "unknown";
-    "~^(?<ymd>\d{4}-\d{2}-\d{2})" $ymd;
-}
-EOF
-
-    # Replace domain in all nginx config files
-    for config_file in data/conf/nginx/sites-available/*.conf; do
-        if [ -f "$config_file" ]; then
-            # Replace mirror.intra with custom domain
-            sed -i "s/mirror\.intra/$domain/g" "$config_file"
-            # Replace admin.mirror.intra with admin.customdomain
-            sed -i "s/admin\.mirror\.intra/admin.$domain/g" "$config_file"
-            # Replace files.mirror.intra with files.customdomain
-            sed -i "s/files\.mirror\.intra/files.$domain/g" "$config_file"
-            # Replace npm.mirror.intra with npm.customdomain
-            sed -i "s/npm\.mirror\.intra/npm.$domain/g" "$config_file"
-            # Replace cheatsheets.mirror.intra with cheatsheets.customdomain
-            sed -i "s/cheatsheets\.mirror\.intra/cheatsheets.$domain/g" "$config_file"
-        fi
-    done
-    
-    # Handle npm proxy configuration
-    if [ "$ENABLE_NPM_PROXY" = "y" ] || [ "$ENABLE_NPM_PROXY" = "Y" ]; then
-        print_status "NPM proxy is enabled. Updating npm proxy configuration..."
-        
-        # Update domain in the npm config file
-        sed -i "s/npm\.mirror\.intra/npm.$domain/g" data/conf/nginx/sites-available/npm.mirror.intra.conf
-        
-        print_success "NPM proxy configuration updated at: http://npm.$domain"
-    else
-        print_status "NPM proxy is disabled. Skipping npm proxy configuration."
-    fi
-    
-    print_success "Nginx configuration files updated with domain: $domain"
-}
-
 # Main execution
 main() {
     local config_only=false
     local no_cleanup=false
-    
+    local mode="default"
+    local reset_password=false
+
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --upgrade)
+                mode="upgrade"
+                shift
+                ;;
+            --reconfigure)
+                mode="reconfigure"
+                shift
+                ;;
+            --reset-admin-password)
+                reset_password=true
+                shift
+                ;;
             --config-only)
                 config_only=true
                 shift
@@ -648,7 +712,7 @@ main() {
                 ;;
         esac
     done
-    
+
     print_status "Starting ui-apt-mirror deployment..."
 
     # Verify required commands are installed
@@ -658,53 +722,56 @@ main() {
     # Detect architecture
     local arch=$(detect_architecture)
     print_success "Detected architecture: $arch"
-    
-    # Calculate optimal resource limits
-    calculate_resource_limits
-    
+
     # Validate dist directory
     validate_dist "$arch"
-    
-    # Get user configuration
-    get_user_config
-    
-    # Generate nginx htpasswd file
-    generate_htpasswd "$ADMIN_PASSWORD"
-    
+
+    load_existing_config
+    if [ "$INSTALL_EXISTS" = true ]; then
+        print_status "Existing installation detected; your configuration will be kept."
+    fi
+
+    resolve_user_config "$mode"
+
+    if [ "$INSTALL_EXISTS" = false ] || [ "$reset_password" = true ] || [ ! -s data/auth/.htpasswd ]; then
+        prompt_admin_password
+        generate_htpasswd "$ADMIN_PASSWORD"
+    fi
+
+    create_data_dirs
+
+    # mirror.list is managed in the admin panel after the first install
+    if [ "$INSTALL_EXISTS" = false ] || [ ! -f data/conf/apt-mirror/mirror.list ]; then
+        calculate_resource_limits
+        generate_mirror_config "$MIRROR_DOMAIN"
+    else
+        print_status "Keeping data/conf/apt-mirror/mirror.list (managed in the admin panel)."
+    fi
+
+    write_env_file
+    install_docker_compose
+
     if [ "$config_only" = true ]; then
-        print_success "Configuration completed. Run without --config-only to start the container."
+        print_success "Configuration completed. Run ./start.sh to start the container."
         exit 0
     fi
-    
+
+    preserve_private_files
+
     # Clean up previous installation
     if [ "$no_cleanup" = false ]; then
         cleanup_previous
     fi
-    
-    # Create data directories
-    create_data_dirs
-    
-    # Generate apt-mirror configuration
-    generate_mirror_config "$MIRROR_DOMAIN"
-    
-    # Update admin app configuration
-    update_admin_config "$MIRROR_DOMAIN"
-    
-    # Generate docker-compose.yml
-    generate_docker_compose "$MIRROR_DOMAIN" "$SYNC_FREQUENCY" "$HOST_TIMEZONE"
-    
-    # Update nginx configuration files with custom domain
-    update_nginx_configs "$MIRROR_DOMAIN"
-    
+
     # Start container using start.sh
     print_status "Starting container..."
     ./start.sh
-    
+
     # Show status
     show_status
-    
+
     print_success "Deployment completed successfully!"
 }
 
 # Run main function with all arguments
-main "$@" 
+main "$@"

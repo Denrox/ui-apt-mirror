@@ -16,3 +16,10 @@ dist/*
 .scannerwork
 data/auth/*
 !data/auth/.gitkeep
+data/data/cheatsheets/*
+!data/data/cheatsheets/.gitkeep
+.env
+docker-compose.override.yml
+backups/
+data/conf/nginx/
+.docker-compose.yml.sha256

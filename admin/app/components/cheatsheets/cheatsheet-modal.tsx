@@ -1,26 +1,26 @@
 import { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileAlt, faTags } from '@fortawesome/free-solid-svg-icons';
+import { faBook, faTags } from '@fortawesome/free-solid-svg-icons';
 import Modal from '~/components/shared/modal/modal';
 import Tag from '~/components/shared/tag/tag';
 import ReactMarkdown from 'react-markdown';
 
-interface FileItem {
-  name: string;
+export interface CheatsheetRef {
+  source: string;
+  sourceName: string;
   path: string;
-  size: number;
-  isDirectory: boolean;
+  title: string;
   categories: string[];
 }
 
 interface CheatsheetModalProps {
-  file: FileItem;
+  page: CheatsheetRef;
   isOpen: boolean;
   onClose: () => void;
 }
 
 export default function CheatsheetModal({
-  file,
+  page,
   isOpen,
   onClose,
 }: CheatsheetModalProps) {
@@ -29,57 +29,44 @@ export default function CheatsheetModal({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isOpen && file) {
-      loadCheatsheetContent();
-    }
-  }, [isOpen, file]);
-
-  const loadCheatsheetContent = async () => {
+    if (!isOpen) return;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-
-    try {
-      const response = await fetch(`/api/cheatsheet/${file.name}`);
-      if (!response.ok) {
-        throw new Error('Failed to load cheatsheet');
-      }
-      const text = await response.text();
-      setContent(text);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to load cheatsheet',
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    const params = new URLSearchParams({ source: page.source, path: page.path });
+    fetch(`/api/cheatsheets/page?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Failed to load cheatsheet');
+        setContent(await response.text());
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : 'Failed to load cheatsheet');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [isOpen, page.source, page.path]);
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={file.name.replace('.md', '')}
-      maxWidth="4xl"
-    >
-      {/* Custom header with file info and categories */}
+    <Modal isOpen={isOpen} onClose={onClose} title={page.title} maxWidth="4xl">
       <div className="flex items-center gap-3 mb-4 pb-4 border-b border-outline-variant">
-        <FontAwesomeIcon icon={faFileAlt} className="text-on-surface-variant" />
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <FontAwesomeIcon
-              icon={faTags}
-              className="text-on-surface-variant/60 text-xs"
-            />
-            <div className="flex flex-wrap gap-1">
-              {file.categories.map((category) => (
-                <Tag key={category} label={category} size="small" />
-              ))}
-            </div>
+        <FontAwesomeIcon icon={faBook} className="text-on-surface-variant" />
+        <div className="flex-1 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-on-surface-variant">{page.sourceName}</span>
+          <FontAwesomeIcon
+            icon={faTags}
+            className="text-on-surface-variant/60 text-xs"
+          />
+          <div className="flex flex-wrap gap-1">
+            {page.categories.map((category) => (
+              <Tag key={category} label={category} size="small" />
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-4xl max-h-[calc(90vh-200px)] overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-8">

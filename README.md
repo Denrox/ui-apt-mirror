@@ -7,7 +7,7 @@ A containerized APT mirror solution with a web interface. This project provides 
 - **APT Mirror**: Local Ubuntu package repository with automatic synchronization using apt-mirror2 (Python/asyncio version) from PyPI
 - **GPG Signing**: Optional per-host signing keys generated via the admin panel — re-signs `Release` files so clients can verify the mirror with a real key instead of relying on `[trusted=yes]`. Sources.list snippets in the admin UI auto-include the correct `signed-by` / `Signed-By` directive when a key is present.
 - **NPM Proxy**: Optional local npm package registry cache for faster npm installs and reduced bandwidth usage
-- **Developer Cheatsheets**: Built-in command reference with tldr-pages integration for offline access to programming and system administration guides
+- **Cheatsheets**: Offline, searchable markdown cheatsheets downloaded from GitHub repositories you choose (e.g. [tldr-pages](https://github.com/tldr-pages/tldr) for console commands)
 - **Web Interface**: web UI for all services
 - **Multi-Host Setup**: Five distinct web services:
   - `mirror.intra` - DEB packages repository
@@ -55,8 +55,14 @@ The script will:
 - Configure sync frequency
 - Set admin password
 - Ask if you need npm proxy functionality (default: Yes)
+- Save these settings to `.env`
 - Load the appropriate Docker image
 - Start the container
+
+Running `./setup.sh` again on an existing install keeps your configuration. Use
+`./setup.sh --reconfigure` to change settings (current values are the defaults)
+and `./setup.sh --reset-admin-password` to set a new admin password; other users
+are kept.
 
 ## Web Interfaces
 
@@ -76,7 +82,7 @@ The script will:
   - Log viewing
   - Documentation
   - Files management
-  - Developer cheatsheets and command references
+  - Cheatsheet sources (add GitHub repositories, update, remove)
   - User management and settings
 
 ### File Repository (files.mirror.intra)
@@ -93,12 +99,27 @@ The script will:
 
 - **URL**: `http://cheatsheets.mirror.intra`
 - **Authentication**: None (public access)
-- **Purpose**: Developer command references and cheatsheets
+- **Purpose**: Read-only access to the downloaded cheatsheets
 - **Features**:
-  - Browse developer cheatsheets by category
-  - Search command references
-  - View detailed command examples
-  - Offline access to tldr-pages content
+  - Full-text search across all sources, with snippets
+  - Browse by source and category
+  - Works fully offline once sources are downloaded
+
+#### Adding cheatsheet sources
+
+No cheatsheets are bundled. In the admin panel, open **Cheatsheets** and paste a
+public GitHub URL:
+
+- a repository: `https://github.com/<owner>/<repo>` (default branch)
+- or one folder of it: `https://github.com/<owner>/<repo>/tree/<branch>/<folder>`,
+  e.g. `https://github.com/tldr-pages/tldr/tree/main/pages` for tldr's console commands
+
+Every `.md` file under that location becomes a page (README/LICENSE/CONTRIBUTING
+files are skipped). The first `# Heading` is the page title. Sub-folders become
+categories, unless the folder contains a `categories.json` mapping
+`{"Category": ["relative/path.md", ...]}`. Downloading needs internet access;
+**Update** re-downloads a source and keeps the previous copy if it fails.
+Content is stored under `data/data/cheatsheets/` and is not part of this repository.
 
 ### NPM Proxy (npm.mirror.intra) - Optional
 
@@ -228,10 +249,51 @@ To upgrade to the latest version:
 The upgrade script will:
 - Check connectivity to the official website
 - Ask you to choose between current architecture or all architectures
-- Download the latest version
-- Extract and install new image files
-- Run setup.sh to deploy the upgrade
+- Back up your configuration to `backups/pre-upgrade-<date>.tar.gz`
+- Download the latest version and install the new image and scripts
+- Run `setup.sh --upgrade`, which asks nothing and keeps your configuration
 - Clean up temporary files
+
+#### What an upgrade keeps
+
+| What | Where | On upgrade |
+|------|-------|------------|
+| Settings (domain, sync frequency, timezone, npm proxy) | `.env` | kept |
+| Your own compose changes (ports, volumes, …) | `docker-compose.override.yml` | kept |
+| Repositories and package filters | `data/conf/apt-mirror/mirror.list` | kept |
+| Users and passwords | `data/auth/.htpasswd` | kept |
+| Login signing secret | `data/auth/.jwt-secret` | kept |
+| Nginx overrides | `data/conf/nginx/custom/<site>.conf` | kept |
+| Mirrored packages, GPG keys, files, private files, npm cache, cheatsheets | `data/data/` | kept |
+| `docker-compose.yml` | stock file | replaced (holds no settings) |
+| Nginx site configs | generated in the container from `.env` | regenerated |
+
+Do not edit `docker-compose.yml`: put changes in `docker-compose.override.yml`
+instead (same format, merged on top by `start.sh`). To change an nginx site,
+copy it from the running container (`docker exec ui-apt-mirror cat
+/etc/nginx/sites-available/files.mirror.intra.conf`) to
+`data/conf/nginx/custom/files.mirror.intra.conf` and edit it there; delete the
+file to go back to the stock config.
+
+#### Upgrading from older versions
+
+The first upgrade of an install that predates `.env` migrates it automatically:
+settings are read from the old `docker-compose.yml`, nginx configs you had
+edited become overrides in `data/conf/nginx/custom/`, and private files are
+copied out of the old container (they were not stored on the host before). If
+the old `docker-compose.yml` had hand edits, it is saved under `backups/` and
+the upgrade tells you to move those edits to `docker-compose.override.yml`.
+
+Every install signs logins with its own secret now, so everyone has to sign in
+again once, and npm tokens from `npm login` must be renewed.
+
+Installs whose `upgrade.sh` does not copy a new `setup.sh` (versions from before
+August 2025) should fetch the current `upgrade.sh` before upgrading:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/Denrox/ui-apt-mirror/master/upgrade.sh
+chmod +x upgrade.sh && ./upgrade.sh
+```
 
 ## Directory Structure
 
@@ -242,9 +304,12 @@ ui-apt-mirror/
 ├── start.sh                 # Start the container
 ├── upgrade.sh               # Upgrade script for latest version
 ├── README.md                # This file
-├── .env                     # Configuration file (generated)
+├── .env                     # Settings (written by setup.sh, kept on upgrade)
 ├── docker-compose.src.yml   # Docker Compose template
-├── docker-compose.yml       # Generated Docker Compose file
+├── docker-compose.yml       # Stock copy of the template (replaced on upgrade)
+├── docker-compose.override.yml  # Optional: your compose changes (kept on upgrade)
+├── backups/                 # Configuration backups made by upgrade.sh
+├── nginx/                   # Nginx site templates baked into the image
 ├── Dockerfile               # Multi-stage Docker build
 ├── entrypoint.sh            # Container startup script
 ├── admin/                   # Admin panel React application source
@@ -262,13 +327,15 @@ ui-apt-mirror/
 │   ├── ui-apt-mirror-amd64.tar.gz
 │   └── ui-apt-mirror-arm64.tar.gz
 └── data/                    # Persistent data and configuration
-    ├── auth/                # User authentication data
+    ├── auth/                # Users (.htpasswd) and login secret (.jwt-secret)
     ├── conf/                # Configuration files
-    │   ├── apt-mirror/      # APT mirror configuration
-    │   └── nginx/           # Nginx configurations
+    │   ├── apt-mirror/      # APT mirror configuration (mirror.list)
+    │   └── nginx/custom/    # Optional nginx site overrides
     ├── data/                # Application data
     │   ├── apt-mirror/      # APT mirror package data
     │   ├── files/           # File hosting data
+    │   ├── files-private/   # Private files
+    │   ├── cheatsheets/     # Downloaded cheatsheet sources
     │   └── npm/             # NPM cache data
     └── logs/                # Log files
         ├── apt-mirror/      # APT mirror logs
@@ -284,4 +351,3 @@ This project is licensed under the MIT License.
 - [apt-mirror2](https://gitlab.com/apt-mirror2/apt-mirror2) - The Python/asyncio APT mirroring tool from PyPI
 - [nginx](https://nginx.org/) - Web server
 - [skopeo](https://github.com/containers/skopeo) - For container image management
-- [tldr-pages](https://github.com/tldr-pages/tldr) - Collaborative cheatsheets for console commands used in the admin panel

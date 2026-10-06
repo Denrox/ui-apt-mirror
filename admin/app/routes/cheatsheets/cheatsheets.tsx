@@ -1,13 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
-import { useLoaderData, useSubmit, useRevalidator } from 'react-router';
+import { useState, useEffect, useMemo } from 'react';
+import { useLoaderData, useRevalidator } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faFileAlt,
   faTags,
   faEye,
-  faTrash,
-  faSync,
   faTimes,
+  faBook,
 } from '@fortawesome/free-solid-svg-icons';
 import Title from '~/components/shared/title/title';
 import ContentBlock from '~/components/shared/content-block/content-block';
@@ -19,16 +18,11 @@ import FormButton from '~/components/shared/form/form-button';
 import Tag from '~/components/shared/tag/tag';
 import { loader } from './loader';
 import { action } from './actions';
-import CheatsheetModal from '~/components/cheatsheets/cheatsheet-modal';
-import ConfirmationModal from '~/components/shared/confirmation-modal/confirmation-modal';
-
-interface FileItem {
-  name: string;
-  path: string;
-  size: number;
-  isDirectory: boolean;
-  categories: string[];
-}
+import CheatsheetModal, {
+  type CheatsheetRef,
+} from '~/components/cheatsheets/cheatsheet-modal';
+import SourcesPanel from '~/components/cheatsheets/sources-panel';
+import type { SearchResult } from '~/routes/api.cheatsheets.search';
 
 export { loader, action };
 
@@ -37,344 +31,285 @@ export function meta() {
     { title: 'Cheatsheets' },
     {
       name: 'description',
-      content: 'Developer cheatsheets and reference guides',
+      content: 'Offline cheatsheets and reference guides',
     },
   ];
 }
 
 export default function Cheatsheets() {
-  const data = useLoaderData<typeof loader & { __domain: string }>();
-  const files = data?.files || [];
-  const categories = data?.categories || [];
-  const error = data?.error;
-  const isPublicRoute = data?.__domain === 'cheatsheets';
-  const submit = useSubmit();
+  const data = useLoaderData<typeof loader>();
+  const sources = data?.sources ?? [];
+  const isPublic = data?.isPublic ?? true;
   const revalidator = useRevalidator();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  const [hasUserInteracted, setHasUserInteracted] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [deleteModal, setDeleteModal] = useState<{
-    isOpen: boolean;
-    filename: string | null;
-    isLoading: boolean;
-  }>({
-    isOpen: false,
-    filename: null,
-    isLoading: false,
-  });
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [total, setTotal] = useState(0);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [openPage, setOpenPage] = useState<CheatsheetRef | null>(null);
+
+  const browsable = sources.filter((s) => s.fileCount > 0);
+  const totalPages = browsable.reduce((n, s) => n + s.fileCount, 0);
+  const activeSource =
+    selectedSource ?? (browsable.length === 1 ? browsable[0].id : null);
+  const categories = useMemo(
+    () => browsable.find((s) => s.id === activeSource)?.categories ?? [],
+    [browsable, activeSource],
+  );
+
+  const downloading = sources.some((s) => s.status === 'downloading');
+  useEffect(() => {
+    if (!downloading) return;
+    const timer = setInterval(() => revalidator.revalidate(), 3000);
+    return () => clearInterval(timer);
+  }, [downloading, revalidator]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 300);
-
+    const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm.trim()), 300);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const filteredFiles = useMemo(() => {
+  useEffect(() => {
     if (!debouncedSearchTerm && !selectedCategory) {
-      return [];
+      setResults([]);
+      setTotal(0);
+      return;
     }
-
-    let filtered = files;
-
-    if (selectedCategory) {
-      filtered = filtered.filter((file: FileItem) =>
-        file.categories.includes(selectedCategory),
-      );
-    }
-
-    if (debouncedSearchTerm) {
-      const term = debouncedSearchTerm.toLowerCase();
-      filtered = filtered.filter(
-        (file: FileItem) =>
-          file.name.toLowerCase().includes(term) ||
-          file.categories.some((cat: string) =>
-            cat.toLowerCase().includes(term),
-          ),
-      );
-    }
-
-    return filtered.sort((a: FileItem, b: FileItem) =>
-      a.name.localeCompare(b.name),
-    );
-  }, [files, selectedCategory, debouncedSearchTerm]);
-
-  const handleFileClick = (file: FileItem) => {
-    setSelectedFile(file);
-  };
-
-  const handleCategoryClick = (category: string) => {
-    setSelectedCategory(selectedCategory === category ? null : category);
-    setHasUserInteracted(true);
-  };
-
-  const handleDeleteClick = (filename: string) => {
-    setDeleteModal({
-      isOpen: true,
-      filename,
-      isLoading: false,
-    });
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deleteModal.filename) return;
-
-    setDeleteModal((prev) => ({ ...prev, isLoading: true }));
-
-    try {
-      await submit(
-        {
-          intent: 'deleteCheatsheet',
-          filename: deleteModal.filename,
-        },
-        { action: '/cheatsheets', method: 'post' },
-      );
-
-      setDeleteModal({
-        isOpen: false,
-        filename: null,
-        isLoading: false,
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    if (debouncedSearchTerm) params.set('q', debouncedSearchTerm);
+    if (activeSource) params.set('source', activeSource);
+    if (selectedCategory) params.set('category', selectedCategory);
+    setSearching(true);
+    setSearchError(null);
+    fetch(`/api/cheatsheets/search?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Search failed');
+        const body = (await response.json()) as { total: number; results: SearchResult[] };
+        setResults(body.results);
+        setTotal(body.total);
+      })
+      .catch((err) => {
+        if (controller.signal.aborted) return;
+        setSearchError(err instanceof Error ? err.message : 'Search failed');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSearching(false);
       });
+    return () => controller.abort();
+  }, [debouncedSearchTerm, activeSource, selectedCategory]);
 
-      revalidator.revalidate();
-    } catch (error) {
-      console.error('Error deleting cheatsheet:', error);
-      setDeleteModal((prev) => ({ ...prev, isLoading: false }));
-    }
-  };
-
-  const handleDeleteCancel = () => {
-    setDeleteModal({
-      isOpen: false,
-      filename: null,
-      isLoading: false,
-    });
-  };
-
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
-    setHasUserInteracted(true);
+  const selectSource = (id: string | null) => {
+    setSelectedSource(id);
+    setSelectedCategory(null);
   };
 
   const clearFilters = () => {
     setSearchTerm('');
     setDebouncedSearchTerm('');
     setSelectedCategory(null);
-    setHasUserInteracted(false);
   };
 
-  const handleUpdate = async () => {
-    setIsUpdating(true);
-    try {
-      await submit(
-        { intent: 'updateCheatsheets' },
-        { action: '/api/cheatsheets/update', method: 'post' },
-      );
-      revalidator.revalidate();
-    } catch (error) {
-      console.error('Failed to update cheatsheets:', error);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+  const hasQuery = !!(debouncedSearchTerm || selectedCategory);
 
   return (
     <PageLayoutFull>
       <div className="flex items-center gap-4 px-[12px]">
         <Title title={'Cheatsheets'} />
-        {!isPublicRoute && (
-          <FormButton
-            type="secondary"
-            size="small"
-            disabled={isUpdating}
-            onClick={handleUpdate}
-          >
-            {isUpdating ? (
-              <>
-                <FontAwesomeIcon icon={faSync} className="animate-spin" />{' '}
-                Updating...
-              </>
-            ) : (
-              <>
-                <FontAwesomeIcon icon={faSync} /> Update
-              </>
-            )}
-          </FormButton>
-        )}
       </div>
+
+      {!isPublic && (
+        <ContentBlock className="flex-none mb-4">
+          <h3 className="text-sm font-medium text-on-surface-variant mb-3 flex items-center gap-2">
+            <FontAwesomeIcon icon={faBook} /> Sources
+          </h3>
+          <SourcesPanel sources={sources} />
+        </ContentBlock>
+      )}
 
       <ContentBlock>
         <div className="flex flex-col gap-4">
-          {error && (
-            <div className="p-4 bg-error/10 text-error rounded-md">{error}</div>
+          {data?.error && (
+            <div className="p-4 bg-error/10 text-error rounded-md">{data.error}</div>
           )}
 
-          {/* Search and Filters */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-4">
-            <div className="flex-1">
-              <FormInput
-                placeholder="Search cheatsheets..."
-                value={searchTerm}
-                onChange={handleSearchChange}
-              />
-            </div>
-            {(debouncedSearchTerm || selectedCategory) && (
-              <FormButton type="secondary" onClick={clearFilters}>
-                <FontAwesomeIcon icon={faTimes} className="mr-2" />
-                Clear Filters
-              </FormButton>
-            )}
-          </div>
-
-          {/* Categories */}
-          <div className="mb-4">
-            <h3 className="text-sm font-medium text-on-surface-variant mb-2 flex items-center gap-2">
+          {browsable.length === 0 ? (
+            <div className="p-8 text-center text-on-surface-variant">
               <FontAwesomeIcon
-                icon={faTags}
-                className="text-on-surface-variant"
+                icon={faFileAlt}
+                className="text-4xl mb-4 text-on-surface-variant/40"
               />
-              Categories
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((category: string) => (
-                <Tag
-                  key={category}
-                  label={category}
-                  isSelected={selectedCategory === category}
-                  onClick={() => handleCategoryClick(category)}
-                  variant={
-                    selectedCategory === category ? 'selected' : 'default'
-                  }
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Results Summary */}
-          {(debouncedSearchTerm || selectedCategory) && (
-            <div className="text-sm text-on-surface-variant mb-4">
-              {filteredFiles.length} of {files.length} cheatsheets
-              {selectedCategory && (
-                <span>
-                  {' '}
-                  in <strong>{selectedCategory}</strong>
-                </span>
-              )}
-              {debouncedSearchTerm && (
-                <span>
-                  {' '}
-                  matching "<strong>{debouncedSearchTerm}</strong>"
-                </span>
+              <p>No cheatsheets yet</p>
+              {!isPublic && (
+                <p className="text-sm mt-2">
+                  Add a GitHub repository above to download cheatsheets from it
+                </p>
               )}
             </div>
-          )}
-
-          {/* Files List */}
-          <div className="border border-outline-variant rounded-md">
-            {filteredFiles.length === 0 ? (
-              <div className="p-8 text-center text-on-surface-variant">
-                <FontAwesomeIcon
-                  icon={faFileAlt}
-                  className="text-4xl mb-4 text-on-surface-variant/40"
-                />
-                {hasUserInteracted ? (
-                  <>
-                    <p>No cheatsheets found</p>
-                    <p className="text-sm mt-2">
-                      Try adjusting your search or filters
-                    </p>
-                  </>
-                ) : (
-                  <p>Search command or select category</p>
+          ) : (
+            <>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1">
+                  <FormInput
+                    placeholder="Search cheatsheets..."
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                  />
+                </div>
+                {hasQuery && (
+                  <FormButton type="secondary" onClick={clearFilters}>
+                    <FontAwesomeIcon icon={faTimes} className="mr-2" />
+                    Clear Filters
+                  </FormButton>
                 )}
               </div>
-            ) : (
-              <TableWrapper>
-                {filteredFiles.map((file: FileItem) => (
-                  <TableRow
-                    key={file.name}
-                    icon={
-                      <FontAwesomeIcon
-                        icon={faFileAlt}
-                        className="text-on-surface-variant"
+
+              {browsable.length > 1 && (
+                <div>
+                  <h3 className="text-sm font-medium text-on-surface-variant mb-2 flex items-center gap-2">
+                    <FontAwesomeIcon icon={faBook} />
+                    Sources
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    <Tag
+                      label={`All (${totalPages})`}
+                      size="medium"
+                      variant={selectedSource === null ? 'selected' : 'default'}
+                      onClick={() => selectSource(null)}
+                    />
+                    {browsable.map((s) => (
+                      <Tag
+                        key={s.id}
+                        label={`${s.name} (${s.fileCount})`}
+                        size="medium"
+                        variant={selectedSource === s.id ? 'selected' : 'default'}
+                        onClick={() => selectSource(selectedSource === s.id ? null : s.id)}
                       />
-                    }
-                    title={
-                      <div className="flex flex-col">
-                        <div className="font-medium text-on-surface">
-                          {file.name.replace('.md', '')}
-                        </div>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {file.categories
-                            .slice(0, 3)
-                            .map((category: string) => (
-                              <Tag
-                                key={category}
-                                label={category}
-                                size="small"
-                                onClick={() => handleCategoryClick(category)}
-                              />
-                            ))}
-                          {file.categories.length > 3 && (
-                            <Tag
-                              label={`+${file.categories.length - 3} more`}
-                              size="small"
-                            />
-                          )}
-                        </div>
-                      </div>
-                    }
-                    actions={
-                      <div className="flex items-center gap-2">
-                        {!isPublicRoute && (
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {categories.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-on-surface-variant mb-2 flex items-center gap-2">
+                    <FontAwesomeIcon icon={faTags} />
+                    Categories
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map((c) => (
+                      <Tag
+                        key={c.name}
+                        label={`${c.name} (${c.count})`}
+                        variant={selectedCategory === c.name ? 'selected' : 'default'}
+                        onClick={() =>
+                          setSelectedCategory(selectedCategory === c.name ? null : c.name)
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {hasQuery && !searching && !searchError && (
+                <div className="text-sm text-on-surface-variant">
+                  {total > results.length
+                    ? `Showing ${results.length} of ${total} cheatsheets`
+                    : `${total} cheatsheets`}
+                  {selectedCategory && (
+                    <span>
+                      {' '}
+                      in <strong>{selectedCategory}</strong>
+                    </span>
+                  )}
+                  {debouncedSearchTerm && (
+                    <span>
+                      {' '}
+                      matching "<strong>{debouncedSearchTerm}</strong>"
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {searchError && (
+                <div className="p-4 bg-error/10 text-error rounded-md">{searchError}</div>
+              )}
+
+              <div className="border border-outline-variant rounded-md">
+                {results.length === 0 ? (
+                  <div className="p-8 text-center text-on-surface-variant">
+                    <FontAwesomeIcon
+                      icon={faFileAlt}
+                      className="text-4xl mb-4 text-on-surface-variant/40"
+                    />
+                    {searching ? (
+                      <p>Searching…</p>
+                    ) : hasQuery ? (
+                      <>
+                        <p>No cheatsheets found</p>
+                        <p className="text-sm mt-2">Try adjusting your search or filters</p>
+                      </>
+                    ) : (
+                      <p>Search all {totalPages} pages or pick a category</p>
+                    )}
+                  </div>
+                ) : (
+                  <TableWrapper>
+                    {results.map((r) => (
+                      <TableRow
+                        key={`${r.source}/${r.path}`}
+                        onClick={() => setOpenPage(r)}
+                        cursorClass="cursor-pointer min-w-0"
+                        icon={
+                          <FontAwesomeIcon
+                            icon={faFileAlt}
+                            className="text-on-surface-variant"
+                          />
+                        }
+                        title={
+                          <div className="flex flex-col min-w-0">
+                            <div className="font-medium text-on-surface">{r.title}</div>
+                            {r.snippet && (
+                              <div className="text-xs text-on-surface-variant mt-1 line-clamp-2">
+                                {r.snippet}
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {!activeSource && <Tag label={r.sourceName} size="small" />}
+                              {r.categories.slice(0, 3).map((category) => (
+                                <Tag key={category} label={category} size="small" />
+                              ))}
+                            </div>
+                          </div>
+                        }
+                        actions={
                           <FormButton
                             type="secondary"
                             size="small"
-                            onClick={() => handleDeleteClick(file.name)}
+                            onClick={() => setOpenPage(r)}
                           >
-                            <FontAwesomeIcon icon={faTrash} />
+                            <FontAwesomeIcon icon={faEye} />
                           </FormButton>
-                        )}
-                        <FormButton
-                          type="secondary"
-                          size="small"
-                          onClick={() => handleFileClick(file)}
-                        >
-                          <FontAwesomeIcon icon={faEye} />
-                        </FormButton>
-                      </div>
-                    }
-                  />
-                ))}
-              </TableWrapper>
-            )}
-          </div>
+                        }
+                      />
+                    ))}
+                  </TableWrapper>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </ContentBlock>
 
-      {selectedFile && (
+      {openPage && (
         <CheatsheetModal
-          file={selectedFile}
-          isOpen={!!selectedFile}
-          onClose={() => setSelectedFile(null)}
-        />
-      )}
-
-      {!isPublicRoute && (
-        <ConfirmationModal
-          isOpen={deleteModal.isOpen}
-          onClose={handleDeleteCancel}
-          onConfirm={handleDeleteConfirm}
-          title="Delete Cheatsheet"
-          message={`Are you sure you want to delete "${deleteModal.filename}"? This action cannot be undone.`}
-          confirmText="Delete"
-          cancelText="Cancel"
-          variant="danger"
-          isLoading={deleteModal.isLoading}
+          page={openPage}
+          isOpen={!!openPage}
+          onClose={() => setOpenPage(null)}
         />
       )}
     </PageLayoutFull>
