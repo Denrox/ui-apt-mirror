@@ -229,3 +229,17 @@ export function resolvePageLink(fromPath: string, href: string): string | null {
   const resolved = parts.join('/');
   return isSafeRelativeMdPath(resolved) ? resolved : null;
 }
+
+export const SEARCH_PAGE_SIZE = 200;
+
+/** offset/limit query values, clamped to a sane range. */
+export function parsePaging(offset: string | null, limit: string | null): { offset: number; limit: number } {
+  const int = (v: string | null, fallback: number) => {
+    const n = Number.parseInt(v ?? '', 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return {
+    offset: Math.max(0, int(offset, 0)),
+    limit: Math.min(SEARCH_PAGE_SIZE, Math.max(1, int(limit, SEARCH_PAGE_SIZE))),
+  };
+}

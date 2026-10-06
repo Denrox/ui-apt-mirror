@@ -1,12 +1,10 @@
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { searchEntries, type IndexEntry } from '~/lib/cheatsheets';
+import { parsePaging, searchEntries, type IndexEntry } from '~/lib/cheatsheets';
 import {
   isPublicCheatsheetsRequest,
   listSources,
   loadIndex,
 } from '~/lib/cheatsheets-store';
-
-const MAX_RESULTS = 200;
 
 export interface SearchResult {
   source: string;
@@ -17,7 +15,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-// Without q, lists the whole category.
+// Without q, lists the whole category; offset/limit page through the results.
 export async function loader({ request }: { request: Request }) {
   if (!isPublicCheatsheetsRequest(request)) {
     await requireAuthMiddleware(request);
@@ -27,6 +25,7 @@ export async function loader({ request }: { request: Request }) {
   const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200);
   const sourceId = url.searchParams.get('source') ?? '';
   const category = url.searchParams.get('category') ?? '';
+  const { offset, limit } = parsePaging(url.searchParams.get('offset'), url.searchParams.get('limit'));
 
   const sources = (await listSources()).filter(
     (s) => s.fileCount > 0 && (!sourceId || s.id === sourceId),
@@ -58,7 +57,7 @@ export async function loader({ request }: { request: Request }) {
   // Not Response.json(): the image runs Node 18.
   const body = {
     total: results.length,
-    results: results.slice(0, MAX_RESULTS).map(({ score: _score, ...r }) => r),
+    results: results.slice(offset, offset + limit).map(({ score: _score, ...r }) => r),
   };
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },

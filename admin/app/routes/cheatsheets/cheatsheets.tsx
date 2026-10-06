@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLoaderData, useRevalidator } from 'react-router';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -49,6 +49,7 @@ export default function Cheatsheets() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [total, setTotal] = useState(0);
   const [searching, setSearching] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [openPage, setOpenPage] = useState<CheatsheetRef | null>(null);
 
@@ -73,17 +74,26 @@ export default function Cheatsheets() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  const searchParams = useMemo(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearchTerm) params.set('q', debouncedSearchTerm);
+    if (activeSource) params.set('source', activeSource);
+    if (selectedCategory) params.set('category', selectedCategory);
+    return params.toString();
+  }, [debouncedSearchTerm, activeSource, selectedCategory]);
+  // Bumped per new search so "Show more" responses for an older one are dropped.
+  const searchGenRef = useRef(0);
+
   useEffect(() => {
+    searchGenRef.current++;
+    setLoadingMore(false);
     if (!debouncedSearchTerm && !selectedCategory) {
       setResults([]);
       setTotal(0);
       return;
     }
     const controller = new AbortController();
-    const params = new URLSearchParams();
-    if (debouncedSearchTerm) params.set('q', debouncedSearchTerm);
-    if (activeSource) params.set('source', activeSource);
-    if (selectedCategory) params.set('category', selectedCategory);
+    const params = searchParams;
     setSearching(true);
     setSearchError(null);
     fetch(`/api/cheatsheets/search?${params}`, { signal: controller.signal })
@@ -101,7 +111,27 @@ export default function Cheatsheets() {
         if (!controller.signal.aborted) setSearching(false);
       });
     return () => controller.abort();
-  }, [debouncedSearchTerm, activeSource, selectedCategory]);
+  }, [searchParams]);
+
+  const loadMore = () => {
+    const gen = searchGenRef.current;
+    setLoadingMore(true);
+    fetch(`/api/cheatsheets/search?${searchParams}&offset=${results.length}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Search failed');
+        const body = (await response.json()) as { total: number; results: SearchResult[] };
+        if (searchGenRef.current !== gen) return;
+        setResults((prev) => [...prev, ...body.results]);
+        setTotal(body.total);
+      })
+      .catch((err) => {
+        if (searchGenRef.current !== gen) return;
+        setSearchError(err instanceof Error ? err.message : 'Search failed');
+      })
+      .finally(() => {
+        if (searchGenRef.current === gen) setLoadingMore(false);
+      });
+  };
 
   const selectSource = (id: string | null) => {
     setSelectedSource(id);
@@ -300,6 +330,14 @@ export default function Cheatsheets() {
                   </TableWrapper>
                 )}
               </div>
+
+              {!searching && results.length > 0 && results.length < total && (
+                <div className="flex justify-center">
+                  <FormButton type="secondary" onClick={loadMore} disabled={loadingMore}>
+                    {loadingMore ? 'Loading…' : `Show more (${total - results.length} left)`}
+                  </FormButton>
+                </div>
+              )}
             </>
           )}
         </div>

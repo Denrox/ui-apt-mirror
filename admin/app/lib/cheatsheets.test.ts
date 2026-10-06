@@ -8,8 +8,10 @@ import {
   markdownToText,
   parseCategoriesJson,
   parseGithubUrl,
+  parsePaging,
   resolvePageLink,
   searchEntries,
+  SEARCH_PAGE_SIZE,
   type IndexEntry,
 } from './cheatsheets';
 
@@ -166,5 +168,17 @@ describe('resolvePageLink', () => {
     '%E0%A4%A.md',
   ])('rejects %s', (href) => {
     expect(resolvePageLink('Acne.md', href)).toBeNull();
+  });
+});
+
+describe('parsePaging', () => {
+  it('defaults to the first page', () => {
+    expect(parsePaging(null, null)).toEqual({ offset: 0, limit: SEARCH_PAGE_SIZE });
+  });
+
+  it('clamps bad and out-of-range values', () => {
+    expect(parsePaging('400', '50')).toEqual({ offset: 400, limit: 50 });
+    expect(parsePaging('-5', '100000')).toEqual({ offset: 0, limit: SEARCH_PAGE_SIZE });
+    expect(parsePaging('abc', '0')).toEqual({ offset: 0, limit: 1 });
   });
 });
