@@ -1,11 +1,16 @@
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { resolveClosure } from '~/lib/dep-closure';
+import { closureOptionsError, resolveClosure } from '~/lib/dep-closure';
+import { UpstreamFetchError } from '~/lib/upstream-fetch';
 
 const tokens = (v: FormDataEntryValue | null): string[] =>
   ((v as string) ?? '')
     .split(/[\s,]+/)
     .map((t) => t.trim())
     .filter(Boolean);
+
+export async function loader() {
+  throw new Response('Method not allowed', { status: 405, headers: { Allow: 'POST' } });
+}
 
 /** Compute the dependency closure of seed packages against the upstream repo. */
 export async function action({ request }: { request: Request }) {
@@ -33,14 +38,20 @@ export async function action({ request }: { request: Request }) {
       );
     }
 
-    const result = await resolveClosure({
+    const options = {
       baseUrl,
       suite,
       components,
       arches: arches.length ? arches : ['amd64'],
       seeds,
       includeRecommends,
-    });
+    };
+    const invalid = closureOptionsError(options);
+    if (invalid) {
+      return Response.json({ error: invalid }, { status: 400 });
+    }
+
+    const result = await resolveClosure(options);
 
     if (result.indexSize === 0) {
       return Response.json(
@@ -54,6 +65,9 @@ export async function action({ request }: { request: Request }) {
 
     return Response.json(result);
   } catch (error) {
+    if (error instanceof UpstreamFetchError) {
+      return Response.json({ error: error.message }, { status: 502 });
+    }
     console.error('resolve-deps failed:', error);
     return Response.json(
       { error: error instanceof Error ? error.message : 'Failed to resolve' },
