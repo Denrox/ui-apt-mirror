@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   categoriesFor,
+  defaultSourceName,
   extractTitle,
   githubWebUrl,
   isSafeRelativeMdPath,
@@ -32,6 +33,13 @@ describe('parseGithubUrl', () => {
     expect(
       parseGithubUrl('https://github.com/tldr-pages/tldr/tree/main/pages/common'),
     ).toEqual({ owner: 'tldr-pages', repo: 'tldr', ref: 'main', path: 'pages/common' });
+  });
+
+  it('names a branch URL after the branch', () => {
+    expect(defaultSourceName(parseGithubUrl('https://github.com/o/lib/tree/medicine-first-aid'))).toBe(
+      'lib/medicine-first-aid',
+    );
+    expect(defaultSourceName(parseGithubUrl('https://github.com/o/lib'))).toBe('o/lib');
   });
 
   it('round-trips through githubWebUrl', () => {
