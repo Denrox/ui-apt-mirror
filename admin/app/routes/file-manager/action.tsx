@@ -11,6 +11,7 @@ import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveBelow, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
+import { moveFile } from '~/utils/move-path';
 import {
   abortUpload,
   isStaleTempDir,
@@ -137,34 +138,6 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
     } catch (error) {}
 
     await fs.rename(oldPath, newPath);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
-async function moveFile(
-  sourcePath: string,
-  destinationPath: string,
-): Promise<boolean> {
-  try {
-    const fileName = path.basename(sourcePath);
-    const newPath = path.join(destinationPath, fileName);
-
-    if (sourcePath === newPath) {
-      return false;
-    }
-
-    if (newPath.startsWith(sourcePath + path.sep)) {
-      return false;
-    }
-
-    try {
-      await fs.access(newPath);
-      return false;
-    } catch (error) {}
-
-    await fs.rename(sourcePath, newPath);
     return true;
   } catch (error) {
     return false;
