@@ -5,11 +5,19 @@ import fsSync from 'fs';
 import https from 'https';
 import http from 'http';
 import { URL } from 'url';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { resolveBelow, resolveInside, storageRoots } from '~/utils/safe-path';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+const IMAGE_NAME_RE = /^[a-z0-9]+(?:[._/:-][a-z0-9]+)*$/i;
+const IMAGE_TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
+const ARCHITECTURES = new Set(['amd64', 'arm64', 'arm', '386', 'ppc64le', 's390x', 'riscv64']);
+
+const OUTSIDE = 'Path is outside the file storage';
 
 const chunkStorage = new Map<
   string,
@@ -222,7 +230,6 @@ async function handleChunkUpload(
   formData: FormData,
 ): Promise<{ success: boolean; error?: string; message?: string }> {
   try {
-    const filePath = formData.get('filePath') as string;
     const chunk = formData.get('chunk') as any;
     const chunkIndex = parseInt(formData.get('chunkIndex') as string);
     const totalChunks = parseInt(formData.get('totalChunks') as string);
@@ -231,6 +238,13 @@ async function handleChunkUpload(
 
     if (!chunk || !fileName || !fileId) {
       return { success: false, error: 'Missing required chunk data' };
+    }
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(fileId)) {
+      return { success: false, error: 'Invalid upload id' };
+    }
+    const filePath = resolveInside(formData.get('filePath'), storageRoots());
+    if (!filePath) {
+      return { success: false, error: OUTSIDE };
     }
 
     const validationError = getValidationError(fileName);
@@ -293,6 +307,16 @@ async function downloadImage(
   destPath: string,
   architecture: string = 'amd64',
 ): Promise<boolean> {
+  // Values end up in skopeo arguments and the file name; accept only what image references allow.
+  if (!IMAGE_NAME_RE.test(imageUrl) || imageUrl.length > 255) {
+    throw new Error('Invalid image name');
+  }
+  if (!IMAGE_TAG_RE.test(imageTag)) {
+    throw new Error('Invalid image tag');
+  }
+  if (!ARCHITECTURES.has(architecture)) {
+    throw new Error('Invalid architecture');
+  }
   try {
     await fs.mkdir(destPath, { recursive: true });
 
@@ -312,11 +336,11 @@ async function downloadImage(
     }
 
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
-    const archFlag = `--override-arch ${architecture}`;
-    const skopeoCommand = `skopeo copy ${archFlag} docker://${sourceImage} docker-archive:${fullPath}`;
+    const skopeoCopy = (image: string) =>
+      execFileAsync('skopeo', ['copy', '--override-arch', architecture, `docker://${image}`, `docker-archive:${fullPath}`]);
 
     try {
-      await execAsync(skopeoCommand);
+      await skopeoCopy(sourceImage);
       return true;
     } catch (dockerError) {
       if (
@@ -325,10 +349,9 @@ async function downloadImage(
         !imageUrl.startsWith('gcr.io/')
       ) {
         const gcrImage = `gcr.io/google-containers/${imageUrl}:${imageTag}`;
-        const gcrCommand = `skopeo copy ${archFlag} docker://${gcrImage} docker-archive:${fullPath}`;
 
         try {
-          await execAsync(gcrCommand);
+          await skopeoCopy(gcrImage);
           return true;
         } catch (gcrError) {
           throw dockerError;
@@ -385,7 +408,7 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   if (imageUrl.startsWith('gcr.io/')) {
     return {
       registry: 'gcr.io',
-      repository: imageUrl.substring(8),
+      repository: imageUrl.substring('gcr.io/'.length),
     };
   }
 
@@ -402,7 +425,7 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   if (imageUrl.startsWith('docker.io/')) {
     return {
       registry: 'docker.io',
-      repository: imageUrl.substring(11),
+      repository: imageUrl.substring('docker.io/'.length),
     };
   }
 
@@ -480,6 +503,8 @@ export async function action({ request }: Route.ActionArgs): Promise<{
   output?: string;
   results?: any[];
 }> {
+  await requireAuthMiddleware(request);
+  const roots = storageRoots();
   try {
     const formData = await request.formData();
     const intent = formData.get('intent') as string;
@@ -488,7 +513,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       return { success: true, message: 'Server is working' };
     } else if (intent === 'createFolder') {
       const folderName = formData.get('folderName') as string;
-      const currentPath = formData.get('currentPath') as string;
+      const currentPath = resolveInside(formData.get('currentPath'), roots);
+      if (!currentPath) {
+        return { success: false, error: OUTSIDE };
+      }
 
       const validationError = getValidationError(folderName);
       if (validationError) {
@@ -504,7 +532,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to create folder' };
       }
     } else if (intent === 'deleteFile') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveBelow(formData.get('filePath'), roots);
+      if (!filePath) {
+        return { success: false, error: OUTSIDE };
+      }
       const success = await deleteFile(filePath);
       if (success) {
         return { success: true, message: 'File deleted successfully' };
@@ -512,8 +543,11 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to delete file' };
       }
     } else if (intent === 'renameFile') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveBelow(formData.get('filePath'), roots);
       const newName = formData.get('newName') as string;
+      if (!filePath) {
+        return { success: false, error: OUTSIDE };
+      }
 
       if (!filePath || !newName) {
         return { success: false, error: 'File path and new name are required' };
@@ -535,14 +569,11 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         };
       }
     } else if (intent === 'moveFile') {
-      const sourcePath = formData.get('sourcePath') as string;
-      const destinationPath = formData.get('destinationPath') as string;
+      const sourcePath = resolveBelow(formData.get('sourcePath'), roots);
+      const destinationPath = resolveInside(formData.get('destinationPath'), roots);
 
       if (!sourcePath || !destinationPath) {
-        return {
-          success: false,
-          error: 'Source path and destination path are required',
-        };
+        return { success: false, error: OUTSIDE };
       }
 
       const success = await moveFile(sourcePath, destinationPath);
@@ -557,8 +588,11 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         };
       }
     } else if (intent === 'uploadFile') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveInside(formData.get('filePath'), roots);
       const file = formData.get('file');
+      if (!filePath) {
+        return { success: false, error: OUTSIDE };
+      }
       if (!file) {
         return { success: false, error: 'No file provided' };
       }
@@ -569,10 +603,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to upload file' };
       }
     } else if (intent === 'cleanupDownload') {
-      const filePath = formData.get('filePath') as string;
+      const filePath = resolveInside(formData.get('filePath'), roots);
       const fileName = formData.get('fileName') as string;
 
-      if (!filePath || !fileName) {
+      if (!filePath || !fileName || getValidationError(fileName)) {
         return { success: false, error: 'Missing required cleanup data' };
       }
 
@@ -592,7 +626,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
     } else if (intent === 'downloadFile') {
       const url = formData.get('url') as string;
       const fileName = formData.get('fileName') as string;
-      const currentPath = formData.get('currentPath') as string;
+      const currentPath = resolveInside(formData.get('currentPath'), roots);
+      if (!currentPath) {
+        return { success: false, error: OUTSIDE };
+      }
 
       if (!url || !fileName) {
         return { success: false, error: 'URL and filename are required' };
@@ -614,7 +651,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
     } else if (intent === 'downloadImage') {
       const imageUrl = formData.get('imageUrl') as string;
       const imageTag = formData.get('imageTag') as string;
-      const currentPath = formData.get('currentPath') as string;
+      const currentPath = resolveInside(formData.get('currentPath'), roots);
+      if (!currentPath) {
+        return { success: false, error: OUTSIDE };
+      }
       const architecture = (formData.get('architecture') as string) || 'amd64';
 
       if (!imageUrl || !imageUrl.trim()) {
@@ -896,14 +936,14 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
     } else if (intent === 'searchFiles') {
       const searchQuery = formData.get('searchQuery') as string;
-      const rootPath = formData.get('rootPath') as string;
+      const rootPath = resolveInside(formData.get('rootPath'), roots);
 
       if (!searchQuery || searchQuery.trim().length < 3) {
         return { success: false, error: 'Search query must be at least 3 characters' };
       }
 
       if (!rootPath) {
-        return { success: false, error: 'Root path is required' };
+        return { success: false, error: OUTSIDE };
       }
 
       try {

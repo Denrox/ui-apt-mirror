@@ -5,6 +5,7 @@ import https from 'https';
 import http from 'http';
 import { URL } from 'url';
 import zlib from 'zlib';
+import { isWithin } from '~/utils/safe-path';
 import appConfig from '~/config/config.json';
 import {
   validateCredentials,
@@ -14,6 +15,18 @@ import {
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org';
 const PRIVATE_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'private');
+
+// npm's own rules for package names; anything else could escape the storage dirs.
+const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
+const NPM_VERSION_RE = /^[0-9A-Za-z.+-]{1,256}$/;
+
+function insideDir(dir: string, candidate: string): string {
+  const resolved = path.resolve(candidate);
+  if (!isWithin(resolved, path.resolve(dir))) {
+    throw new Error('Invalid package path');
+  }
+  return resolved;
+}
 const PUBLIC_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'public');
 
 async function ensureCacheDir() {
@@ -48,10 +61,9 @@ function getCachePath(packagePath: string): string {
     const parts = cleanPath.split('/');
     const packageName = parts[0];
     const tarballPath = parts.slice(1).join('/');
-    const cachePath = path.join(
+    const cachePath = insideDir(
       PUBLIC_PACKAGES_DIR,
-      `${packageName}-tarballs`,
-      tarballPath,
+      path.join(PUBLIC_PACKAGES_DIR, `${packageName}-tarballs`, tarballPath),
     );
 
     const dir = path.dirname(cachePath);
@@ -61,7 +73,7 @@ function getCachePath(packagePath: string): string {
 
     return cachePath;
   } else {
-    const cachePath = path.join(PUBLIC_PACKAGES_DIR, cleanPath);
+    const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cleanPath));
 
     const dir = path.dirname(cachePath);
     fs.mkdir(dir, { recursive: true }).catch((error) => {
@@ -267,7 +279,7 @@ async function loadFromCache(
 
 function getPrivatePackagePath(packagePath: string): string {
   const cleanPath = packagePath.replace(/^\/+/, '').replace(/\/+$/, '');
-  return path.join(PRIVATE_PACKAGES_DIR, cleanPath);
+  return insideDir(PRIVATE_PACKAGES_DIR, path.join(PRIVATE_PACKAGES_DIR, cleanPath));
 }
 
 async function isPrivatePackage(packagePath: string): Promise<boolean> {
@@ -556,9 +568,26 @@ export async function action({ request }: ActionFunctionArgs) {
       const bodyText = await request.text();
       const packageDocument = JSON.parse(bodyText);
 
-      const packageName = packageDocument.name || packagePath;
+      const packageName = packageDocument.name;
       const versions = packageDocument.versions || {};
       const attachments = packageDocument._attachments || {};
+
+      let requestedName = packagePath;
+      try {
+        requestedName = decodeURIComponent(packagePath);
+      } catch {}
+      if (
+        typeof packageName !== 'string' ||
+        packageName.length > 214 ||
+        !NPM_NAME_RE.test(packageName) ||
+        packageName !== requestedName ||
+        Object.keys(versions).some((v) => !NPM_VERSION_RE.test(v))
+      ) {
+        return new Response(JSON.stringify({ error: 'Invalid package name or version' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
 
       for (const version in versions) {
         const versionData = versions[version];

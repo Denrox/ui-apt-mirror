@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import {
@@ -51,6 +52,7 @@ function readRepositoryInput(formData: FormData): RepositoryInput {
 }
 
 export async function action({ request }: { request: Request }) {
+  await requireAuthMiddleware(request);
   const formData = await request.formData();
   const action = formData.get('action');
 
