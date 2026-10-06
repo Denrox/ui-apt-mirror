@@ -404,13 +404,7 @@ export async function readPage(id: string, relPath: string): Promise<string | nu
   return fs.readFile(full, 'utf-8');
 }
 
+// Decided by the host nginx routed the request to, never by client headers such as Referer.
 export function isPublicCheatsheetsRequest(request: Request): boolean {
-  if (new URL(request.url).hostname.startsWith('cheatsheets')) return true;
-  const referer = request.headers.get('referer');
-  if (!referer) return false;
-  try {
-    return new URL(referer).hostname.startsWith('cheatsheets');
-  } catch {
-    return false;
-  }
+  return new URL(request.url).hostname.startsWith('cheatsheets');
 }

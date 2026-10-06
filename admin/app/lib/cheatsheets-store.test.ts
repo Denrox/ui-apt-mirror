@@ -3,7 +3,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import appConfig from '~/config/config.json';
-import { cleanLeftovers, listSources, refreshSource, removeSource } from './cheatsheets-store';
+import {
+  cleanLeftovers,
+  isPublicCheatsheetsRequest,
+  listSources,
+  refreshSource,
+  removeSource,
+} from './cheatsheets-store';
 
 let dir: string;
 const originalDir = appConfig.cheatsheetsDir;
@@ -73,5 +79,14 @@ describe('cleanLeftovers', () => {
     expect(fs.existsSync(path.join(dir, 'sources', 'orphan'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'sources', 'a'))).toBe(true);
     expect((await listSources()).map((s) => s.id)).toEqual(['a']);
+  });
+});
+
+describe('isPublicCheatsheetsRequest', () => {
+  it('goes by the host and ignores the Referer', () => {
+    const req = (url: string, referer?: string) =>
+      new Request(url, { headers: referer ? { Referer: referer } : {} });
+    expect(isPublicCheatsheetsRequest(req('http://cheatsheets.uam.test/api/cheatsheets/search'))).toBe(true);
+    expect(isPublicCheatsheetsRequest(req('http://admin.uam.test/cheatsheets', 'http://cheatsheets.x/'))).toBe(false);
   });
 });
