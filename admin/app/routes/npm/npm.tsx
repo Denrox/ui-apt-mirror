@@ -27,6 +27,7 @@ import {
   mergePublish,
   nextRev,
   parseNpmPath,
+  publicCachePath,
   revMatches,
   type DocResult,
   upstreamHeaders,
@@ -71,36 +72,6 @@ async function extractNpmAuth(request: Request): Promise<{ username: string } | 
   return null;
 }
 
-function getCachePath(packagePath: string): string {
-  const cleanPath = packagePath.replace(/^\/+/, '').replace(/\/+$/, '');
-
-  if (cleanPath.includes('/-/')) {
-    const parts = cleanPath.split('/');
-    const packageName = parts[0];
-    const tarballPath = parts.slice(1).join('/');
-    const cachePath = insideDir(
-      PUBLIC_PACKAGES_DIR,
-      path.join(PUBLIC_PACKAGES_DIR, `${packageName}-tarballs`, tarballPath),
-    );
-
-    const dir = path.dirname(cachePath);
-    fs.mkdir(dir, { recursive: true }).catch((error) => {
-      console.error('Failed to create tarball directory:', dir, error);
-    });
-
-    return cachePath;
-  } else {
-    const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cleanPath));
-
-    const dir = path.dirname(cachePath);
-    fs.mkdir(dir, { recursive: true }).catch((error) => {
-      console.error('Failed to create metadata directory:', dir, error);
-    });
-
-    return cachePath;
-  }
-}
-
 async function isCached(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -110,10 +81,12 @@ async function isCached(filePath: string): Promise<boolean> {
   }
 }
 
+type Upstream = { data: Buffer; headers: Record<string, string>; status: number };
+
 async function fetchFromNpm(
   packagePath: string,
   originalHeaders: Record<string, string> = {},
-): Promise<{ data: Buffer; headers: Record<string, string> }> {
+): Promise<Upstream> {
   return new Promise((resolve, reject) => {
     const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
     const client = npmUrl.protocol === 'https:' ? https : http;
@@ -146,7 +119,8 @@ async function fetchFromNpm(
           return;
         }
         
-        if (data.length === 0 && res.statusCode !== 304) {
+        const status = res.statusCode ?? 502;
+        if (data.length === 0 && status === 200) {
           console.error('Empty response received from npm registry for:', packagePath);
           console.error('Response status:', res.statusCode);
           reject(new Error(`Empty response from npm registry (status: ${res.statusCode})`));
@@ -174,7 +148,7 @@ async function fetchFromNpm(
           }
         }
 
-        if (data.length === 0) {
+        if (data.length === 0 && status === 200) {
           reject(new Error('Empty response after decompression'));
           return;
         }
@@ -197,7 +171,7 @@ async function fetchFromNpm(
 
         headers['content-length'] = data.length.toString();
 
-        resolve({ data, headers });
+        resolve({ data, headers, status });
       });
     });
 
@@ -225,6 +199,11 @@ async function saveToCache(
       return;
     }
 
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    // Older versions cached /<pkg>/<version> under a <pkg>/ directory, which blocks the packument.
+    if ((await fs.stat(filePath).catch(() => null))?.isDirectory()) {
+      await fs.rm(filePath, { recursive: true });
+    }
     await fs.writeFile(filePath, data);
 
     const metaPath = filePath + '.meta';
@@ -400,12 +379,13 @@ async function loadPrivatePackage(
 /** Cached upstream response; metadata is revalidated after a TTL, tarballs never change. */
 async function loadPublicPackage(
   packagePath: string,
+  cacheFile: string,
   originalHeaders: Record<string, string>,
-): Promise<{ data: Buffer; headers: Record<string, string> }> {
-  const cachePath = getCachePath(packagePath);
+): Promise<Upstream> {
+  const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cacheFile));
   const cached = await loadFromCache(cachePath).catch(() => null);
   if (cached && (packagePath.includes('/-/') || isFresh(cached.headers['x-cached-at']))) {
-    return cached;
+    return { ...cached, status: 200 };
   }
 
   const { 'if-none-match': _, 'if-modified-since': __, ...forwarded } = originalHeaders;
@@ -413,7 +393,9 @@ async function loadPublicPackage(
 
   try {
     const fetched = await fetchFromNpm(packagePath, forwarded);
-    await saveToCache(cachePath, fetched.data, fetched.headers);
+    // Only successful responses are cached; a 404 or an error is passed on as is.
+    if (fetched.status === 200) await saveToCache(cachePath, fetched.data, fetched.headers);
+    else if (cached && fetched.status >= 500) throw new Error(`Upstream returned ${fetched.status}`);
     fetched.headers['x-cache'] = 'MISS';
     return fetched;
   } catch (error) {
@@ -421,10 +403,10 @@ async function loadPublicPackage(
     const { 'x-cache': _c, 'x-cached-at': _a, ...stored } = cached.headers;
     if (error instanceof Error && error.message === '304_NOT_MODIFIED') {
       await saveToCache(cachePath, cached.data, stored);
-      return { data: cached.data, headers: { ...stored, 'x-cache': 'REVALIDATED' } };
+      return { data: cached.data, headers: { ...stored, 'x-cache': 'REVALIDATED' }, status: 200 };
     }
     console.error(`Serving stale ${packagePath}, upstream failed:`, error);
-    return { data: cached.data, headers: { ...cached.headers, 'x-cache': 'STALE' } };
+    return { data: cached.data, headers: { ...cached.headers, 'x-cache': 'STALE' }, status: 200 };
   }
 }
 
@@ -489,6 +471,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
     let data: Buffer;
     let headers: Record<string, string>;
+    let status = 200;
 
     if (isPrivate && route.kind === 'distTags') {
       const doc = await readPrivateDoc(route.name);
@@ -503,7 +486,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
       data = privatePackage.data;
       headers = privatePackage.headers;
     } else {
-      ({ data, headers } = await loadPublicPackage(packagePath, originalHeaders));
+      // Packuments and tarballs are cached; anything else (search, /<pkg>/<version>, …) is proxied.
+      const cacheFile = publicCachePath(route);
+      ({ data, headers, status } = cacheFile
+        ? await loadPublicPackage(packagePath, cacheFile, originalHeaders)
+        : await fetchFromNpm(packagePath + url.search));
+      headers['x-cache'] ??= 'BYPASS';
     }
 
     const contentType = headers['content-type'] || 'application/octet-stream';
@@ -528,7 +516,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     }
 
     const response = new Response(new Uint8Array(data), {
-      status: 200,
+      status,
       headers: responseHeaders,
     });
 

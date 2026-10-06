@@ -8,6 +8,7 @@ import {
   mergePublish,
   nextRev,
   parseNpmPath,
+  publicCachePath,
   revMatches,
   upstreamHeaders,
   withoutAuditPackages,
@@ -266,5 +267,24 @@ describe('audit payloads', () => {
   it('ignores payloads that are not objects', () => {
     expect(auditPackageNames(null, true)).toEqual([]);
     expect(auditPackageNames(['x'], false)).toEqual([]);
+  });
+});
+
+describe('publicCachePath', () => {
+  it('caches packuments and tarballs in the existing layout', () => {
+    expect(publicCachePath(parseNpmPath('left-pad'))).toBe('left-pad');
+    expect(publicCachePath(parseNpmPath('@babel%2fcore'))).toBe('@babel/core');
+    expect(publicCachePath(parseNpmPath('left-pad/-/left-pad-1.3.0.tgz'))).toBe(
+      'left-pad-tarballs/-/left-pad-1.3.0.tgz',
+    );
+    expect(publicCachePath(parseNpmPath('@babel/core/-/core-7.0.0.tgz'))).toBe(
+      '@babel-tarballs/core/-/core-7.0.0.tgz',
+    );
+  });
+
+  it('does not cache paths that would collide with a packument or depend on the query', () => {
+    for (const p of ['left-pad/latest', 'left-pad/1.3.0', '-/v1/search', '-/package/left-pad/dist-tags', 'left-pad/-rev/1-a']) {
+      expect(publicCachePath(parseNpmPath(p))).toBeNull();
+    }
   });
 });

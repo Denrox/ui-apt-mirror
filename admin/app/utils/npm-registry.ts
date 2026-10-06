@@ -239,3 +239,13 @@ export function withoutAuditPackages(payload: Record<string, any>, bulk: boolean
   }
   return out;
 }
+
+/** Where an upstream response is cached, relative to the public dir; null for paths never cached. */
+export function publicCachePath(route: NpmPath): string | null {
+  if (route.kind === 'package' && route.rev === undefined) return route.name;
+  if (route.kind === 'tarball' && route.rev === undefined) {
+    const [first, ...rest] = route.name.split('/');
+    return [`${first}-tarballs`, ...rest, '-', route.file].join('/');
+  }
+  return null;
+}
