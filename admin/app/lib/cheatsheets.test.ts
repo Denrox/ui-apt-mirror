@@ -66,6 +66,12 @@ describe('markdown helpers', () => {
     expect(extractTitle('no heading here', 'linux/apt-get.md')).toBe('apt-get');
   });
 
+  it('flattens tables', () => {
+    expect(markdownToText('|**AAS**|advanced system|\n|---|---|\n|AR|army regulation|')).toBe(
+      'AAS advanced system AR army regulation',
+    );
+  });
+
   it('strips markdown syntax and tldr placeholders', () => {
     const md = '# tar\n\n> Archiving [utility](https://x).\n\n- Create:\n\n`tar cf {{target.tar}} {{file}}`';
     expect(markdownToText(md)).toBe('tar Archiving utility. Create: tar cf target.tar file');
