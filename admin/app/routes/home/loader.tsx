@@ -41,7 +41,7 @@ function rewriteSignedByHint(
   const keyringPath = (host: string) => `/etc/apt/keyrings/${host}.asc`;
   const installLines = signedHosts.map(
     (h) =>
-      `# Install pubkey: curl -fsSL http://${hostAddress('admin')}/api/pubkey/${h.host} | sudo tee ${keyringPath(h.host)} > /dev/null`,
+      `# Install pubkey: curl -fsSL http://${hostAddress('mirror')}/api/pubkey/${h.host} | sudo tee ${keyringPath(h.host)} > /dev/null`,
   );
 
   const filtered = content.filter((line) => !/^\s*Signed-By:/i.test(line));

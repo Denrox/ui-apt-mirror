@@ -119,6 +119,11 @@ export class MirrorConfig {
     return Array.from(hosts);
   }
 
+  /** Upstream hostnames of every enabled section. */
+  enabledHosts(): string[] {
+    return Array.from(new Set(this.sections().flatMap((s) => this.sectionHosts(s))));
+  }
+
   /**
    * The deb822 "Usage" snippet of a section as display lines: each inner line
    * has its leading `#` stripped, blanks removed. This is what the dashboard

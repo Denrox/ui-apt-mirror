@@ -31,6 +31,8 @@ mkdir -p /var/spool/apt-mirror/gpg/gnupg
 chmod o+x /var/spool/apt-mirror 2>/dev/null || true
 chmod o+rx /var/www/files /var/spool/apt-mirror/mirror 2>/dev/null || true
 chmod 700 /var/spool/apt-mirror/gpg/gnupg
+# gpg runs as root and warns on every call about a homedir it does not own
+chown -R root:root /var/spool/apt-mirror/gpg/gnupg
 if [ ! -f /var/spool/apt-mirror/gpg/keys.json ]; then
     echo '{}' > /var/spool/apt-mirror/gpg/keys.json
     chown --reference=/var/spool/apt-mirror /var/spool/apt-mirror/gpg/keys.json 2>/dev/null || true

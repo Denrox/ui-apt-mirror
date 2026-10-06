@@ -44,6 +44,12 @@ function isStale(config: MirrorConfig, title: string, formData: FormData): boole
   return !!section && !!revision && revision !== config.sectionRevision(section);
 }
 
+function signedMessage(count: number): string {
+  return count
+    ? ` and signed ${count} Release file(s)`
+    : '; no Release files are mirrored yet, they are signed after the next sync';
+}
+
 /** Host whose URL is embedded in client-facing Usage snippets. */
 function mirrorDomain(): string {
   return hostAddress('mirror');
@@ -230,11 +236,14 @@ export async function action({ request }: { request: Request }) {
     const host = formData.get('host') as string;
     try {
       assertValidHost(host);
+      const config = MirrorConfig.parse(await fs.readFile(appConfig.mirrorListPath, 'utf-8'));
+      if (!config.enabledHosts().includes(host)) {
+        return { error: `${host} is not used by any enabled repository` };
+      }
       const record = await generateKey(host);
       let message = `Generated signing key for ${host} (${record.keyId})`;
       try {
-        await signReleasesForHost(host);
-        message += ' and signed Release files';
+        message += signedMessage(await signReleasesForHost(host));
       } catch (signError) {
         console.error(
           'Initial signing after key generation failed:',
@@ -255,10 +264,12 @@ export async function action({ request }: { request: Request }) {
     const host = formData.get('host') as string;
     try {
       assertValidHost(host);
-      await signReleasesForHost(host);
+      const count = await signReleasesForHost(host);
       return {
         success: true,
-        message: `Re-signed Release files for ${host}`,
+        message: count
+          ? `Re-signed ${count} Release file(s) for ${host}`
+          : `No Release files mirrored for ${host} yet; they are signed after the next sync`,
       };
     } catch (error) {
       console.error('Error signing release:', error);

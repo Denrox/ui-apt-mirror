@@ -176,6 +176,13 @@ export default function Home() {
 
   const handleGenerateGpgKey = (host: string) => {
     if (isActionInProgress) return;
+    if (
+      !confirm(
+        `Sign ${host} with a new key? Its Release files lose their upstream signatures: apt clients that verify it with the upstream key fail until they install the new key from the Usage snippet.`,
+      )
+    ) {
+      return;
+    }
     setIsActionInProgress(true);
     const formData = new FormData();
     formData.append('action', 'generateGpgKey');

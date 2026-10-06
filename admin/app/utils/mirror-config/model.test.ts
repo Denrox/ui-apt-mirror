@@ -511,3 +511,13 @@ deb http://archive.ubuntu.com/ubuntu noble-updates main
     expect(cfg.getSection('Ubuntu Noble', 'unknown')).toBe(cfg.sections()[0]);
   });
 });
+
+describe('enabledHosts', () => {
+  it('lists the upstream hosts of enabled sections only', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input(), 'mirror.intra');
+    expect(cfg.enabledHosts()).toEqual(['archive.ubuntu.com', 'download.docker.com']);
+    cfg.setSectionEnabled('Docker Ubuntu', false);
+    expect(cfg.enabledHosts()).toEqual(['archive.ubuntu.com']);
+  });
+});
