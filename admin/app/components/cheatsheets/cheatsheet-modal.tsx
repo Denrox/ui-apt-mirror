@@ -5,6 +5,7 @@ import Modal from '~/components/shared/modal/modal';
 import Tag from '~/components/shared/tag/tag';
 import FormButton from '~/components/shared/form/form-button';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { extractTitle, resolvePageLink } from '~/lib/cheatsheets';
 
 export interface CheatsheetRef {
@@ -126,6 +127,7 @@ export default function CheatsheetModal({
         ) : (
           <div className="prose max-w-none">
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 a: ({ href, children }) => {
                   const target = href ? resolvePageLink(page.path, href) : null;
