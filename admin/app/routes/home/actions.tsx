@@ -1,18 +1,42 @@
 import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { exec, spawn } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import {
   generateKey,
   deleteKey,
   signReleasesForHost,
+  restoreUpstreamSignatures,
   assertValidHost,
 } from '~/lib/gpg';
 import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
 import { atomicWriteFile, validateRepositoryInput, withMirrorListLock } from '~/utils/mirror-list';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/** Run a control script; its last output line is the message shown to the user. */
+async function runScript(path: string): Promise<{ ok: boolean; message: string }> {
+  const lastLine = (out: unknown) =>
+    String(out ?? '').trim().split('\n').pop()?.trim() ?? '';
+  try {
+    const { stdout } = await execFileAsync(path, [], { timeout: 60000 });
+    return { ok: true, message: lastLine(stdout) };
+  } catch (error: any) {
+    console.error(`Error running ${path}:`, error);
+    return { ok: false, message: lastLine(error?.stdout) };
+  }
+}
+
+const STALE_ERROR =
+  'This repository changed since you opened it (another tab or user saved it). Reload the page and try again.';
+
+/** A stale revision means the client acted on an outdated view of the section. */
+function isStale(config: MirrorConfig, title: string, formData: FormData): boolean {
+  const revision = formData.get('revision');
+  const section = config.getSection(title);
+  return !!section && typeof revision === 'string' && revision !== '' && revision !== config.sectionRevision(section);
+}
 
 /** Host whose URL is embedded in client-facing Usage snippets. */
 function mirrorDomain(): string {
@@ -57,28 +81,38 @@ export async function action({ request }: { request: Request }) {
   const action = formData.get('action');
 
   if (action === 'startSync') {
-    try {
-      const child = spawn(appConfig.startMirrorScriptPath, [], {
-        stdio: 'pipe',
-        detached: true,
-      });
-
-      child.unref();
-
-      return { success: true, message: 'Mirror sync started successfully' };
-    } catch (error) {
-      console.error('Error starting mirror sync:', error);
-      return { error: 'Failed to start mirror sync' };
-    }
+    const { ok, message } = await runScript(appConfig.startMirrorScriptPath);
+    return ok
+      ? { success: true, message: message || 'Mirror sync started' }
+      : { error: message || 'Failed to start mirror sync' };
   }
 
   if (action === 'stopSync') {
+    const { ok, message } = await runScript(appConfig.stopMirrorScriptPath);
+    return ok
+      ? { success: true, message: message || 'Mirror sync stopped' }
+      : { error: message || 'Failed to stop mirror sync' };
+  }
+
+  if (action === 'removeRepository') {
+    const sectionTitle = formData.get('sectionTitle') as string;
+    if (!sectionTitle) return { error: 'Section title is required' };
     try {
-      await execAsync(appConfig.stopMirrorScriptPath);
-      return { success: true, message: 'Mirror sync stopped successfully' };
+      return await withMirrorListLock(async () => {
+        const mirrorListPath = appConfig.mirrorListPath;
+        const config = MirrorConfig.parse(await fs.readFile(mirrorListPath, 'utf-8'));
+        if (!config.getSection(sectionTitle)) {
+          return { error: `Repository section "${sectionTitle}" not found` };
+        }
+        if (isStale(config, sectionTitle, formData)) return { error: STALE_ERROR };
+
+        config.removeSection(sectionTitle);
+        await atomicWriteFile(mirrorListPath, config.serialize());
+        return { success: true, message: `Repository "${sectionTitle}" removed` };
+      });
     } catch (error) {
-      console.error('Error stopping mirror sync:', error);
-      return { error: 'Failed to stop mirror sync' };
+      console.error('Error removing repository section:', error);
+      return { error: 'Failed to remove repository' };
     }
   }
 
@@ -98,8 +132,9 @@ export async function action({ request }: { request: Request }) {
         if (!config.getSection(sectionTitle)) {
           return { error: `Repository section "${sectionTitle}" not found` };
         }
+        if (isStale(config, sectionTitle, formData)) return { error: STALE_ERROR };
 
-        // Toggle only the deb/deb-src directives in the section; comments (the
+        // Toggle only the deb and filter directives in the section; comments (the
         // description) and the client-facing Usage snippet are left untouched.
         config.setSectionEnabled(sectionTitle, enable);
         await atomicWriteFile(mirrorListPath, config.serialize());
@@ -163,6 +198,7 @@ export async function action({ request }: { request: Request }) {
         if (!config.getSection(originalTitle)) {
           return { error: `Repository "${originalTitle}" not found` };
         }
+        if (isStale(config, originalTitle, formData)) return { error: STALE_ERROR };
 
         // A rename to the same title is fine; only collisions with *other*
         // sections are rejected.
@@ -232,8 +268,21 @@ export async function action({ request }: { request: Request }) {
     const host = formData.get('host') as string;
     try {
       assertValidHost(host);
+      // Before the key goes: Release files signed with it would fail on every client.
+      let restored = true;
+      try {
+        await restoreUpstreamSignatures(host);
+      } catch (restoreError) {
+        console.error('Restoring upstream signatures failed:', restoreError);
+        restored = false;
+      }
       await deleteKey(host);
-      return { success: true, message: `Deleted signing key for ${host}` };
+      return {
+        success: true,
+        message: restored
+          ? `Deleted signing key for ${host} and restored the upstream signatures`
+          : `Deleted signing key for ${host}; restoring the upstream signatures failed, run a sync to fix them`,
+      };
     } catch (error) {
       console.error('Error deleting GPG key:', error);
       const msg =

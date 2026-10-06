@@ -31,7 +31,7 @@ function renderSet(node: SetNode): string {
 }
 
 function renderFilter(node: FilterNode): string {
-  return [node.key, node.uri, ...node.values].join(' ');
+  return `${node.enabled ? '' : '# '}${[node.key, node.uri, ...node.values].join(' ')}`;
 }
 
 function renderUsage(node: UsageNode): string {

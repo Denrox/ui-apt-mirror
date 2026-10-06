@@ -98,7 +98,9 @@ do_sync() {
     
     # Run apt-mirror2 using Python version with timeout
     rotate_log
-    if timeout 36000 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"; then
+    timeout 36000 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"
+    local exit_code=${PIPESTATUS[0]}
+    if [ "$exit_code" -eq 0 ]; then
         log "Sync completed successfully"
 
         # Update symlink to ensure web server sees latest data
@@ -124,9 +126,10 @@ do_sync() {
             log "Total mirror size: $total_size"
         fi
     else
-        local exit_code=$?
-        if [ $exit_code -eq 124 ]; then
+        if [ "$exit_code" -eq 124 ]; then
             log "ERROR: Sync timed out after 10 hours"
+        elif [ "$exit_code" -eq 143 ] || [ "$exit_code" -eq 137 ]; then
+            log "Sync stopped before completion (exit code $exit_code)"
         else
             log "ERROR: Sync failed with exit code $exit_code"
         fi

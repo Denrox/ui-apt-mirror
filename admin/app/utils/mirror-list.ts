@@ -70,8 +70,15 @@ export function validateRepositoryInput(
   if ([input.title, input.description, input.baseUrl, ...tokens].some((v) => v && CONTROL_RE.test(v))) {
     return 'Values cannot contain line breaks or control characters';
   }
-  if ([...input.suites, ...input.components, ...(input.arches ?? [])].some((t) => !TOKEN_RE.test(t))) {
+  const pathTokens = [...input.suites, ...input.components, ...(input.arches ?? [])];
+  if (pathTokens.some((t) => !TOKEN_RE.test(t))) {
     return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ /';
+  }
+  if (pathTokens.some((t) => t.split('/').includes('..'))) {
+    return 'Suites, components and architectures cannot contain ".."';
+  }
+  if ((input.description?.trim().length ?? 0) > 500) {
+    return 'Description is too long (max 500 characters)';
   }
 
   const title = input.title?.trim() ?? '';
@@ -80,7 +87,7 @@ export function validateRepositoryInput(
   if (title.includes('---') || /[\n\r]/.test(title)) {
     return 'Title cannot contain "---" or line breaks';
   }
-  if (existingTitles.includes(title)) {
+  if (existingTitles.some((t) => t.toLowerCase() === title.toLowerCase())) {
     return `A repository titled "${title}" already exists`;
   }
 
@@ -95,6 +102,9 @@ export function validateRepositoryInput(
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return 'Base URL must use http or https';
+  }
+  if (base.includes('#') || base.includes('?')) {
+    return 'Base URL cannot contain a query or fragment';
   }
 
   if (!input.suites.length) return 'At least one suite is required';

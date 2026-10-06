@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { parse } from './parse';
 import { serialize } from './serialize';
 import {
@@ -88,6 +89,18 @@ export class MirrorConfig {
     return this.sections().find((s) => s.title === title);
   }
 
+  /** Fingerprint of a section's text, so a save can detect that it changed in between. */
+  sectionRevision(section: SectionNode): string {
+    return createHash('sha256').update(serialize([section])).digest('hex').slice(0, 16);
+  }
+
+  /** Whether a section restricts which packages are mirrored. */
+  isSectionFiltered(section: SectionNode): boolean {
+    return section.children.some(
+      (c) => c.kind === 'filter' && c.enabled && c.values.length > 0,
+    );
+  }
+
   /** A section is enabled when at least one of its deb directives is active. */
   isSectionEnabled(section: SectionNode): boolean {
     return debChildren(section).some((d) => d.enabled);
@@ -163,7 +176,7 @@ export class MirrorConfig {
     return {
       title: section.title,
       description: firstComment
-        ? firstComment.text.replace(/^#\s?/, '').trim()
+        ? firstComment.text.replace(/^#+\s?/, '').trim()
         : '',
       baseUrl: base,
       suites,
@@ -177,15 +190,19 @@ export class MirrorConfig {
 
   // --- Section mutations ---------------------------------------------------
 
-  /** Comment or uncomment every deb directive in a section. */
+  /**
+   * Comment or uncomment every deb and filter directive in a section. Filters
+   * apply per base URL, so a disabled section's filters would still restrict
+   * other sections with the same upstream.
+   */
   setSectionEnabled(title: string, enabled: boolean): boolean {
     const section = this.getSection(title);
     if (!section) return false;
     let changed = false;
-    for (const deb of debChildren(section)) {
-      if (deb.enabled !== enabled) {
-        deb.enabled = enabled;
-        deb.raw = undefined;
+    for (const child of section.children) {
+      if ((child.kind === 'deb' || child.kind === 'filter') && child.enabled !== enabled) {
+        child.enabled = enabled;
+        child.raw = undefined;
         changed = true;
       }
     }
@@ -348,7 +365,8 @@ function buildSection(
   const children: SectionChild[] = [];
 
   if (input.description && input.description.trim()) {
-    children.push({ kind: 'comment', text: `# ${input.description.trim()}` });
+    // `##` never parses as a directive, section marker or Usage marker.
+    children.push({ kind: 'comment', text: `## ${input.description.trim()}` });
   }
 
   const arches = (input.arches ?? []).map((a) => a.trim()).filter(Boolean);
@@ -410,7 +428,7 @@ function filterNodesFor(
   const nodes: FilterNode[] = [];
   for (const key of FILTER_KEYS) {
     const values = (filters[key] ?? []).map((v) => v.trim()).filter(Boolean);
-    if (values.length) nodes.push({ kind: 'filter', key, uri: base, values });
+    if (values.length) nodes.push({ kind: 'filter', key, enabled: true, uri: base, values });
   }
   return nodes;
 }

@@ -12,6 +12,8 @@ export interface RepositoryHost {
 
 export interface RepositoryConfig {
   title: string;
+  /** Changes whenever the section's text changes; actions reject a stale one. */
+  revision: string;
   content: string[];
   hosts: RepositoryHost[];
   /** Editable definition for pre-filling the edit form (null if unreconstructable). */
@@ -20,7 +22,14 @@ export interface RepositoryConfig {
 
 export interface CommentedSection {
   title: string;
+  revision: string;
 }
+
+// apt-mirror2 filters only downloads; the published indexes still list every upstream package.
+const FILTERED_NOTE = [
+  '# Filtered mirror: only the selected packages are downloaded, but the index lists all',
+  '# upstream packages. Others (including Recommends) return 404; use --no-install-recommends.',
+];
 
 function rewriteSignedByHint(
   content: string[],
@@ -105,7 +114,10 @@ async function parseRepositoryConfigs(): Promise<{
       // A section with no active deb directive is shown as a disabled entry the
       // user can re-enable.
       if (!config.isSectionEnabled(section)) {
-        commentedSections.push({ title: section.title });
+        commentedSections.push({
+          title: section.title,
+          revision: config.sectionRevision(section),
+        });
         continue;
       }
 
@@ -114,10 +126,12 @@ async function parseRepositoryConfigs(): Promise<{
         .map((host) => ({ host, gpgKey: keysIndex[host] ?? null }));
       const signed = hosts.filter((h) => h.gpgKey);
 
+      const usage = rewriteSignedByHint(config.sectionUsageLines(section), signed);
       activeConfigs.push({
         title: section.title,
+        revision: config.sectionRevision(section),
         hosts,
-        content: rewriteSignedByHint(config.sectionUsageLines(section), signed),
+        content: config.isSectionFiltered(section) ? [...usage, ...FILTERED_NOTE] : usage,
         editable: config.sectionToInput(section),
       });
     }

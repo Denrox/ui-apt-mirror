@@ -41,4 +41,32 @@ describe('validateRepositoryInput', () => {
   it('rejects spaces in the base URL', () => {
     expect(validateRepositoryInput({ ...valid, baseUrl: 'http://example.com/a b' }, [])).toMatch(/spaces/);
   });
+
+  it.each([
+    ['suite', { suites: ['../../etc'] }],
+    ['component', { components: ['main/..'] }],
+    ['architecture', { arches: ['amd64]'] }],
+  ])('rejects a path escape or bracket in a %s', (_name, change) => {
+    expect(validateRepositoryInput({ ...valid, ...change }, [])).not.toBeNull();
+  });
+
+  it.each([
+    ['fragment', 'http://example.com/debian#frag'],
+    ['query', 'http://example.com/debian?x=1'],
+  ])('rejects a base URL with a %s', (_name, baseUrl) => {
+    expect(validateRepositoryInput({ ...valid, baseUrl }, [])).toMatch(/query or fragment/);
+  });
+
+  it('rejects a title that differs from an existing one only in case', () => {
+    expect(validateRepositoryInput(valid, ['trixie updates'])).toMatch(/already exists/);
+  });
+
+  it('caps the description length', () => {
+    expect(validateRepositoryInput({ ...valid, description: 'x'.repeat(501) }, [])).toMatch(/too long/);
+    expect(validateRepositoryInput({ ...valid, description: 'x'.repeat(500) }, [])).toBeNull();
+  });
+
+  it('accepts flat-repository and nested component paths', () => {
+    expect(validateRepositoryInput({ ...valid, suites: ['./'], components: ['main/debian-installer'] }, [])).toBeNull();
+  });
 });

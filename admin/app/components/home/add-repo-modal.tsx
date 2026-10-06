@@ -94,7 +94,7 @@ export default function AddRepoModal({
   const [values, setValues] = useState<NewRepoValues>(EMPTY);
   const [showFilters, setShowFilters] = useState(false);
   const [seeds, setSeeds] = useState('');
-  const [recommends, setRecommends] = useState(false);
+  const [recommends, setRecommends] = useState(true);
   const [resolving, setResolving] = useState(false);
   const [resolveInfo, setResolveInfo] = useState<string | null>(null);
 
@@ -105,7 +105,7 @@ export default function AddRepoModal({
     setValues(next);
     setShowFilters(hasFilters(next));
     setSeeds('');
-    setRecommends(false);
+    setRecommends(true);
     setResolveInfo(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -250,6 +250,8 @@ export default function AddRepoModal({
                 <strong>exactly</strong> (space/comma separated) and{' '}
                 <strong>dependencies are not pulled in automatically</strong> —
                 list every package you need. Leave blank to mirror everything.
+                Filters apply to every repository with the same base URL, and
+                clients still see the full upstream package list.
               </p>
 
               <FormField label="Architectures">

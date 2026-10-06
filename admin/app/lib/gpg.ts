@@ -166,16 +166,25 @@ export async function deleteKey(host: string): Promise<void> {
   await writeIndex(index);
 }
 
+function signScriptEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GNUPG_HOME: appConfig.gpgHome,
+    GPG_KEYS_INDEX: appConfig.gpgKeysIndex,
+    MIRROR_ROOT: appConfig.mirrorRoot,
+  };
+}
+
 export async function signReleasesForHost(host: string): Promise<void> {
   assertValidHost(host);
   const record = await getKey(host);
   if (!record) throw new Error(`No key for ${host}`);
-  await execAsync(`${appConfig.signReleasesScriptPath} ${host}`, {
-    env: {
-      ...process.env,
-      GNUPG_HOME: appConfig.gpgHome,
-      GPG_KEYS_INDEX: appConfig.gpgKeysIndex,
-      MIRROR_ROOT: appConfig.mirrorRoot,
-    },
-  });
+  await execAsync(`${appConfig.signReleasesScriptPath} ${host}`, { env: signScriptEnv() });
+}
+
+/** Put back the upstream signatures of Release files signed with the host's key (run before deleting it). */
+export async function restoreUpstreamSignatures(host: string): Promise<void> {
+  assertValidHost(host);
+  if (!(await getKey(host))) return;
+  await execAsync(`${appConfig.signReleasesScriptPath} --restore ${host}`, { env: signScriptEnv() });
 }

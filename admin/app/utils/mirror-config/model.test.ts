@@ -388,3 +388,80 @@ deb http://archive.ubuntu.com/ubuntu noble main
     expect(cfg.serialize()).toContain('deb http://archive.ubuntu.com/ubuntu noble-updates main');
   });
 });
+
+describe('disabling a filtered repository', () => {
+  const FILTERED = `# ---start---Hello---
+deb http://deb.debian.org/debian trixie main
+include_binary_packages http://deb.debian.org/debian hello libc6
+# ---end---Hello---
+`;
+
+  it('comments out its filters with its sources, and restores both on enable', () => {
+    const cfg = MirrorConfig.parse(FILTERED);
+    cfg.setSectionEnabled('Hello', false);
+    const disabled = cfg.serialize();
+    expect(disabled).toContain('# include_binary_packages http://deb.debian.org/debian hello libc6');
+    expect(disabled).not.toMatch(/^include_binary_packages/m);
+
+    const reparsed = MirrorConfig.parse(disabled);
+    reparsed.setSectionEnabled('Hello', true);
+    expect(reparsed.serialize()).toBe(FILTERED);
+  });
+
+  it('only counts enabled filters as filtering', () => {
+    const cfg = MirrorConfig.parse(FILTERED);
+    expect(cfg.isSectionFiltered(cfg.getSection('Hello')!)).toBe(true);
+    cfg.setSectionEnabled('Hello', false);
+    expect(cfg.isSectionFiltered(cfg.getSection('Hello')!)).toBe(false);
+  });
+});
+
+describe('descriptions', () => {
+  it.each([
+    'deb http://evil.example.com/debian trixie main',
+    'clean http://deb.debian.org/debian',
+    'include_binary_packages http://deb.debian.org/debian hello',
+    'Usage start',
+    '---end---Ubuntu Noble---',
+  ])('never become directives or markers after disable + enable: %s', (description) => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ title: 'Tricky', description }), 'mirror.intra');
+    const before = cfg.serialize();
+
+    const toggled = MirrorConfig.parse(before);
+    toggled.setSectionEnabled('Tricky', false);
+    const again = MirrorConfig.parse(toggled.serialize());
+    again.setSectionEnabled('Tricky', true);
+
+    expect(again.serialize()).toBe(before);
+    expect(again.sectionTitles()).toEqual(['Ubuntu Noble', 'Tricky']);
+    expect(again.sectionToInput(again.getSection('Tricky')!)!.description).toBe(description);
+  });
+
+  it('still reads a legacy single-# description', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    expect(cfg.sectionToInput(cfg.getSection('Ubuntu Noble')!)!.description).toBe('Ubuntu repos');
+  });
+});
+
+describe('sectionRevision', () => {
+  it('is stable for unchanged text and changes with any edit', () => {
+    const a = MirrorConfig.parse(BASE);
+    const b = MirrorConfig.parse(BASE);
+    const rev = a.sectionRevision(a.getSection('Ubuntu Noble')!);
+    expect(b.sectionRevision(b.getSection('Ubuntu Noble')!)).toBe(rev);
+
+    b.setSectionEnabled('Ubuntu Noble', false);
+    expect(b.sectionRevision(b.getSection('Ubuntu Noble')!)).not.toBe(rev);
+
+    const c = MirrorConfig.parse(BASE.replace('# Ubuntu repos', '# Ubuntu repositories'));
+    expect(c.sectionRevision(c.getSection('Ubuntu Noble')!)).not.toBe(rev);
+  });
+
+  it('ignores changes to other sections', () => {
+    const a = MirrorConfig.parse(BASE);
+    const rev = a.sectionRevision(a.getSection('Ubuntu Noble')!);
+    a.addSection(input(), 'mirror.intra');
+    expect(a.sectionRevision(a.getSection('Ubuntu Noble')!)).toBe(rev);
+  });
+});
