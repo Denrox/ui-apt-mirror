@@ -1,6 +1,6 @@
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { chownSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
@@ -11,15 +11,32 @@ let jwtSecret: string | null = null;
 
 export function getJwtSecret(): string {
   if (jwtSecret) return jwtSecret;
-  const file = path.join(path.dirname(appConfig.htpasswdPath), '.jwt-secret');
+  const dir = path.dirname(appConfig.htpasswdPath);
+  const file = path.join(dir, '.jwt-secret');
   try {
     const existing = readFileSync(file, 'utf-8').trim();
-    if (existing.length >= 32) return (jwtSecret = existing);
+    if (existing.length >= 32) {
+      giveToDirOwner(dir, file);
+      return (jwtSecret = existing);
+    }
   } catch {}
   const secret = randomBytes(48).toString('base64url');
-  mkdirSync(path.dirname(file), { recursive: true });
+  mkdirSync(dir, { recursive: true });
   writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  giveToDirOwner(dir, file);
   return (jwtSecret = secret);
+}
+
+// The app runs as root in the container; leave the file to whoever owns the
+// data directory on the host, so host tools (upgrade.sh's backup) can read it.
+function giveToDirOwner(dir: string, file: string) {
+  try {
+    const owner = statSync(dir);
+    const current = statSync(file);
+    if (current.uid !== owner.uid || current.gid !== owner.gid) {
+      chownSync(file, owner.uid, owner.gid);
+    }
+  } catch {}
 }
 const COOKIE_NAME = 'auth_token';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
