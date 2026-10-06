@@ -1,7 +1,10 @@
 import { redirect, useLoaderData } from 'react-router';
 import PublicCheatsheets from './cheatsheets/public-cheatsheets';
 import PublicFileManager from './file-manager/public-file-manager';
-import { loader as cheatsheetsLoader, meta as cheatsheetsMeta } from './cheatsheets/cheatsheets';
+// From the loader's own module: route modules lose their loader export in the
+// dev client bundle, which broke hydration of the public cheatsheets page.
+import { loader as cheatsheetsLoader } from './cheatsheets/loader';
+import { meta as cheatsheetsMeta } from './cheatsheets/cheatsheets';
 import { loader as fileManagerLoader } from './file-manager/loader';
 import { meta as fileManagerMeta } from './file-manager/public-file-manager';
 

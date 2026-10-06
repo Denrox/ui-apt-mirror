@@ -1,7 +1,5 @@
 import FileManager from './file-manager';
 
-export { loader } from './file-manager';
-
 export function meta() {
   return [
     { title: 'Files' },

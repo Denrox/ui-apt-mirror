@@ -1,7 +1,5 @@
 import Cheatsheets from './cheatsheets';
 
-export { loader, action } from './cheatsheets';
-
 export function meta() {
   return [
     { title: 'Cheatsheets' },
