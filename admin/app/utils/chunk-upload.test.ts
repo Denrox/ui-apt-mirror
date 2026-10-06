@@ -60,6 +60,21 @@ describe('writeChunk', () => {
     await expect(chunk('f', 3, 3, 'x')).rejects.toThrow(/Invalid/);
     await expect(chunk('f', Number.NaN, 3, 'x')).rejects.toThrow(/Invalid/);
   });
+
+  it('refuses to replace an existing file', async () => {
+    fs.writeFileSync(path.join(dir, 'f.bin'), 'old');
+    await expect(chunk('g', 0, 1, 'new')).rejects.toThrow(/already exists/);
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('old');
+    expect(fs.existsSync(uploadTempDir(dir, 'g'))).toBe(false);
+  });
+
+  it('refuses at the end when the name was taken during the upload', async () => {
+    expect(await chunk('h', 0, 2, 'one')).toBe('chunk');
+    fs.writeFileSync(path.join(dir, 'f.bin'), 'other');
+    await expect(chunk('h', 1, 2, 'two')).rejects.toThrow(/already exists/);
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('other');
+    expect(fs.existsSync(uploadTempDir(dir, 'h'))).toBe(false);
+  });
 });
 
 describe('cleanup', () => {

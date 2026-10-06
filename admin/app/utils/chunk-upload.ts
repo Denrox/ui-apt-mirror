@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { giveToDirOwner } from './file-owner';
 
 export const UPLOAD_TEMP_PREFIX = '.tmp-';
 export const STALE_UPLOAD_MS = 60 * 60 * 1000;
@@ -16,6 +17,11 @@ interface Upload {
 const uploads = new Map<string, Upload>();
 
 export class UploadError extends Error {}
+
+export const nameTakenError = (name: string) =>
+  `"${name}" already exists here; rename or delete it first`;
+
+export const pathExists = (p: string) => fs.lstat(p).then(() => true, () => false);
 
 export function uploadTempDir(dir: string, fileId: string): string {
   return path.join(dir, `${UPLOAD_TEMP_PREFIX}${fileId}`);
@@ -49,6 +55,7 @@ export async function writeChunk(opts: {
 
   if (chunkIndex === 0) {
     if (upload) await fs.rm(upload.tempDir, { recursive: true, force: true });
+    if (await pathExists(destPath)) throw new UploadError(nameTakenError(fileName));
     const tempDir = uploadTempDir(dir, fileId);
     await fs.rm(tempDir, { recursive: true, force: true });
     await fs.mkdir(tempDir, { recursive: true });
@@ -82,8 +89,13 @@ export async function writeChunk(opts: {
 
   if (upload.nextIndex < totalChunks) return 'chunk';
   uploads.delete(fileId);
+  if (await pathExists(destPath)) {
+    await fs.rm(upload.tempDir, { recursive: true, force: true });
+    throw new UploadError(nameTakenError(fileName));
+  }
   await fs.rename(upload.tempFile, destPath);
   await fs.rm(upload.tempDir, { recursive: true, force: true });
+  giveToDirOwner(destPath);
   return 'done';
 }
 

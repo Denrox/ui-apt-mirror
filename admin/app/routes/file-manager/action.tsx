@@ -14,12 +14,15 @@ import { checkLockFile } from '~/utils/sync';
 import { moveFile } from '~/utils/move-path';
 import {
   abortUpload,
+  nameTakenError,
+  pathExists,
   removeStaleTempDirs,
   sweepStaleUploads,
   UploadError,
   writeChunk,
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
+import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 
 const execFileAsync = promisify(execFile);
 
@@ -52,16 +55,16 @@ setInterval(() => {
 async function cancelAndCleanupDownload(destPath: string): Promise<void> {
   try {
     const activeDownload = activeDownloads.get(destPath);
+    // Without a running download, destPath is an existing file that is not ours to remove.
+    if (!activeDownload) return;
 
-    if (activeDownload) {
-      activeDownload.request.destroy();
+    activeDownload.request.destroy();
 
-      if (activeDownload.fileStream) {
-        activeDownload.fileStream.destroy();
-      }
-
-      activeDownloads.delete(destPath);
+    if (activeDownload.fileStream) {
+      activeDownload.fileStream.destroy();
     }
+
+    activeDownloads.delete(destPath);
 
     try {
       await fs.unlink(destPath);
@@ -105,7 +108,7 @@ export function getValidationError(name: string): string | null {
 
 async function createDirectory(dirPath: string): Promise<boolean> {
   try {
-    await fs.mkdir(dirPath, { recursive: true });
+    await mkdirOwned(dirPath);
     return true;
   } catch (error) {
     return false;
@@ -158,12 +161,13 @@ async function downloadFile(url: string, destPath: string): Promise<boolean> {
           return;
         }
 
-        fileStream = fsSync.createWriteStream(destPath);
+        fileStream = fsSync.createWriteStream(destPath, { flags: 'wx' });
         response.pipe(fileStream);
 
         fileStream.on('finish', () => {
           fileStream?.close();
           activeDownloads.delete(destPath);
+          giveToDirOwner(destPath);
           resolve(true);
         });
 
@@ -195,13 +199,12 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
   try {
     const destPath = path.join(filePath, file.name);
 
-    const destDir = path.dirname(destPath);
-    await fs.mkdir(destDir, { recursive: true });
+    await mkdirOwned(path.dirname(destPath));
 
     if (file && typeof file?.arrayBuffer === 'function') {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      await fs.writeFile(destPath, buffer);
+      await fs.writeFile(destPath, buffer, { flag: 'wx' });
     } else if (file?.stream) {
       const stream = file.stream();
       const chunks: Buffer[] = [];
@@ -209,13 +212,14 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
         chunks.push(Buffer.from(chunk));
       }
       const buffer = Buffer.concat(chunks);
-      await fs.writeFile(destPath, buffer);
+      await fs.writeFile(destPath, buffer, { flag: 'wx' });
     } else if (file && file.buffer) {
-      await fs.writeFile(destPath, file.buffer);
+      await fs.writeFile(destPath, file.buffer, { flag: 'wx' });
     } else {
       throw new Error('Unsupported file type');
     }
 
+    giveToDirOwner(destPath);
     return true;
   } catch (error) {
     return false;
@@ -304,7 +308,7 @@ async function downloadImage(
     throw new Error('Invalid architecture');
   }
   try {
-    await fs.mkdir(destPath, { recursive: true });
+    await mkdirOwned(destPath);
 
     const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
     const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
@@ -327,6 +331,7 @@ async function downloadImage(
 
     try {
       await skopeoCopy(sourceImage);
+      giveToDirOwner(fullPath);
       return true;
     } catch (dockerError) {
       if (
@@ -338,6 +343,7 @@ async function downloadImage(
 
         try {
           await skopeoCopy(gcrImage);
+          giveToDirOwner(fullPath);
           return true;
         } catch (gcrError) {
           throw dockerError;
@@ -514,6 +520,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (blocked) {
         return { success: false, error: blocked };
       }
+      if (await pathExists(newPath)) {
+        return { success: false, error: nameTakenError(folderName) };
+      }
       const success = await createDirectory(newPath);
 
       if (success) {
@@ -608,6 +617,14 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (blocked) {
         return { success: false, error: blocked };
       }
+      const name = (file as File).name;
+      const nameError = getValidationError(name ?? '');
+      if (nameError) {
+        return { success: false, error: nameError };
+      }
+      if (await pathExists(path.join(filePath, name))) {
+        return { success: false, error: nameTakenError(name) };
+      }
       const success = await uploadFile(filePath, file);
       if (success) {
         return { success: true, message: 'File uploaded successfully' };
@@ -668,6 +685,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       const blocked = await writeBlocked('add', destPath);
       if (blocked) {
         return { success: false, error: blocked };
+      }
+      if (await pathExists(destPath)) {
+        return { success: false, error: nameTakenError(fileName) };
       }
       const success = await downloadFile(url, destPath);
 
