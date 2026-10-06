@@ -24,11 +24,12 @@ test.describe('Content screens', () => {
     });
   });
 
-  test('cheatsheets renders search and categories', async ({ page }, info) => {
+  test('cheatsheets renders the sources panel', async ({ page }, info) => {
     await page.goto('/cheatsheets');
 
-    await expect(page.getByPlaceholder('Search cheatsheets...')).toBeVisible();
-    await expect(page.getByText('Categories')).toBeVisible();
+    // Nothing is bundled, so a fresh install shows only the way to add sources.
+    await expect(page.getByText('GitHub URL')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add source' })).toBeVisible();
 
     await page.screenshot({
       path: `screenshots/cheatsheets-${info.project.name}.png`,

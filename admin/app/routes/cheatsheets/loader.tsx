@@ -1,72 +1,62 @@
-import fs from 'fs/promises';
-import path from 'path';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import appConfig from '~/config/config.json';
+import {
+  categoryCounts,
+  isPublicCheatsheetsRequest,
+  listSources,
+} from '~/lib/cheatsheets-store';
+
+export interface SourceView {
+  id: string;
+  name: string;
+  fileCount: number;
+  categories: { name: string; count: number }[];
+  // Admin-only details; omitted on the public host.
+  url?: string;
+  ref?: string | null;
+  path?: string;
+  status?: 'downloading' | 'ready' | 'error';
+  error?: string | null;
+  revision?: string | null;
+  updatedAt?: string | null;
+}
 
 export async function loader({ request }: { request: Request }) {
-  const url = new URL(request.url);
-  const isPublicRoute = url.hostname.startsWith('cheatsheets');
-  
-  if (!isPublicRoute) {
+  const isPublic = isPublicCheatsheetsRequest(request);
+  if (!isPublic) {
     await requireAuthMiddleware(request);
   }
 
   try {
-    const cheatsheetsDir = appConfig.cheatsheetsDir;
-    const categoriesPath = path.join(cheatsheetsDir, 'categories.json');
-
-    // The .md files on disk are the source of truth for what exists. Read them
-    // first so the list never disappears just because the category index is
-    // missing or malformed (e.g. a failed/partial update).
-    const files = await fs.readdir(cheatsheetsDir);
-    const mdFiles = files.filter(file => file.endsWith('.md') && file !== 'README.md');
-
-    // categories.json is a best-effort enrichment; fall back to no categories
-    // rather than failing the whole page if it is absent or invalid.
-    let categories: Record<string, unknown> = {};
-    try {
-      categories = JSON.parse(await fs.readFile(categoriesPath, 'utf-8'));
-    } catch (categoriesError) {
-      console.warn('cheatsheets: categories.json missing or invalid, listing without categories');
-    }
-    const filesWithCategories = mdFiles.map(file => {
-      const fileName = file;
-      const fileCategories: string[] = [];
-      
-      Object.entries(categories).forEach(([categoryName, categoryFiles]) => {
-        if (Array.isArray(categoryFiles) && categoryFiles.includes(fileName)) {
-          fileCategories.push(categoryName);
-        }
-      });
-      
-      if (fileCategories.length === 0) {
-        fileCategories.push('Miscellaneous');
-      }
-      
-      return {
-        name: fileName,
-        path: fileName,
-                size: 0,
-        isDirectory: false,
-        categories: fileCategories
+    const sources = await listSources();
+    const views: SourceView[] = [];
+    for (const s of sources) {
+      // Visitors only see sources that have content; admins see everything,
+      // including ones still downloading or that failed.
+      if (isPublic && s.fileCount === 0) continue;
+      const base = {
+        id: s.id,
+        name: s.name,
+        fileCount: s.fileCount,
+        categories: await categoryCounts(s.id),
       };
-    });
-    
-    const allCategories = Object.keys(categories).sort();
-    
-    return {
-      files: filesWithCategories,
-      categories: allCategories,
-      currentPath: '',
-      error: null
-    };
+      views.push(
+        isPublic
+          ? base
+          : {
+              ...base,
+              url: s.url,
+              ref: s.ref,
+              path: s.path,
+              status: s.status,
+              error: s.error,
+              revision: s.revision,
+              updatedAt: s.updatedAt,
+            },
+      );
+    }
+    return { sources: views, isPublic, error: null as string | null };
   } catch (error) {
     console.error('Error loading cheatsheets:', error);
-    return {
-      files: [],
-      categories: [],
-      currentPath: '',
-      error: 'Failed to load cheatsheets'
-    };
+    return { sources: [] as SourceView[], isPublic, error: 'Failed to load cheatsheets' };
   }
 }

@@ -1,0 +1,67 @@
+import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { searchEntries, type IndexEntry } from '~/lib/cheatsheets';
+import {
+  isPublicCheatsheetsRequest,
+  listSources,
+  loadIndex,
+} from '~/lib/cheatsheets-store';
+
+const MAX_RESULTS = 200;
+
+export interface SearchResult {
+  source: string;
+  sourceName: string;
+  path: string;
+  title: string;
+  categories: string[];
+  snippet: string;
+}
+
+// GET /api/cheatsheets/search?q=&source=&category=
+// With q: ranked full-text results. Without q: every page in the category.
+export async function loader({ request }: { request: Request }) {
+  if (!isPublicCheatsheetsRequest(request)) {
+    await requireAuthMiddleware(request);
+  }
+
+  const url = new URL(request.url);
+  const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200);
+  const sourceId = url.searchParams.get('source') ?? '';
+  const category = url.searchParams.get('category') ?? '';
+
+  const sources = (await listSources()).filter(
+    (s) => s.fileCount > 0 && (!sourceId || s.id === sourceId),
+  );
+
+  const results: (SearchResult & { score: number })[] = [];
+  for (const s of sources) {
+    let entries: IndexEntry[] = await loadIndex(s.id);
+    if (category) entries = entries.filter((e) => e.categories.includes(category));
+    const hits = q
+      ? searchEntries(entries, q)
+      : category
+        ? entries.map((entry) => ({ entry, score: 0, snippet: entry.text.slice(0, 180) }))
+        : [];
+    for (const h of hits) {
+      results.push({
+        source: s.id,
+        sourceName: s.name,
+        path: h.entry.path,
+        title: h.entry.title,
+        categories: h.entry.categories,
+        snippet: h.snippet,
+        score: h.score,
+      });
+    }
+  }
+
+  results.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+  // Plain Response rather than Response.json(): the image runs Ubuntu's Node 18.
+  const body = {
+    total: results.length,
+    results: results.slice(0, MAX_RESULTS).map(({ score: _score, ...r }) => r),
+  };
+  return new Response(JSON.stringify(body), {
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+  });
+}

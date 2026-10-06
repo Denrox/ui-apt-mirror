@@ -7,7 +7,7 @@ A containerized APT mirror solution with a web interface. This project provides 
 - **APT Mirror**: Local Ubuntu package repository with automatic synchronization using apt-mirror2 (Python/asyncio version) from PyPI
 - **GPG Signing**: Optional per-host signing keys generated via the admin panel — re-signs `Release` files so clients can verify the mirror with a real key instead of relying on `[trusted=yes]`. Sources.list snippets in the admin UI auto-include the correct `signed-by` / `Signed-By` directive when a key is present.
 - **NPM Proxy**: Optional local npm package registry cache for faster npm installs and reduced bandwidth usage
-- **Developer Cheatsheets**: Built-in command reference with tldr-pages integration for offline access to programming and system administration guides
+- **Cheatsheets**: Offline, searchable markdown cheatsheets downloaded from GitHub repositories you choose (e.g. [tldr-pages](https://github.com/tldr-pages/tldr) for console commands)
 - **Web Interface**: web UI for all services
 - **Multi-Host Setup**: Five distinct web services:
   - `mirror.intra` - DEB packages repository
@@ -76,7 +76,7 @@ The script will:
   - Log viewing
   - Documentation
   - Files management
-  - Developer cheatsheets and command references
+  - Cheatsheet sources (add GitHub repositories, update, remove)
   - User management and settings
 
 ### File Repository (files.mirror.intra)
@@ -93,12 +93,27 @@ The script will:
 
 - **URL**: `http://cheatsheets.mirror.intra`
 - **Authentication**: None (public access)
-- **Purpose**: Developer command references and cheatsheets
+- **Purpose**: Read-only access to the downloaded cheatsheets
 - **Features**:
-  - Browse developer cheatsheets by category
-  - Search command references
-  - View detailed command examples
-  - Offline access to tldr-pages content
+  - Full-text search across all sources, with snippets
+  - Browse by source and category
+  - Works fully offline once sources are downloaded
+
+#### Adding cheatsheet sources
+
+No cheatsheets are bundled. In the admin panel, open **Cheatsheets** and paste a
+public GitHub URL:
+
+- a repository: `https://github.com/<owner>/<repo>` (default branch)
+- or one folder of it: `https://github.com/<owner>/<repo>/tree/<branch>/<folder>`,
+  e.g. `https://github.com/tldr-pages/tldr/tree/main/pages` for tldr's console commands
+
+Every `.md` file under that location becomes a page (README/LICENSE/CONTRIBUTING
+files are skipped). The first `# Heading` is the page title. Sub-folders become
+categories, unless the folder contains a `categories.json` mapping
+`{"Category": ["relative/path.md", ...]}`. Downloading needs internet access;
+**Update** re-downloads a source and keeps the previous copy if it fails.
+Content is stored under `data/data/cheatsheets/` and is not part of this repository.
 
 ### NPM Proxy (npm.mirror.intra) - Optional
 
@@ -284,4 +299,3 @@ This project is licensed under the MIT License.
 - [apt-mirror2](https://gitlab.com/apt-mirror2/apt-mirror2) - The Python/asyncio APT mirroring tool from PyPI
 - [nginx](https://nginx.org/) - Web server
 - [skopeo](https://github.com/containers/skopeo) - For container image management
-- [tldr-pages](https://github.com/tldr-pages/tldr) - Collaborative cheatsheets for console commands used in the admin panel

@@ -77,7 +77,7 @@ export default function Documentation() {
 │   │   ├── skel/                # Skeleton files
 │   │   └── var/                 # Variable data
 │   ├── files/                   # Custom file repository
-│   ├── cheatsheets/             # Developer cheatsheets and command references${
+│   ├── cheatsheets/             # Cheatsheets downloaded from GitHub sources${
               isNpmProxyEnabled
                 ? `
 │   └── npm/                     # NPM packages
@@ -115,7 +115,7 @@ export default function Documentation() {
             <p className="text-on-surface-variant">
               Main data storage directory. apt-mirror/ contains downloaded
               package repositories, files/ contains custom file repository,
-              cheatsheets/ contains developer command references and cheatsheets
+              cheatsheets/ contains cheatsheets downloaded from GitHub sources
               {isNpmProxyEnabled
                 ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}
