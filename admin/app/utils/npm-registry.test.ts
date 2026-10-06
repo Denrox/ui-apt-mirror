@@ -8,6 +8,7 @@ import {
   nextRev,
   parseNpmPath,
   revMatches,
+  upstreamHeaders,
   type PackageDoc,
 } from './npm-registry';
 
@@ -193,5 +194,27 @@ describe('isRegistryRequest', () => {
     expect(isRegistryRequest(null, 'true')).toBe(false);
     expect(isRegistryRequest('npm.mirror.intra', 'false')).toBe(false);
     expect(isRegistryRequest('npm.mirror.intra', undefined)).toBe(false);
+  });
+});
+
+describe('upstreamHeaders', () => {
+  it('never forwards the client\'s credentials', () => {
+    const original = {
+      authorization: 'Bearer local-token',
+      'x-npm-auth-token': 't',
+      'x-npm-session': 's',
+      cookie: 'c=1',
+      'if-none-match': '"etag"',
+      range: 'bytes=0-1',
+    };
+    const headers = upstreamHeaders(original, [...Object.keys(original), 'if-modified-since'], {
+      Accept: '*/*',
+    });
+    expect(headers).toEqual({
+      'User-Agent': 'npm-cache-proxy/1.0',
+      Accept: '*/*',
+      'if-none-match': '"etag"',
+      range: 'bytes=0-1',
+    });
   });
 });

@@ -177,3 +177,19 @@ export function isFresh(cachedAt: string | undefined, now = Date.now(), ttlMs = 
 export function isRegistryRequest(host: string | null, enabled = process.env.NPM_PROXY_ENABLED): boolean {
   return enabled === 'true' && !!host && host.toLowerCase().startsWith('npm.');
 }
+
+// Tokens are issued by this registry; they and the client's identity never go upstream.
+const PRIVATE_HEADERS = new Set(['authorization', 'cookie', 'x-npm-auth-token', 'x-npm-auth-type', 'x-npm-session']);
+
+/** Headers for a request to the upstream registry, copied from the client's (lower-cased) headers. */
+export function upstreamHeaders(
+  original: Record<string, string>,
+  pass: string[],
+  base: Record<string, string> = {},
+): Record<string, string> {
+  const headers: Record<string, string> = { 'User-Agent': 'npm-cache-proxy/1.0', ...base };
+  for (const name of pass) {
+    if (original[name] && !PRIVATE_HEADERS.has(name)) headers[name] = original[name];
+  }
+  return headers;
+}

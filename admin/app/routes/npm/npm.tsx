@@ -26,6 +26,7 @@ import {
   parseNpmPath,
   revMatches,
   type DocResult,
+  upstreamHeaders,
   type PackageDoc,
 } from '~/utils/npm-registry';
 
@@ -113,30 +114,10 @@ async function fetchFromNpm(
     const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
     const client = npmUrl.protocol === 'https:' ? https : http;
 
-    const forwardedHeaders: Record<string, string> = {
-      'User-Agent': 'npm-cache-proxy/1.0',
+    const forwardedHeaders = upstreamHeaders(originalHeaders, ['if-none-match', 'if-modified-since', 'range'], {
       Accept: '*/*',
       'Accept-Encoding': 'gzip, deflate',
-    };
-
-    const authHeaders = [
-      'authorization',
-      'x-npm-auth-token',
-      'x-npm-session',
-      'x-npm-auth-type',
-    ];
-    for (const header of authHeaders) {
-      if (originalHeaders[header]) {
-        forwardedHeaders[header] = originalHeaders[header];
-      }
-    }
-
-    const otherHeaders = ['if-none-match', 'if-modified-since', 'range'];
-    for (const header of otherHeaders) {
-      if (originalHeaders[header]) {
-        forwardedHeaders[header] = originalHeaders[header];
-      }
-    }
+    });
 
     const options = {
       hostname: npmUrl.hostname,
@@ -881,34 +862,11 @@ export async function action({ request }: ActionFunctionArgs) {
         ? Buffer.from(await request.arrayBuffer())
         : null;
 
-    const forwardedHeaders: Record<string, string> = {
-      'User-Agent': 'npm-cache-proxy/1.0',
-      'Content-Type': originalHeaders['content-type'] || 'application/json',
-    };
-
-    const authHeaders = [
-      'authorization',
-      'x-npm-auth-token',
-      'x-npm-session',
-      'x-npm-auth-type',
-    ];
-    for (const header of authHeaders) {
-      if (originalHeaders[header]) {
-        forwardedHeaders[header] = originalHeaders[header];
-      }
-    }
-
-    const otherHeaders = [
-      'if-none-match',
-      'if-modified-since',
-      'range',
-      'content-encoding',
-    ];
-    for (const header of otherHeaders) {
-      if (originalHeaders[header]) {
-        forwardedHeaders[header] = originalHeaders[header];
-      }
-    }
+    const forwardedHeaders = upstreamHeaders(
+      originalHeaders,
+      ['if-none-match', 'if-modified-since', 'range', 'content-encoding'],
+      { 'Content-Type': originalHeaders['content-type'] || 'application/json' },
+    );
     if (body) {
       forwardedHeaders['content-length'] = body.length.toString();
     }
