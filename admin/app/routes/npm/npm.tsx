@@ -13,13 +13,23 @@ import {
   validateNpmAuthToken,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
+import {
+  NPM_VERSION_RE,
+  applyDocUpdate,
+  currentRev,
+  isFresh,
+  isRegistryRequest,
+  isValidDistTag,
+  mergePublish,
+  nextRev,
+  parseNpmPath,
+  revMatches,
+  type DocResult,
+  type PackageDoc,
+} from '~/utils/npm-registry';
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org';
 const PRIVATE_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'private');
-
-// npm's own rules for package names; anything else could escape the storage dirs.
-const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
-const NPM_VERSION_RE = /^[0-9A-Za-z.+-]{1,256}$/;
 
 function insideDir(dir: string, candidate: string): string {
   const resolved = path.resolve(candidate);
@@ -283,25 +293,72 @@ function getPrivatePackagePath(packagePath: string): string {
   return insideDir(PRIVATE_PACKAGES_DIR, path.join(PRIVATE_PACKAGES_DIR, cleanPath));
 }
 
-async function isPrivatePackage(packagePath: string): Promise<boolean> {
-  if (packagePath.includes('/-/')) {
-    const privatePath = getPrivatePackagePath(packagePath);
-    return await isCached(privatePath);
-  }
-  
-  const metadataPath = getPrivatePackagePath(`${packagePath}.json`);
-  return await isCached(metadataPath);
+function privateDocPath(packageName: string): string {
+  return getPrivatePackagePath(`${packageName}.json`);
 }
 
-/** Where clients reach this registry: npm.<domain>/ maps to /npm/ in nginx, other hosts need /npm. */
-function registryBase(request: Request): string {
-  const url = new URL(request.url);
-  const host = request.headers.get('host') ?? url.host;
-  return `${url.protocol}//${host}${host.startsWith('npm.') ? '' : '/npm'}`;
+function privateTarballPath(packageName: string, tarballFile: string): string {
+  return getPrivatePackagePath(`${packageName}/-/${tarballFile}`);
+}
+
+async function isPrivatePackage(packageName: string): Promise<boolean> {
+  return await isCached(privateDocPath(packageName));
+}
+
+async function readPrivateDoc(packageName: string): Promise<PackageDoc | null> {
+  try {
+    return JSON.parse(await fs.readFile(privateDocPath(packageName), 'utf-8'));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+async function writePrivateDoc(doc: PackageDoc) {
+  const target = privateDocPath(doc.name);
+  const tmp = `${target}.${process.pid}.tmp`;
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(tmp, JSON.stringify(doc, null, 2));
+  await fs.rename(tmp, target);
+}
+
+// Publishes and edits are read-modify-write on one JSON file; serialize them per package.
+const packageLocks = new Map<string, Promise<unknown>>();
+
+function withPackageLock<T>(packageName: string, task: () => Promise<T>): Promise<T> {
+  const run = (packageLocks.get(packageName) ?? Promise.resolve()).catch(() => {}).then(task);
+  packageLocks.set(packageName, run);
+  run
+    .finally(() => {
+      if (packageLocks.get(packageName) === run) packageLocks.delete(packageName);
+    })
+    .catch(() => {});
+  return run;
+}
+
+function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...headers },
+  });
+}
+
+function notFound(): Response {
+  return new Response('Not Found', {
+    status: 404,
+    headers: {
+      'Content-Type': 'text/plain',
+    },
+  });
+}
+
+function docError(result: Extract<DocResult, { status: number }>): Response {
+  return jsonResponse({ error: result.reason, reason: result.reason }, result.status);
 }
 
 function tarballUrl(request: Request, packageName: string, tarballFile: string): string {
-  return `${registryBase(request)}/${packageName}/-/${tarballFile}`;
+  const url = new URL(request.url);
+  return `${url.protocol}//${request.headers.get('host') ?? url.host}/${packageName}/-/${tarballFile}`;
 }
 
 /**
@@ -323,53 +380,85 @@ async function isPublicPackageName(packageName: string): Promise<boolean> {
 }
 
 async function loadPrivatePackage(
-  packagePath: string,
   request: Request,
-): Promise<{ data: Buffer; headers: Record<string, string> }> {
-  let privatePath: string;
-  let contentType: string;
+  packageName: string,
+  tarballFile?: string,
+): Promise<{ data: Buffer; headers: Record<string, string> } | null> {
+  const headers: Record<string, string> = { 'x-private-package': 'true' };
 
-  if (packagePath.includes('/-/')) {
-    privatePath = getPrivatePackagePath(packagePath);
-    contentType = 'application/octet-stream';
-  } else {
-    privatePath = getPrivatePackagePath(`${packagePath}.json`);
-    contentType = 'application/json';
-  }
-
-  let data = await fs.readFile(privatePath);
-
-  // Tarball URLs are computed per request: ones stored by older versions pointed at /npm/npm/….
-  if (contentType === 'application/json') {
-    const doc = JSON.parse(data.toString('utf-8'));
-    for (const version of Object.values<any>(doc.versions ?? {})) {
-      const stored = version?.dist?.tarball;
-      if (typeof stored === 'string' && stored.includes('/-/')) {
-        version.dist.tarball = tarballUrl(request, doc.name, stored.slice(stored.lastIndexOf('/-/') + 3));
-      }
+  if (tarballFile !== undefined) {
+    try {
+      const data = await fs.readFile(privateTarballPath(packageName, tarballFile));
+      return { data, headers: { ...headers, 'content-type': 'application/octet-stream' } };
+    } catch {
+      return null;
     }
-    data = Buffer.from(JSON.stringify(doc));
   }
 
-  const headers: Record<string, string> = {
-    'content-type': contentType,
-    'x-private-package': 'true',
+  const doc = await readPrivateDoc(packageName);
+  if (!doc) return null;
+  doc._rev = currentRev(doc);
+  // Tarball URLs are computed per request: ones stored by older versions pointed at /npm/npm/….
+  for (const version of Object.values<any>(doc.versions ?? {})) {
+    const stored = version?.dist?.tarball;
+    if (typeof stored === 'string' && stored.includes('/-/')) {
+      version.dist.tarball = tarballUrl(request, doc.name, stored.slice(stored.lastIndexOf('/-/') + 3));
+    }
+  }
+  return {
+    data: Buffer.from(JSON.stringify(doc)),
+    headers: { ...headers, 'content-type': 'application/json' },
   };
-
-  return { data, headers };
 }
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const url = new URL(request.url);
-  let packagePath = url.pathname;
+/** Cached upstream response; metadata is revalidated after a TTL, tarballs never change. */
+async function loadPublicPackage(
+  packagePath: string,
+  originalHeaders: Record<string, string>,
+): Promise<{ data: Buffer; headers: Record<string, string> }> {
+  const cachePath = getCachePath(packagePath);
+  const cached = await loadFromCache(cachePath).catch(() => null);
+  if (cached && (packagePath.includes('/-/') || isFresh(cached.headers['x-cached-at']))) {
+    return cached;
+  }
 
+  const { 'if-none-match': _, 'if-modified-since': __, ...forwarded } = originalHeaders;
+  if (cached?.headers.etag) forwarded['if-none-match'] = cached.headers.etag;
+
+  try {
+    const fetched = await fetchFromNpm(packagePath, forwarded);
+    await saveToCache(cachePath, fetched.data, fetched.headers);
+    fetched.headers['x-cache'] = 'MISS';
+    return fetched;
+  } catch (error) {
+    if (!cached) throw error;
+    const { 'x-cache': _c, 'x-cached-at': _a, ...stored } = cached.headers;
+    if (error instanceof Error && error.message === '304_NOT_MODIFIED') {
+      await saveToCache(cachePath, cached.data, stored);
+      return { data: cached.data, headers: { ...stored, 'x-cache': 'REVALIDATED' } };
+    }
+    console.error(`Serving stale ${packagePath}, upstream failed:`, error);
+    return { data: cached.data, headers: { ...cached.headers, 'x-cache': 'STALE' } };
+  }
+}
+
+function stripNpmPrefix(pathname: string): string {
+  let packagePath = pathname;
   if (packagePath.startsWith('/npm/')) {
     packagePath = packagePath.substring(5);
   } else if (packagePath.startsWith('/npm')) {
     packagePath = packagePath.substring(4);
   }
+  return packagePath.replace(/^\/+/, '');
+}
 
-  packagePath = packagePath.replace(/^\/+/, '');
+export async function loader({ request }: LoaderFunctionArgs) {
+  if (!isRegistryRequest(request.headers.get('host'))) {
+    return notFound();
+  }
+
+  const url = new URL(request.url);
+  const packagePath = stripNpmPrefix(url.pathname);
 
   if (packagePath === '-/whoami' || packagePath === '-/npm/v1/user') {
     const auth = await extractNpmAuth(request);
@@ -398,12 +487,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 
   if (!packagePath) {
-    return new Response('Not Found', {
-      status: 404,
-      headers: {
-        'Content-Type': 'text/plain',
-      },
-    });
+    return notFound();
   }
 
   const originalHeaders: Record<string, string> = {};
@@ -414,64 +498,26 @@ export async function loader({ request }: LoaderFunctionArgs) {
   try {
     await ensureCacheDir();
 
-    const isPrivate = await isPrivatePackage(packagePath);
-    
+    const route = parseNpmPath(packagePath);
+    const isPrivate = route.kind !== 'other' && (await isPrivatePackage(route.name));
+
     let data: Buffer;
     let headers: Record<string, string>;
 
-    if (isPrivate) {
-      const privatePackage = await loadPrivatePackage(packagePath, request);
+    if (isPrivate && route.kind === 'distTags') {
+      const doc = await readPrivateDoc(route.name);
+      return jsonResponse(route.tag ? doc?.['dist-tags']?.[route.tag] : doc?.['dist-tags'] ?? {});
+    } else if (isPrivate && (route.kind === 'package' || route.kind === 'tarball')) {
+      const privatePackage = await loadPrivatePackage(
+        request,
+        route.name,
+        route.kind === 'tarball' ? route.file : undefined,
+      );
+      if (!privatePackage) return notFound();
       data = privatePackage.data;
       headers = privatePackage.headers;
     } else {
-      const cachePath = getCachePath(packagePath);
-      const isPackageCached = await isCached(cachePath);
-
-      if (isPackageCached) {
-        try {
-          const cached = await loadFromCache(cachePath);
-          data = cached.data;
-          headers = cached.headers;
-        } catch (error) {
-          const fetched = await fetchFromNpm(packagePath, originalHeaders);
-          data = fetched.data;
-          headers = fetched.headers;
-
-          await saveToCache(cachePath, data, headers);
-
-          headers['x-cache'] = 'MISS';
-        }
-      } else {
-        try {
-          const fetched = await fetchFromNpm(packagePath, originalHeaders);
-          data = fetched.data;
-          headers = fetched.headers;
-
-          await saveToCache(cachePath, data, headers);
-
-          headers['x-cache'] = 'MISS';
-        } catch (error) {
-          if (error instanceof Error && error.message === '304_NOT_MODIFIED') {
-            try {
-              const cached = await loadFromCache(cachePath);
-              data = cached.data;
-              headers = cached.headers;
-              console.log('Using cached version due to 304 response');
-            } catch (cacheError) {
-              console.log('304 received but no cached version available, fetching fresh copy...');
-              const freshFetched = await fetchFromNpm(packagePath, {});
-              data = freshFetched.data;
-              headers = freshFetched.headers;
-
-              await saveToCache(cachePath, data, headers);
-              headers['x-cache'] = 'MISS';
-              console.log('Fresh copy fetched and cached due to missing cache');
-            }
-          } else {
-            throw error;
-          }
-        }
-      }
+      ({ data, headers } = await loadPublicPackage(packagePath, originalHeaders));
     }
 
     const contentType = headers['content-type'] || 'application/octet-stream';
@@ -511,17 +557,164 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const url = new URL(request.url);
-  let packagePath = url.pathname;
+async function publishPackage(
+  request: Request,
+  packageName: string,
+  packageDocument: any,
+  username: string,
+): Promise<Response> {
+  const versions = packageDocument.versions || {};
+  const attachments = packageDocument._attachments || {};
 
-  if (packagePath.startsWith('/npm/')) {
-    packagePath = packagePath.substring(5);
-  } else if (packagePath.startsWith('/npm')) {
-    packagePath = packagePath.substring(4);
+  if (
+    packageDocument.name !== packageName ||
+    Object.keys(versions).some((v) => !NPM_VERSION_RE.test(v))
+  ) {
+    return jsonResponse({ error: 'Invalid package name or version' }, 400);
   }
 
-  packagePath = packagePath.replace(/^\/+/, '');
+  if (!(await isPrivatePackage(packageName)) && (await isPublicPackageName(packageName))) {
+    return jsonResponse(
+      {
+        error: 'Forbidden',
+        reason: `"${packageName}" is a public npm package; publish private packages under a scope (e.g. @yourorg/${packageName})`,
+      },
+      403,
+    );
+  }
+
+  return withPackageLock(packageName, async () => {
+    const result = mergePublish(await readPrivateDoc(packageName), packageDocument, username);
+    if ('status' in result) return docError(result);
+
+    const tarballs: [string, Buffer][] = [];
+    for (const version in versions) {
+      const tarballName = `${packageName}-${version}.tgz`;
+      const attachment = attachments[tarballName];
+      if (!attachment?.data) {
+        return jsonResponse({ error: `Missing tarball for ${packageName}@${version}` }, 400);
+      }
+      tarballs.push([tarballName, Buffer.from(attachment.data, 'base64')]);
+      versions[version].dist = versions[version].dist || {};
+      versions[version].dist.tarball = tarballUrl(request, packageName, tarballName);
+    }
+
+    for (const [tarballName, tarballBuffer] of tarballs) {
+      const tarballFullPath = privateTarballPath(packageName, tarballName);
+      await fs.mkdir(path.dirname(tarballFullPath), { recursive: true });
+      await fs.writeFile(tarballFullPath, tarballBuffer);
+      console.log(`Saved tarball: ${tarballName} (${tarballBuffer.length} bytes)`);
+    }
+
+    await writePrivateDoc(result.doc);
+    console.log(
+      `Published ${packageName}@${Object.keys(versions).join(', ')} by ${username}`,
+    );
+    return jsonResponse({ ok: true, id: packageName, rev: result.doc._rev });
+  });
+}
+
+async function updatePackage(packageName: string, rev: string | undefined, body: any): Promise<Response> {
+  return withPackageLock(packageName, async () => {
+    const existing = await readPrivateDoc(packageName);
+    if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+    if (!revMatches(existing, rev ?? body._rev)) {
+      return jsonResponse({ error: 'Document update conflict' }, 409);
+    }
+    const result = applyDocUpdate(existing, body);
+    if ('status' in result) return docError(result);
+    await writePrivateDoc(result.doc);
+    return jsonResponse({ ok: true, id: packageName, rev: result.doc._rev });
+  });
+}
+
+async function unpublishPackage(
+  packageName: string,
+  rev: string | undefined,
+  tarballFile?: string,
+): Promise<Response> {
+  return withPackageLock(packageName, async () => {
+    const existing = await readPrivateDoc(packageName);
+    if (!existing) {
+      return jsonResponse({ error: `${packageName} is not a private package on this registry` }, 403);
+    }
+    if (!revMatches(existing, rev)) {
+      return jsonResponse({ error: 'Document update conflict' }, 409);
+    }
+
+    if (tarballFile === undefined) {
+      await fs.rm(privateDocPath(packageName));
+      await fs.rm(getPrivatePackagePath(`${packageName}/-`), { recursive: true, force: true });
+      await fs.rmdir(getPrivatePackagePath(packageName)).catch(() => {});
+      console.log(`Unpublished ${packageName}`);
+      return jsonResponse({ ok: true });
+    }
+
+    const stillPublished = Object.keys(existing.versions ?? {}).some(
+      (v) => tarballFile === `${packageName}-${v}.tgz`,
+    );
+    if (stillPublished) {
+      return jsonResponse({ error: 'Unpublish the version before deleting its tarball' }, 400);
+    }
+    try {
+      await fs.rm(privateTarballPath(packageName, tarballFile));
+    } catch {
+      return jsonResponse({ error: 'Not found' }, 404);
+    }
+    console.log(`Removed tarball ${tarballFile}`);
+    return jsonResponse({ ok: true });
+  });
+}
+
+async function changeDistTag(
+  request: Request,
+  packageName: string,
+  tag: string | undefined,
+): Promise<Response> {
+  if (!tag || !isValidDistTag(tag)) {
+    return jsonResponse({ error: 'Invalid dist-tag' }, 400);
+  }
+  if (request.method === 'DELETE' && tag === 'latest') {
+    return jsonResponse({ error: 'The latest tag cannot be removed' }, 400);
+  }
+
+  let version: unknown;
+  if (request.method === 'PUT') {
+    try {
+      version = JSON.parse(await request.text());
+    } catch {
+      version = undefined;
+    }
+  }
+
+  return withPackageLock(packageName, async () => {
+    const doc = await readPrivateDoc(packageName);
+    if (!doc) return jsonResponse({ error: 'Not found' }, 404);
+
+    const tags = { ...doc['dist-tags'] };
+    if (request.method === 'PUT') {
+      if (typeof version !== 'string' || !doc.versions?.[version]) {
+        return jsonResponse({ error: `Version not found: ${String(version)}` }, 400);
+      }
+      tags[tag] = version;
+    } else {
+      if (!(tag in tags)) return jsonResponse({ error: `Tag not found: ${tag}` }, 404);
+      delete tags[tag];
+    }
+
+    await writePrivateDoc({ ...doc, 'dist-tags': tags, _rev: nextRev(doc._rev) });
+    return jsonResponse({ ok: true }, request.method === 'PUT' ? 201 : 200);
+  });
+}
+
+export async function action({ request }: ActionFunctionArgs) {
+  if (!isRegistryRequest(request.headers.get('host'))) {
+    return notFound();
+  }
+
+  const url = new URL(request.url);
+  const packagePath = stripNpmPrefix(url.pathname);
+
 
   if (
     request.method === 'PUT' &&
@@ -606,142 +799,65 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  if (request.method === 'PUT' && packagePath && !packagePath.startsWith('-/')) {
-    try {
-      const auth = await extractNpmAuth(request);
-      
-      if (!auth) {
-        return new Response(
-          JSON.stringify({
-            error: 'Authentication required',
-            message: 'You must be authenticated to publish packages. Run: npm login --registry=http://npm.mirror.intra',
-          }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-              'WWW-Authenticate': 'Bearer realm="npm"',
-            },
-          },
-        );
-      }
-
-      await ensureCacheDir();
-
-      const bodyText = await request.text();
-      const packageDocument = JSON.parse(bodyText);
-
-      const packageName = packageDocument.name;
-      const versions = packageDocument.versions || {};
-      const attachments = packageDocument._attachments || {};
-
-      let requestedName = packagePath;
-      try {
-        requestedName = decodeURIComponent(packagePath);
-      } catch {}
-      if (
-        typeof packageName !== 'string' ||
-        packageName.length > 214 ||
-        !NPM_NAME_RE.test(packageName) ||
-        packageName !== requestedName ||
-        Object.keys(versions).some((v) => !NPM_VERSION_RE.test(v))
-      ) {
-        return new Response(JSON.stringify({ error: 'Invalid package name or version' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (!(await isPrivatePackage(packageName)) && (await isPublicPackageName(packageName))) {
-        return new Response(
-          JSON.stringify({
-            error: 'Forbidden',
-            reason: `"${packageName}" is a public npm package; publish private packages under a scope (e.g. @yourorg/${packageName})`,
-          }),
-          { status: 403, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-
-      for (const version in versions) {
-        const versionData = versions[version];
-        
-        console.log(`Publishing ${packageName}@${version} by ${auth.username}`);
-
-        const tarballName = `${packageName}-${version}.tgz`;
-        const attachment = attachments[tarballName];
-
-        if (attachment && attachment.data) {
-          const tarballBuffer = Buffer.from(attachment.data, 'base64');
-          
-          const tarballPath = `${packageName}/-/${tarballName}`;
-          const tarballFullPath = getPrivatePackagePath(tarballPath);
-          const tarballDir = path.dirname(tarballFullPath);
-          await fs.mkdir(tarballDir, { recursive: true });
-          await fs.writeFile(tarballFullPath, tarballBuffer);
-
-          console.log(`Saved tarball: ${tarballPath} (${tarballBuffer.length} bytes)`);
-
-          versionData.dist = versionData.dist || {};
-          versionData.dist.tarball = tarballUrl(request, packageName, tarballName);
-        }
-      }
-
-      const updatedDocument = {
-        _id: packageName,
-        name: packageName,
-        versions: versions,
-        'dist-tags': packageDocument['dist-tags'] || { latest: Object.keys(versions)[0] },
-        _attachments: {},
-        time: {
-          modified: new Date().toISOString(),
-          created: new Date().toISOString(),
-          ...packageDocument.time,
-        },
-        _publishedBy: auth.username,
-      };
-
-      const metadataPath = getPrivatePackagePath(`${packageName}.json`);
-      await fs.writeFile(metadataPath, JSON.stringify(updatedDocument, null, 2));
-
-      console.log(`Package ${packageName} published successfully by ${auth.username}`);
-
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          id: packageName,
-          rev: '1-' + Date.now().toString(36),
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-    } catch (error) {
-      console.error('Package publish error:', error);
-      return new Response(
-        JSON.stringify({
-          error: 'Publish failed',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        }),
-        {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
-    }
+  if (!packagePath) {
+    return notFound();
   }
 
-  if (!packagePath) {
-    return new Response('Not Found', {
-      status: 404,
-      headers: {
-        'Content-Type': 'text/plain',
-      },
-    });
+  const route = parseNpmPath(packagePath);
+  const isWrite = request.method === 'PUT' || request.method === 'DELETE';
+  const isLocalWrite =
+    isWrite && (route.kind === 'distTags' || !packagePath.startsWith('-/'));
+
+  if (isLocalWrite) {
+    const auth = await extractNpmAuth(request);
+    if (!auth) {
+      return jsonResponse(
+        {
+          error: 'Authentication required',
+          message: 'You must be authenticated to change packages. Run: npm login --registry=http://npm.mirror.intra',
+        },
+        401,
+        { 'WWW-Authenticate': 'Bearer realm="npm"' },
+      );
+    }
+
+    try {
+      await ensureCacheDir();
+
+      if (route.kind === 'distTags') {
+        if (!(await isPrivatePackage(route.name))) {
+          return jsonResponse({ error: `${route.name} is not a private package on this registry` }, 403);
+        }
+        return await changeDistTag(request, route.name, route.tag);
+      }
+
+      if (request.method === 'DELETE' && route.kind === 'package') {
+        return await unpublishPackage(route.name, route.rev);
+      }
+      if (request.method === 'DELETE' && route.kind === 'tarball' && route.rev !== undefined) {
+        return await unpublishPackage(route.name, route.rev, route.file);
+      }
+
+      if (request.method === 'PUT' && route.kind === 'package') {
+        const body = JSON.parse(await request.text());
+        const hasTarballs = Object.keys(body?._attachments ?? {}).length > 0;
+        if (hasTarballs && route.rev === undefined) {
+          return await publishPackage(request, route.name, body, auth.username);
+        }
+        return await updatePackage(route.name, route.rev, body);
+      }
+
+      return jsonResponse({ error: 'Invalid package name or version' }, 400);
+    } catch (error) {
+      console.error('Package write error:', error);
+      return jsonResponse(
+        {
+          error: 'Request failed',
+          message: error instanceof Error ? error.message : 'Unknown error',
+        },
+        500,
+      );
+    }
   }
 
   const originalHeaders: Record<string, string> = {};
@@ -749,9 +865,20 @@ export async function action({ request }: ActionFunctionArgs) {
     originalHeaders[key.toLowerCase()] = value;
   }
 
+  const isBulkAudit = packagePath === '-/npm/v1/security/advisories/bulk';
+  // Without upstream there are no advisories to report; failing would break every install.
+  const upstreamFailed = (status: number, message: string) =>
+    isBulkAudit
+      ? jsonResponse({})
+      : new Response(message, { status, headers: { 'Content-Type': 'text/plain' } });
+
   try {
     const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
     const client = npmUrl.protocol === 'https:' ? https : http;
+    const body =
+      request.method !== 'GET' && request.method !== 'HEAD'
+        ? Buffer.from(await request.arrayBuffer())
+        : null;
 
     const forwardedHeaders: Record<string, string> = {
       'User-Agent': 'npm-cache-proxy/1.0',
@@ -774,12 +901,15 @@ export async function action({ request }: ActionFunctionArgs) {
       'if-none-match',
       'if-modified-since',
       'range',
-      'content-length',
+      'content-encoding',
     ];
     for (const header of otherHeaders) {
       if (originalHeaders[header]) {
         forwardedHeaders[header] = originalHeaders[header];
       }
+    }
+    if (body) {
+      forwardedHeaders['content-length'] = body.length.toString();
     }
 
     const options = {
@@ -817,6 +947,11 @@ export async function action({ request }: ActionFunctionArgs) {
             }
           }
 
+          if (isBulkAudit && (res.statusCode ?? 500) >= 500) {
+            resolve(upstreamFailed(502, 'Bad Gateway'));
+            return;
+          }
+
           const relevantHeaders = [
             'content-type',
             'etag',
@@ -847,50 +982,18 @@ export async function action({ request }: ActionFunctionArgs) {
 
       req.on('error', (error) => {
         console.error('NPM proxy POST error:', error);
-        resolve(
-          new Response('Internal Server Error', {
-            status: 500,
-            headers: {
-              'Content-Type': 'text/plain',
-            },
-          }),
-        );
+        resolve(upstreamFailed(500, 'Internal Server Error'));
       });
 
       req.setTimeout(30000, () => {
         req.destroy();
-        resolve(
-          new Response('Request timeout', {
-            status: 408,
-            headers: {
-              'Content-Type': 'text/plain',
-            },
-          }),
-        );
+        resolve(upstreamFailed(408, 'Request timeout'));
       });
 
-      if (request.method !== 'GET' && request.method !== 'HEAD') {
-        request.body?.pipeTo(
-          new WritableStream({
-            write(chunk) {
-              req.write(chunk);
-            },
-            close() {
-              req.end();
-            },
-          }),
-        );
-      } else {
-        req.end();
-      }
+      req.end(body ?? undefined);
     });
   } catch (error) {
     console.error('NPM proxy action error:', error);
-    return new Response('Internal Server Error', {
-      status: 500,
-      headers: {
-        'Content-Type': 'text/plain',
-      },
-    });
+    return upstreamFailed(500, 'Internal Server Error');
   }
 }

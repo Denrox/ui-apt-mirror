@@ -108,7 +108,12 @@ if [ -f /etc/nginx/sites-available/mirror.intra.conf ]; then
     ln -sf /etc/nginx/sites-available/mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/admin.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     ln -sf /etc/nginx/sites-available/files.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
-    ln -sf /etc/nginx/sites-available/npm.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
+    if [ "$NPM_PROXY_ENABLED" = "true" ]; then
+        ln -sf /etc/nginx/sites-available/npm.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
+    else
+        rm -f /etc/nginx/sites-enabled/npm.mirror.intra.conf
+        echo "   npm proxy disabled (NPM_PROXY_ENABLED=${NPM_PROXY_ENABLED:-unset})"
+    fi
     ln -sf /etc/nginx/sites-available/cheatsheets.mirror.intra.conf /etc/nginx/sites-enabled/ 2>/dev/null || true
     echo "✅ Nginx sites enabled"
 else
