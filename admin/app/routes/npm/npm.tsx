@@ -24,6 +24,7 @@ import {
   isRegistryRequest,
   isValidDistTag,
   isValidName,
+  isWebLoginPath,
   mergePublish,
   nextRev,
   parseJsonObject,
@@ -320,6 +321,13 @@ function notFound(): Response {
   });
 }
 
+function webLoginUnsupported(): Response {
+  return jsonResponse(
+    { error: 'Web login is not supported by this registry; use npm login --auth-type=legacy' },
+    404,
+  );
+}
+
 function docError(result: Extract<DocResult, { status: number }>): Response {
   return jsonResponse({ error: result.reason, reason: result.reason }, result.status);
 }
@@ -460,6 +468,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   if (!packagePath) {
     return notFound();
   }
+  if (isWebLoginPath(packagePath)) return webLoginUnsupported();
 
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {
@@ -857,6 +866,7 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
+  if (isWebLoginPath(packagePath)) return webLoginUnsupported();
   const target = pathPackage(packagePath);
   if (target && (await isPrivatePackage(target.name))) return notFound();
 

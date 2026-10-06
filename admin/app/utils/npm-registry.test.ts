@@ -5,6 +5,7 @@ import {
   isFresh,
   isRegistryRequest,
   isValidDistTag,
+  isWebLoginPath,
   mergePublish,
   nextRev,
   parseJsonObject,
@@ -323,5 +324,13 @@ describe('private package routing', () => {
     expect(privateVersion(doc, 'beta')?.version).toBe('1.0.0');
     expect(privateVersion(doc, '2.0.0')).toBeNull();
     expect(privateVersion(doc, 'constructor')).toBeNull();
+  });
+
+  it('recognizes web login paths', () => {
+    expect(isWebLoginPath('-/v1/login')).toBe(true);
+    expect(isWebLoginPath('-/v1/done')).toBe(true);
+    expect(isWebLoginPath('-/v1/done/abc')).toBe(true);
+    expect(isWebLoginPath('-/v1/search')).toBe(false);
+    expect(isWebLoginPath('-/v1/loginx')).toBe(false);
   });
 });

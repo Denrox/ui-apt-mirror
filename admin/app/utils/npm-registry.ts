@@ -278,3 +278,8 @@ export function privateVersion(doc: PackageDoc, spec: string): Record<string, an
   const version = Object.hasOwn(doc['dist-tags'] ?? {}, spec) ? doc['dist-tags'][spec] : spec;
   return Object.hasOwn(doc.versions ?? {}, version) ? doc.versions[version] : null;
 }
+
+/** npm tries web login first and falls back to the legacy login when this answers with a 4xx. */
+export function isWebLoginPath(packagePath: string): boolean {
+  return /^-\/v1\/(login|done)(\/|$)/.test(packagePath);
+}
