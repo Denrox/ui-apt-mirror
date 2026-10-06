@@ -28,9 +28,20 @@ test.describe('File Manager', () => {
     page,
   }) => {
     await page.goto('/file-manager');
-    await page
-      .getByRole('combobox')
-      .selectOption({ label: 'Mirrored Packages' });
+    const viewSelector = page.getByRole('combobox');
+    // A select changed before hydration is reset to the server-rendered value; wait for React.
+    await viewSelector.evaluate((el) =>
+      new Promise<void>((resolve) => {
+        const check = () =>
+          Object.keys(el).some((key) => key.startsWith('__reactProps'))
+            ? resolve()
+            : requestAnimationFrame(check);
+        check();
+      }),
+    );
+    await viewSelector.selectOption({ label: 'Mirrored Packages' });
+    await page.waitForURL(/apt-mirror/);
+    await expect(viewSelector).toHaveValue('mirrored-packages');
     await expect(
       page.getByText(/Manual changes can break mirror functionality/i),
     ).toBeVisible();
