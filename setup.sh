@@ -369,6 +369,35 @@ generate_htpasswd() {
 }
 
 
+# Same backup as upgrade.sh; old upgrade.sh versions have none
+backup_config() {
+    local items=()
+    local item
+    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth; do
+        [ -e "$item" ] && items+=("$item")
+    done
+    if [ ${#items[@]} -eq 0 ]; then
+        return
+    fi
+
+    mkdir -p backups
+    local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
+    print_status "Backing up configuration to $backup..."
+    local skipped
+    if skipped=$(umask 077; tar -czf "$backup" --ignore-failed-read "${items[@]}" 2>&1 >/dev/null); then
+        chmod 600 "$backup"
+        if [ -n "$skipped" ]; then
+            print_warning "Some files could not be read and are not in the backup:"
+            echo "$skipped" | sed 's/^/  /'
+        fi
+        print_success "Backup saved: $backup"
+    else
+        [ -n "$skipped" ] && echo "$skipped"
+        print_error "Backup failed; aborting before anything is changed."
+        exit 1
+    fi
+}
+
 # Fingerprints of every released docker-compose.src.yml with values blanked;
 # a pre-.env docker-compose.yml matching one was never edited by hand.
 LEGACY_COMPOSE_FINGERPRINTS="24a1f8ce60550fc1 1a5fddfd8e7c4736 bdd1748a8142e672 67213f824f6d9873 2cabb2f42d493772 830e2a450d30f66d c5ed624d685be465 7fcfd9624207e48d 6d21328162dc297d 8f8e4cf1bb2e2fbb 8311e9dc94b89163"
@@ -746,6 +775,7 @@ main() {
     load_existing_config
     if [ "$INSTALL_EXISTS" = true ]; then
         print_status "Existing installation detected; your configuration will be kept."
+        [ -f "$ENV_FILE" ] || backup_config
     fi
 
     resolve_user_config "$mode"
