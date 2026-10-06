@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { data } from 'react-router';
 import appConfig from '~/config/config.json';
 import { hashPassword, writePrivateFile } from '~/utils/htpasswd';
+import { passwordError } from '~/utils/password-rules';
 
 type ActionResult = { success: boolean; message?: string; error?: string };
 
@@ -44,11 +45,9 @@ export async function action({
       };
     }
 
-    if (newPassword.length < 4) {
-      return {
-        success: false,
-        error: 'Password must be at least 4 characters long',
-      };
+    const newPasswordError = passwordError(newPassword);
+    if (newPasswordError) {
+      return { success: false, error: newPasswordError };
     }
 
     try {
@@ -155,6 +154,11 @@ export async function action({
         error:
           'Username can only contain letters, numbers, hyphens, and underscores',
       };
+    }
+
+    const addPasswordError = passwordError(password);
+    if (addPasswordError) {
+      return { success: false, error: addPasswordError };
     }
 
     try {

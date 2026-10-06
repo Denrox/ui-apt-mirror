@@ -48,6 +48,7 @@ describe('resolveInside', () => {
     ['absolute path elsewhere', () => '/etc'],
     ['private files when not allowed', () => path.join(priv, 'secret.txt')],
     ['symlink leading outside', () => path.join(files, 'escape')],
+    ['sibling whose name starts with the root name', () => `${files}-x/a.txt`],
     ['path below a symlink leading outside', () => path.join(files, 'escape', 'x.txt')],
   ])('rejects %s', (_name, p) => {
     expect(resolveInside(p(), [files])).toBeNull();
