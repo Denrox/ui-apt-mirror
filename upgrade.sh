@@ -331,8 +331,6 @@ backup_config() {
     mkdir -p backups
     local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
     print_status "Backing up configuration to $backup..."
-    # Files the container created as root may be unreadable here; skip them
-    # with a warning rather than abort (data/auth/.jwt-secret only signs logins).
     local skipped
     if skipped=$(tar -czf "$backup" --ignore-failed-read "${items[@]}" 2>&1 >/dev/null); then
         chmod 600 "$backup"

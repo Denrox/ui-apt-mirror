@@ -62,6 +62,8 @@ if [ -d "$LEGACY_SITES" ]; then
     mv "$LEGACY_SITES" "$NGINX_HOSTCONF/sites-available.migrated-$(date +%Y%m%d%H%M%S)"
 fi
 
+find "$NGINX_CUSTOM" -user 0 -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
+
 echo "🧩 Rendering nginx sites for $MIRROR_DOMAIN..."
 for tpl in /etc/nginx/templates/*.conf; do
     name=$(basename "$tpl")

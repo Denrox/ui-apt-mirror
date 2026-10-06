@@ -1,9 +1,10 @@
 import { execSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { chownSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
+import { giveToDirOwner } from './file-owner';
 
 // Per-install secret, created on first use next to .htpasswd. Never ship one
 // in config: whoever knows it can forge an admin login.
@@ -16,27 +17,15 @@ export function getJwtSecret(): string {
   try {
     const existing = readFileSync(file, 'utf-8').trim();
     if (existing.length >= 32) {
-      giveToDirOwner(dir, file);
+      giveToDirOwner(file);
       return (jwtSecret = existing);
     }
   } catch {}
   const secret = randomBytes(48).toString('base64url');
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, `${secret}\n`, { mode: 0o600 });
-  giveToDirOwner(dir, file);
+  giveToDirOwner(file);
   return (jwtSecret = secret);
-}
-
-// The app runs as root in the container; leave the file to whoever owns the
-// data directory on the host, so host tools (upgrade.sh's backup) can read it.
-function giveToDirOwner(dir: string, file: string) {
-  try {
-    const owner = statSync(dir);
-    const current = statSync(file);
-    if (current.uid !== owner.uid || current.gid !== owner.gid) {
-      chownSync(file, owner.uid, owner.gid);
-    }
-  } catch {}
 }
 const COOKIE_NAME = 'auth_token';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
