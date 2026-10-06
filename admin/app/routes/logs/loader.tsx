@@ -2,6 +2,10 @@ import fs from 'fs/promises';
 import appConfig from '~/config/config.json';
 import type { Route } from './+types/logs';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
+import { readTail } from '~/utils/read-tail';
+
+// Logs grow with every sync; sending them whole made the page tens of MB.
+const LOG_TAIL_BYTES = 512 * 1024;
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAuthMiddleware(request);
@@ -50,16 +54,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   const logsContent = await Promise.all(
     recentLogs.map(async (log) => {
       try {
-        const logContent = await fs.readFile(`${logsDir}/${log}`, 'utf-8');
-        return {
-          name: log,
-          content: logContent,
-        };
+        const { content, size, truncated } = await readTail(`${logsDir}/${log}`, LOG_TAIL_BYTES);
+        return { name: log, content, size, truncated };
       } catch (error) {
         console.error(`Error reading log file ${log}:`, error);
         return {
           name: log,
           content: `Error reading log file ${log}: ${error}`,
+          size: 0,
+          truncated: false,
         };
       }
     }),
@@ -67,5 +70,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return {
     logs: logsContent,
+    tailBytes: LOG_TAIL_BYTES,
   };
 }

@@ -20,7 +20,7 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export default function LogsPage() {
-  const { logs } = useLoaderData<typeof loader>();
+  const { logs, tailBytes } = useLoaderData<typeof loader>();
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [level, setLevel] = useState<LogLevelFilter>('ALL');
@@ -36,10 +36,11 @@ export default function LogsPage() {
     }
   }, [sortedLogs]);
 
-  const selectedLogContent = useMemo(
-    () => sortedLogs.find((log) => log.name === selectedLog)?.content || '',
+  const selectedLogEntry = useMemo(
+    () => sortedLogs.find((log) => log.name === selectedLog),
     [selectedLog, sortedLogs],
   );
+  const selectedLogContent = selectedLogEntry?.content || '';
 
   return (
     <PageLayoutFull>
@@ -98,6 +99,14 @@ export default function LogsPage() {
               <option value="DEBUG">Debug</option>
             </select>
           </div>
+
+          {selectedLogEntry?.truncated && (
+            <p className="text-xs text-on-surface-variant">
+              Showing the last {tailBytes / 1024} KB of this{' '}
+              {(selectedLogEntry.size / 1024 / 1024).toFixed(1)} MB log; filters apply to
+              this part only.
+            </p>
+          )}
 
           <LogPanel
             content={selectedLogContent}
