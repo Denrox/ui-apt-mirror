@@ -116,8 +116,14 @@ load_image() {
 start_container() {
     print_status "Starting container..."
     
-    # Start with docker-compose
-    docker compose -f docker-compose.yml up -d
+    # Settings come from .env (read by compose automatically); local changes
+    # live in docker-compose.override.yml, which upgrades never touch.
+    local compose_files=(-f docker-compose.yml)
+    if [ -f docker-compose.override.yml ]; then
+        print_status "Including docker-compose.override.yml"
+        compose_files+=(-f docker-compose.override.yml)
+    fi
+    docker compose "${compose_files[@]}" up -d
     
     print_success "Container started successfully."
 }

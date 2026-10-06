@@ -32,6 +32,53 @@ if [ ! -L /var/www/mirror.intra/mirror ]; then
     ln -sf /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
 fi
 
+# Nginx sites are rendered from the templates baked into the image, so every
+# upgrade ships its own site configs. A file with the same name in
+# data/conf/nginx/custom/ (mounted at /etc/nginx/hostconf/custom) replaces the
+# stock one and is never overwritten.
+NGINX_HOSTCONF=/etc/nginx/hostconf
+NGINX_CUSTOM="$NGINX_HOSTCONF/custom"
+MIRROR_DOMAIN="${MIRROR_DOMAIN:-mirror.intra}"
+ESCAPED_DOMAIN=$(printf '%s' "$MIRROR_DOMAIN" | sed 's/[&/\]/\\&/g')
+
+render_site() {
+    sed "s/mirror\.intra/${ESCAPED_DOMAIN}/g" "$1"
+}
+
+mkdir -p "$NGINX_CUSTOM"
+
+# One-time migration from installs where the host held the live site configs
+# (data/conf/nginx/sites-available). Files that differ from the stock config
+# for this domain were edited by the user, so they become custom overrides;
+# the old folder is then renamed so this runs only once.
+LEGACY_SITES="$NGINX_HOSTCONF/sites-available"
+if [ -d "$LEGACY_SITES" ]; then
+    for legacy in "$LEGACY_SITES"/*.conf; do
+        [ -f "$legacy" ] || continue
+        name=$(basename "$legacy")
+        tpl="/etc/nginx/templates/$name"
+        if [ -f "$tpl" ] && render_site "$tpl" | cmp -s - "$legacy"; then
+            continue
+        fi
+        if [ ! -e "$NGINX_CUSTOM/$name" ]; then
+            cp "$legacy" "$NGINX_CUSTOM/$name"
+            echo "⚠️  Kept your modified nginx config as custom/$name (delete it to use the stock one)"
+        fi
+    done
+    mv "$LEGACY_SITES" "$NGINX_HOSTCONF/sites-available.migrated-$(date +%Y%m%d%H%M%S)"
+fi
+
+echo "🧩 Rendering nginx sites for $MIRROR_DOMAIN..."
+for tpl in /etc/nginx/templates/*.conf; do
+    name=$(basename "$tpl")
+    if [ -f "$NGINX_CUSTOM/$name" ]; then
+        cp "$NGINX_CUSTOM/$name" "/etc/nginx/sites-available/$name"
+        echo "   $name: custom"
+    else
+        render_site "$tpl" > "/etc/nginx/sites-available/$name"
+    fi
+done
+
 if [ -f /etc/nginx/sites-available/mirror.intra.conf ]; then
     echo "🔗 Enabling nginx sites..."
     rm -f /etc/nginx/sites-enabled/default

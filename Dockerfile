@@ -44,6 +44,11 @@ COPY admin/ /var/admin
 COPY admin/app/config/config.build.json /var/admin/app/config/config.json
 RUN cd /var/admin && npm install && npm run build
 
+# Nginx site templates (rendered for the configured domain at container start,
+# see entrypoint.sh) and the static log-date map.
+COPY nginx/sites/ /etc/nginx/templates/
+COPY nginx/conf.d/log-date.conf /etc/nginx/conf.d/log-date.conf
+
 # Copy scripts
 COPY scripts/ /usr/local/bin/
 RUN chmod +x /usr/local/bin/*.sh
