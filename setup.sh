@@ -506,6 +506,19 @@ create_data_dirs() {
 }
 
 
+# Older mirror.list files ran a postmirror script that was never shipped (an error on every
+# sync) and so never ran clean.sh; let apt-mirror2 delete unneeded packages itself.
+migrate_mirror_config() {
+    local list=data/conf/apt-mirror/mirror.list
+    grep -qE '^set[[:space:]]+run_postmirror[[:space:]]+1[[:space:]]*$' "$list" || return 0
+    [ -e data/data/apt-mirror/var/postmirror.sh ] && return 0
+    sed -i -E 's/^set([[:space:]]+)run_postmirror([[:space:]]+)1[[:space:]]*$/set\1run_postmirror\20/' "$list"
+    if ! grep -qE '^set[[:space:]]+_autoclean[[:space:]]' "$list"; then
+        sed -i -E '/^set[[:space:]]+run_postmirror[[:space:]]/a set _autoclean 1' "$list"
+    fi
+    print_status "mirror.list: turned off the missing postmirror script; old packages are now deleted after each sync."
+}
+
 # Function to generate apt-mirror2 configuration
 generate_mirror_config() {
     local domain=$1
@@ -541,7 +554,10 @@ set defaultarch  amd64
 set postmirror_script \$var_path/postmirror.sh
 
 # Set run_postmirror to 1 to run the postmirror script
-set run_postmirror 1
+set run_postmirror 0
+
+# Delete packages the mirrored indexes no longer list after each sync (skipped when a download failed)
+set _autoclean 1
 
 # Set nthreads to the number of threads to use (calculated based on RAM)
 set nthreads     $OPTIMAL_THREADS
@@ -808,6 +824,7 @@ main() {
         generate_mirror_config "$MIRROR_DOMAIN"
     else
         print_status "Keeping data/conf/apt-mirror/mirror.list (managed in the admin panel)."
+        migrate_mirror_config
     fi
 
     write_env_file
