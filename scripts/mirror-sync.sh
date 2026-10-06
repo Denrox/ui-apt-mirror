@@ -109,12 +109,6 @@ do_sync() {
     if [ "$exit_code" -eq 0 ]; then
         log "Sync completed successfully"
 
-        # Update symlink to ensure web server sees latest data
-        if [ -d "/var/spool/apt-mirror/mirror" ]; then
-            ln -sf /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
-            log "Updated web symlink"
-        fi
-
         # Re-sign Release files for every host that has a GPG key registered.
         if [ -x /usr/local/bin/sign-releases.sh ]; then
             log "Signing Release files..."
