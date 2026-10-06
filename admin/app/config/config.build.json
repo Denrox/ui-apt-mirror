@@ -15,7 +15,6 @@
   "gpgKeysIndex": "/var/spool/apt-mirror/gpg/keys.json",
   "mirrorRoot": "/var/spool/apt-mirror/mirror",
   "signReleasesScriptPath": "/usr/local/bin/sign-releases.sh",
-  "jwtSecret": "HMwZM9EQJBsOQEBwWQLNtBxJqo6SHIFa",
   "hosts": [
     {
       "id": "mirror",

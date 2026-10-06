@@ -1,9 +1,30 @@
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { randomBytes } from 'crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
 
-const JWT_SECRET = appConfig.jwtSecret;
+// Each install signs logins with its own random secret, created on first use
+// next to .htpasswd (data/auth/.jwt-secret on the host) so it survives
+// upgrades. Never ship a secret in config: anyone who knows it can forge an
+// admin login.
+let jwtSecret: string | null = null;
+
+export function getJwtSecret(): string {
+  if (jwtSecret) return jwtSecret;
+  const file = path.join(path.dirname(appConfig.htpasswdPath), '.jwt-secret');
+  try {
+    const existing = readFileSync(file, 'utf-8').trim();
+    if (existing.length >= 32) return (jwtSecret = existing);
+  } catch {
+    // Missing: create it below.
+  }
+  const secret = randomBytes(48).toString('base64url');
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  return (jwtSecret = secret);
+}
 const COOKIE_NAME = 'auth_token';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
 
@@ -81,7 +102,7 @@ export async function createAuthToken(username: string): Promise<string> {
     type: 'web',
   };
 
-  return jwt.sign(payload, JWT_SECRET);
+  return jwt.sign(payload, getJwtSecret());
 }
 
 export async function createNpmAuthToken(username: string): Promise<string> {
@@ -91,14 +112,14 @@ export async function createNpmAuthToken(username: string): Promise<string> {
     type: 'npm',
   };
 
-  return jwt.sign(payload, JWT_SECRET);
+  return jwt.sign(payload, getJwtSecret());
 }
 
 export async function validateAuthToken(
   token: string,
 ): Promise<AuthUser | null> {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
+    const decoded = jwt.verify(token, getJwtSecret()) as AuthUser;
 
     if (decoded.exp < Math.floor(Date.now() / 1000)) {
       return null;
