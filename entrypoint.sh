@@ -159,7 +159,7 @@ echo "🧹 Starting log cleanup service..."
 LOG_CLEANUP_PID=$!
 
 echo "🏥 Starting health check service..."
-/usr/local/bin/health-check.sh &
+/usr/local/bin/health-check.sh monitor &
 HEALTH_PID=$!
 
 echo "🎉 All services started successfully!"
