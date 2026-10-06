@@ -26,6 +26,7 @@ import {
   isValidName,
   mergePublish,
   nextRev,
+  parseJsonObject,
   parseNpmPath,
   publicCachePath,
   revMatches,
@@ -829,8 +830,9 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       if (request.method === 'PUT' && route.kind === 'package') {
-        const body = JSON.parse(await request.text());
-        const hasTarballs = Object.keys(body?._attachments ?? {}).length > 0;
+        const body = parseJsonObject(await request.text());
+        if (!body) return jsonResponse({ error: 'Request body must be a JSON object' }, 400);
+        const hasTarballs = Object.keys(body._attachments ?? {}).length > 0;
         if (hasTarballs && route.rev === undefined) {
           return await publishPackage(request, route.name, body, auth.username);
         }
@@ -840,13 +842,7 @@ export async function action({ request }: ActionFunctionArgs) {
       return jsonResponse({ error: 'Invalid package name or version' }, 400);
     } catch (error) {
       console.error('Package write error:', error);
-      return jsonResponse(
-        {
-          error: 'Request failed',
-          message: error instanceof Error ? error.message : 'Unknown error',
-        },
-        500,
-      );
+      return jsonResponse({ error: 'Request failed' }, 500);
     }
   }
 

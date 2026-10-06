@@ -7,6 +7,7 @@ import {
   isValidDistTag,
   mergePublish,
   nextRev,
+  parseJsonObject,
   parseNpmPath,
   publicCachePath,
   revMatches,
@@ -286,5 +287,12 @@ describe('publicCachePath', () => {
     for (const p of ['left-pad/latest', 'left-pad/1.3.0', '-/v1/search', '-/package/left-pad/dist-tags', 'left-pad/-rev/1-a']) {
       expect(publicCachePath(parseNpmPath(p))).toBeNull();
     }
+  });
+});
+
+describe('parseJsonObject', () => {
+  it('accepts only JSON objects', () => {
+    expect(parseJsonObject('{"name":"x"}')).toEqual({ name: 'x' });
+    for (const text of ['not json', '', 'null', '[]', '"x"', '1']) expect(parseJsonObject(text)).toBeNull();
   });
 });

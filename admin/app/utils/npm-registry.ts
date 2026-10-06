@@ -249,3 +249,13 @@ export function publicCachePath(route: NpmPath): string | null {
   }
   return null;
 }
+
+/** A JSON object from a request body, or null for anything else. */
+export function parseJsonObject(text: string): Record<string, any> | null {
+  try {
+    const value = JSON.parse(text);
+    return isObject(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
