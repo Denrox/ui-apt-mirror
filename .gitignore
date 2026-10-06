@@ -15,5 +15,6 @@ dist/*
 !dist/.gitkeep
 .scannerwork
 data/auth/*
-!data/auth/.gitkeepdata/data/cheatsheets/*
+!data/auth/.gitkeep
+data/data/cheatsheets/*
 !data/data/cheatsheets/.gitkeep
