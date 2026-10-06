@@ -17,16 +17,20 @@ import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 import {
   NPM_VERSION_RE,
   applyDocUpdate,
+  auditPackageNames,
   currentRev,
+  isAuditPath,
   isFresh,
   isRegistryRequest,
   isValidDistTag,
+  isValidName,
   mergePublish,
   nextRev,
   parseNpmPath,
   revMatches,
   type DocResult,
   upstreamHeaders,
+  withoutAuditPackages,
   type PackageDoc,
 } from '~/utils/npm-registry';
 
@@ -689,6 +693,22 @@ async function changeDistTag(
   });
 }
 
+/** The audit request body without locally published packages, as plain JSON; null if unreadable. */
+async function publicAuditBody(body: Buffer, encoding: string | undefined, bulk: boolean): Promise<Buffer | null> {
+  let payload: unknown;
+  try {
+    const raw = encoding === 'gzip' ? zlib.gunzipSync(body) : encoding === 'deflate' ? zlib.inflateSync(body) : body;
+    payload = JSON.parse(raw.toString('utf-8'));
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const names = auditPackageNames(payload, bulk);
+  const isPrivate = await Promise.all(names.map((name) => isValidName(name) && isPrivatePackage(name)));
+  const drop = new Set(names.filter((_, i) => isPrivate[i]));
+  return Buffer.from(JSON.stringify(withoutAuditPackages(payload as Record<string, any>, bulk, drop)));
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   if (!isRegistryRequest(request.headers.get('host'))) {
     return notFound();
@@ -857,10 +877,16 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
     const client = npmUrl.protocol === 'https:' ? https : http;
-    const body =
+    let body =
       request.method !== 'GET' && request.method !== 'HEAD'
         ? Buffer.from(await request.arrayBuffer())
         : null;
+    if (body && isAuditPath(packagePath)) {
+      body = await publicAuditBody(body, originalHeaders['content-encoding'], isBulkAudit);
+      if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
+      delete originalHeaders['content-encoding'];
+      originalHeaders['content-type'] = 'application/json';
+    }
 
     const forwardedHeaders = upstreamHeaders(
       originalHeaders,

@@ -193,3 +193,49 @@ export function upstreamHeaders(
   }
   return headers;
 }
+
+export function isAuditPath(packagePath: string): boolean {
+  return packagePath.startsWith('-/npm/v1/security/');
+}
+
+const isObject = (value: unknown): value is Record<string, any> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+function auditTree(node: Record<string, any>, names: Set<string>, drop?: Set<string>): Record<string, any> {
+  const out = { ...node };
+  for (const key of ['requires', 'dependencies']) {
+    if (!isObject(node[key])) continue;
+    const entries = Object.entries(node[key]).filter(([name]) => (names.add(name), !drop?.has(name)));
+    out[key] = Object.fromEntries(
+      entries.map(([name, dep]) => [name, key === 'dependencies' && isObject(dep) ? auditTree(dep, names, drop) : dep]),
+    );
+  }
+  return out;
+}
+
+/** Package names in an audit payload: bulk is {name: versions}, a quick audit a lockfile-like tree. */
+export function auditPackageNames(payload: unknown, bulk: boolean): string[] {
+  if (!isObject(payload)) return [];
+  if (bulk) return Object.keys(payload);
+  const names = new Set<string>();
+  if (typeof payload.name === 'string') names.add(payload.name);
+  for (const key of ['install', 'remove']) {
+    if (Array.isArray(payload[key])) payload[key].forEach((name: unknown) => names.add(String(name)));
+  }
+  auditTree(payload, names);
+  return [...names];
+}
+
+/** The audit payload without the given (private) packages, which must not be sent upstream. */
+export function withoutAuditPackages(payload: Record<string, any>, bulk: boolean, drop: Set<string>) {
+  if (bulk) return Object.fromEntries(Object.entries(payload).filter(([name]) => !drop.has(name)));
+  const out = auditTree(payload, new Set(), drop);
+  for (const key of ['install', 'remove']) {
+    if (Array.isArray(out[key])) out[key] = out[key].filter((name: unknown) => !drop.has(String(name)));
+  }
+  if (drop.has(out.name)) {
+    delete out.name;
+    delete out.version;
+  }
+  return out;
+}

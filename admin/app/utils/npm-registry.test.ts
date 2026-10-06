@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyDocUpdate,
+  auditPackageNames,
   isFresh,
   isRegistryRequest,
   isValidDistTag,
@@ -9,6 +10,7 @@ import {
   parseNpmPath,
   revMatches,
   upstreamHeaders,
+  withoutAuditPackages,
   type PackageDoc,
 } from './npm-registry';
 
@@ -216,5 +218,53 @@ describe('upstreamHeaders', () => {
       'if-none-match': '"etag"',
       range: 'bytes=0-1',
     });
+  });
+});
+
+describe('audit payloads', () => {
+  const drop = new Set(['@acme/widget', 'acme-app']);
+
+  it('drops private packages from a bulk audit', () => {
+    const bulk = { '@acme/widget': ['1.0.0'], lodash: ['4.17.20'] };
+    expect(auditPackageNames(bulk, true)).toEqual(['@acme/widget', 'lodash']);
+    expect(withoutAuditPackages(bulk, true, drop)).toEqual({ lodash: ['4.17.20'] });
+  });
+
+  it('drops private packages from every level of a quick audit tree', () => {
+    const quick = {
+      name: 'acme-app',
+      version: '1.0.0',
+      install: ['@acme/widget', 'lodash'],
+      remove: [],
+      requires: { '@acme/widget': '^1.0.0', express: '^4.0.0' },
+      dependencies: {
+        '@acme/widget': { version: '1.0.0', requires: { lodash: '^4.0.0' } },
+        express: {
+          version: '4.21.0',
+          requires: { '@acme/widget': '^1.0.0' },
+          dependencies: { '@acme/widget': { version: '1.0.1' }, debug: { version: '2.6.9' } },
+        },
+        lodash: { version: '4.17.20' },
+      },
+    };
+    expect(auditPackageNames(quick, false).sort()).toEqual(
+      ['@acme/widget', 'acme-app', 'debug', 'express', 'lodash'],
+    );
+    const sent = withoutAuditPackages(quick, false, drop);
+    expect(sent).toEqual({
+      install: ['lodash'],
+      remove: [],
+      requires: { express: '^4.0.0' },
+      dependencies: {
+        express: { version: '4.21.0', requires: {}, dependencies: { debug: { version: '2.6.9' } } },
+        lodash: { version: '4.17.20' },
+      },
+    });
+    expect(JSON.stringify(sent)).not.toMatch(/acme/);
+  });
+
+  it('ignores payloads that are not objects', () => {
+    expect(auditPackageNames(null, true)).toEqual([]);
+    expect(auditPackageNames(['x'], false)).toEqual([]);
   });
 });
