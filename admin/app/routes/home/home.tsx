@@ -31,7 +31,9 @@ import {
   faPen,
   faBox,
   faKey,
+  faCopy,
 } from '@fortawesome/free-solid-svg-icons';
+import { copyText } from '~/utils/copy-text';
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -228,14 +230,20 @@ export default function Home() {
     setIsRepositoryConfigsExpanded(!isRepositoryConfigsExpanded);
   };
 
-  const calculateHiddenItems = () => {
-    if (repositoryConfigs.length === 0) return 0;
+  // Collapsed, the list shows its first row of cards.
+  const collapsedCount = windowWidth >= 768 ? 2 : 1;
+  const calculateHiddenItems = () =>
+    Math.max(0, repositoryConfigs.length - collapsedCount);
+  const visibleConfigs = isRepositoryConfigsExpanded
+    ? repositoryConfigs
+    : repositoryConfigs.slice(0, collapsedCount);
 
-    const itemsPerRow = windowWidth >= 768 ? 2 : 1;
-    const maxVisibleRows = 1;
-    const maxVisibleItems = itemsPerRow * maxVisibleRows;
-
-    return Math.max(0, repositoryConfigs.length - maxVisibleItems);
+  const handleCopyUsage = async (config: RepositoryConfig) => {
+    if (await copyText(config.content.join('\n'))) {
+      toast.success(`Copied the ${config.title} sources`);
+    } else {
+      toast.error('Copying failed; select the text instead');
+    }
   };
 
   useEffect(() => {
@@ -351,31 +359,28 @@ export default function Home() {
           Active Repositories
         </h2>
         <div className="relative">
-          <div
-            className={classNames(
-              'relative overflow-hidden transition-all duration-300 ease-in-out',
-              isRepositoryConfigsExpanded ? 'max-h-none pb-8' : 'max-h-[200px]',
-            )}
-          >
+          <div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {repositoryConfigs.length > 0 ? (
-                repositoryConfigs.map((config: RepositoryConfig, i: number) => (
+                visibleConfigs.map((config: RepositoryConfig, i: number) => (
                   <div
                     key={`${i}:${config.title}`}
-                    className="relative flex max-h-[160px] flex-col gap-3 overflow-y-auto rounded-xl border border-outline-variant bg-surface-container-low p-4"
+                    className="relative flex flex-col gap-3 rounded-xl border border-outline-variant bg-surface-container-low p-4"
                   >
-                    <div className="w-[calc(100%-72px)] shrink-0 truncate font-heading text-base font-semibold text-on-surface">
+                    <div className="w-[calc(100%-140px)] shrink-0 truncate font-heading text-base font-semibold text-on-surface">
                       {config.title}
                     </div>
-                    {config.content.map((line: string, lineIndex: number) => (
-                      <div
-                        key={lineIndex}
-                        className="shrink-0 truncate font-mono text-[12px] text-on-surface-variant"
-                      >
-                        {line}
-                      </div>
-                    ))}
+                    <pre className="whitespace-pre-wrap break-all font-mono text-[12px] text-on-surface-variant">
+                      {config.content.join('\n')}
+                    </pre>
                     <div className="absolute right-3 top-3 flex items-center gap-3">
+                      <button
+                        onClick={() => handleCopyUsage(config)}
+                        className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
+                        title="Copy the sources"
+                      >
+                        <FontAwesomeIcon icon={faCopy} />
+                      </button>
                       {config.hosts.length > 0 && (
                         <Dropdown
                           trigger={
@@ -528,10 +533,10 @@ export default function Home() {
             </div>
             {/* +x more / show less control */}
             {calculateHiddenItems() > 0 && !isRepositoryConfigsExpanded && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-12 items-end justify-center bg-gradient-to-t from-background via-background to-transparent">
+              <div className="mt-2 flex justify-center">
                 <button
                   onClick={handleRepositoryConfigsToggle}
-                  className="pointer-events-auto cursor-pointer rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
+                  className="cursor-pointer rounded-full border border-outline-variant bg-surface-container px-3 py-1 text-sm font-medium text-on-surface-variant transition-colors hover:text-on-surface"
                   title="Expand and see all repository configurations"
                 >
                   +{calculateHiddenItems()} more

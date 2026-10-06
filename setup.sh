@@ -609,9 +609,9 @@ set release_files_retries 15
 #deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 #deb-src http://deb.debian.org/debian bookworm-backports main contrib non-free non-free-firmware
 # Usage start
-#deb http://mirror.intra/deb.debian.org/debian bookworm main non-free-firmware
-#deb http://mirror.intra/security.debian.org/debian-security bookworm-security main non-free-firmware
-#deb http://mirror.intra/deb.debian.org/debian bookworm-updates main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian bookworm main contrib non-free non-free-firmware
+#deb http://mirror.intra/security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware
 # Usage end
 # ---end---Debian Bookworm---
 
@@ -627,10 +627,10 @@ set release_files_retries 15
 #deb-src http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
 #deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
 # Usage start
-#deb http://mirror.intra/deb.debian.org/debian trixie main non-free-firmware
-#deb http://mirror.intra/security.debian.org/debian-security trixie-security main non-free-firmware
-#deb http://mirror.intra/deb.debian.org/debian trixie-updates main non-free-firmware
-#deb http://mirror.intra/deb.debian.org/debian trixie-backports main non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie main contrib non-free non-free-firmware
+#deb http://mirror.intra/security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+#deb http://mirror.intra/deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
 # Usage end
 # ---end---Debian Trixie---
 
