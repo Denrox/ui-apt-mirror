@@ -33,6 +33,7 @@ import classNames from 'classnames';
 import ChunkedUpload from '~/components/shared/form/chunked-upload';
 import DownloadFile from '~/components/shared/form/download-file';
 import { getHostAddress } from '~/utils/url';
+import { formatDateTime, useHydrated } from '~/utils/use-hydrated';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -498,17 +499,8 @@ export default function FileManager() {
     });
   };
 
-  const formatDate = (date: Date): string => {
-    return (
-      date.toLocaleDateString() +
-      ' ' +
-      date.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      })
-    );
-  };
+  const hydrated = useHydrated();
+  const formatDate = (date: Date): string => formatDateTime(date, hydrated);
 
   const parentDirName = useMemo(() => {
     return currentPath.split('/').slice(0, -1).join('/');

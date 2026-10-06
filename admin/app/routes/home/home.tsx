@@ -63,9 +63,8 @@ export default function Home() {
     useState<NewRepoValues | null>(null);
   const [isRepositoryConfigsExpanded, setIsRepositoryConfigsExpanded] =
     useState(false);
-  const [windowWidth, setWindowWidth] = useState(
-    typeof window !== 'undefined' ? window.innerWidth : 1024,
-  );
+  // The real width is set after hydration, so the server HTML still matches.
+  const [windowWidth, setWindowWidth] = useState(1024);
   const { repositoryConfigs, commentedSections, isLockFilePresent, latestLog } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -287,6 +286,7 @@ export default function Home() {
       setWindowWidth(window.innerWidth);
     };
 
+    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);

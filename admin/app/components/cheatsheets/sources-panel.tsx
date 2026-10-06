@@ -15,12 +15,9 @@ import TableRow from '~/components/shared/table-row/table-row';
 import TableWrapper from '~/components/shared/table-wrapper/table-wrapper';
 import ConfirmationModal from '~/components/shared/confirmation-modal/confirmation-modal';
 import type { SourceView } from '~/routes/cheatsheets/loader';
+import { formatDateTime, useHydrated } from '~/utils/use-hydrated';
 
 type ActionResult = { success: boolean; intent: string; message?: string; error?: string };
-
-function formatDate(iso: string | null | undefined) {
-  return iso ? new Date(iso).toLocaleString() : 'never';
-}
 
 export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
   const fetcher = useFetcher<ActionResult>();
@@ -29,6 +26,7 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
   const [toRemove, setToRemove] = useState<SourceView | null>(null);
   const busy = fetcher.state !== 'idle';
   const result = fetcher.data;
+  const hydrated = useHydrated();
 
   useEffect(() => {
     if (fetcher.state === 'idle' && result?.success && result.intent === 'addSource') {
@@ -113,7 +111,7 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                         </span>
                       ) : (
                         <span>
-                          {s.fileCount} pages · updated {formatDate(s.updatedAt)}
+                          {s.fileCount} pages · updated {s.updatedAt ? formatDateTime(s.updatedAt, hydrated) : 'never'}
                           {s.revision ? ` · ${s.revision}` : ''}
                         </span>
                       )}
