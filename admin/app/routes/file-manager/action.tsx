@@ -14,12 +14,12 @@ import { checkLockFile } from '~/utils/sync';
 import { moveFile } from '~/utils/move-path';
 import {
   abortUpload,
-  isStaleTempDir,
   removeStaleTempDirs,
   sweepStaleUploads,
   UploadError,
   writeChunk,
 } from '~/utils/chunk-upload';
+import { scanTrees } from '~/utils/health-scan';
 
 const execFileAsync = promisify(execFile);
 
@@ -723,7 +723,12 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
     } else if (intent === 'runHealthCheck') {
       try {
-        const dataDirs = [appConfig.filesDir, appConfig.mirroredPackagesDir];
+        const dataDirs = [
+          appConfig.filesDir,
+          appConfig.privateFilesDir,
+          appConfig.mirroredPackagesDir,
+          appConfig.npmPackagesDir,
+        ].filter(Boolean);
         const healthFile = appConfig.healthReportFile;
 
         const initialHealthReport = {
@@ -746,132 +751,13 @@ export async function action({ request }: Route.ActionArgs): Promise<{
 
         (async () => {
           try {
-            const invalidFiles: Array<{
-              path: string;
-              reason: string;
-              size: number;
-            }> = [];
-            const cleanedTmpDirs: string[] = [];
-            const scanErrors: string[] = [];
-            let totalFiles = 0;
-            let totalDirectories = 0;
-
-            const scanDirectory = async (
-              currentPath: string,
-              currentDepth: number,
-              maxDepth: number,
-            ): Promise<void> => {
-              if (currentDepth > maxDepth) return;
-
-              try {
-                const items = await fs.readdir(currentPath);
-
-                for (const itemName of items) {
-                  if (
-                    itemName.startsWith('.') &&
-                    !itemName.startsWith('.tmp-')
-                  ) {
-                    continue;
-                  }
-
-                  const itemPath = path.join(currentPath, itemName);
-
-                  try {
-                    const stats = await fs.stat(itemPath);
-
-                    if (stats.isDirectory()) {
-                      if (itemName.startsWith('.tmp-')) {
-                        if (await isStaleTempDir(itemPath)) {
-                          try {
-                            await fs.rm(itemPath, {
-                              recursive: true,
-                              force: true,
-                            });
-                            const relativePath = itemPath.replace(
-                              currentPath + '/',
-                              '',
-                            );
-                            cleanedTmpDirs.push(relativePath);
-                          } catch (removeError) {
-                            const errorMsg = `Failed to remove old .tmp- directory: ${itemPath}`;
-                            scanErrors.push(errorMsg);
-                          }
-                        }
-                      } else {
-                        await scanDirectory(
-                          itemPath,
-                          currentDepth + 1,
-                          maxDepth,
-                        );
-                      }
-                    } else if (stats.isFile()) {
-                      if (stats.size < 16) {
-                        invalidFiles.push({
-                          path: itemPath,
-                          reason: 'suspiciously_small',
-                          size: stats.size,
-                        });
-                      }
-                    }
-                  } catch (itemError) {
-                    const errorMsg = `Error processing item: ${itemPath}`;
-                    scanErrors.push(errorMsg);
-                    console.error(errorMsg, itemError);
-                  }
-                }
-              } catch (readError) {
-                const errorMsg = `Error reading directory: ${currentPath}`;
-                scanErrors.push(errorMsg);
-                console.error(errorMsg, readError);
-              }
-            };
-
-            const countItems = async (
-              targetDir: string,
-            ): Promise<{ files: number; dirs: number }> => {
-              try {
-                const files = await fs.readdir(targetDir);
-                let fileCount = 0;
-                let dirCount = 0;
-
-                for (const item of files) {
-                  try {
-                    const itemPath = path.join(targetDir, item);
-                    const stats = await fs.stat(itemPath);
-                    if (stats.isDirectory()) {
-                      dirCount++;
-                    } else {
-                      fileCount++;
-                    }
-                  } catch {
-                  }
-                }
-
-                return { files: fileCount, dirs: dirCount };
-              } catch {
-                return { files: 0, dirs: 0 };
-              }
-            };
-
-            for (const dir of dataDirs) {
-              try {
-                await scanDirectory(dir, 0, 10);
-              } catch (error) {
-                const errorMsg = `Error scanning directory: ${dir}`;
-                scanErrors.push(errorMsg);
-              }
-            }
-
-            for (const dir of dataDirs) {
-              try {
-                const counts = await countItems(dir);
-                totalFiles += counts.files;
-                totalDirectories += counts.dirs;
-              } catch (error) {
-                const errorMsg = `Error counting items in directory: ${dir}`;
-                scanErrors.push(errorMsg);
-              }
-            }
+            const {
+              totalFiles,
+              totalDirectories,
+              invalidFiles,
+              cleanedTmpDirs,
+              scanErrors,
+            } = await scanTrees(dataDirs);
 
             const healthReport = {
               timestamp: new Date().toISOString(),
