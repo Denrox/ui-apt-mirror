@@ -191,7 +191,8 @@ MSG
     exit 1
 }
 
-# Settings live in .env (read by docker compose); upgrades never touch it.
+# Settings live in .env (read by docker compose). setup.sh changes only its own keys
+# there (write_env_file); the admin's other lines are kept.
 
 # Read KEY from a KEY=VALUE file without sourcing it
 env_get() {
@@ -375,12 +376,19 @@ resolve_user_config() {
     esac
 }
 
+# The settings setup.sh owns in .env, in the order a fresh install writes them
+ENV_KEYS="MIRROR_DOMAIN SYNC_FREQUENCY NPM_PROXY_ENABLED TZ"
+
+# A fresh install writes .env with a header. On an existing .env only the lines of
+# ENV_KEYS are changed in place and missing ones appended: every other line (the
+# admin's variables and comments) is kept, and so are the file's owner and mode.
 write_env_file() {
-    local npm_enabled="false"
+    local npm_enabled="false" tmp
     [ "$ENABLE_NPM_PROXY" = "y" ] && npm_enabled="true"
 
-    print_status "Saving settings to $ENV_FILE..."
-    cat > "$ENV_FILE" <<ENVEOF
+    if [ ! -e "$ENV_FILE" ]; then
+        print_status "Saving settings to $ENV_FILE..."
+        cat > "$ENV_FILE" <<ENVEOF
 # ui-apt-mirror settings. Change with ./setup.sh --reconfigure, or edit and run ./start.sh.
 # The admin, files, npm and cheatsheets hosts are subdomains of MIRROR_DOMAIN.
 MIRROR_DOMAIN=$MIRROR_DOMAIN
@@ -388,6 +396,40 @@ SYNC_FREQUENCY=$SYNC_FREQUENCY
 NPM_PROXY_ENABLED=$npm_enabled
 TZ=$HOST_TIMEZONE
 ENVEOF
+        print_success "Settings saved."
+        return
+    fi
+
+    tmp=$(mktemp "$ENV_FILE.XXXXXX")
+    if ! SET_MIRROR_DOMAIN=$MIRROR_DOMAIN SET_SYNC_FREQUENCY=$SYNC_FREQUENCY \
+        SET_NPM_PROXY_ENABLED=$npm_enabled SET_TZ=$HOST_TIMEZONE \
+        awk -v keys="$ENV_KEYS" '
+            BEGIN { n = split(keys, key, " ") }
+            {
+                for (i = 1; i <= n; i++) {
+                    if (index($0, key[i] "=") == 1) {
+                        print key[i] "=" ENVIRON["SET_" key[i]]
+                        seen[i] = 1
+                        next
+                    }
+                }
+                print
+            }
+            END { for (i = 1; i <= n; i++) if (!seen[i]) print key[i] "=" ENVIRON["SET_" key[i]] }
+        ' "$ENV_FILE" > "$tmp"; then
+        rm -f "$tmp"
+        print_error "Could not update $ENV_FILE"
+        exit 1
+    fi
+    if cmp -s "$tmp" "$ENV_FILE"; then
+        rm -f "$tmp"
+        print_status "Settings in $ENV_FILE are up to date."
+        return
+    fi
+    print_status "Updating settings in $ENV_FILE (other lines are kept)..."
+    # Rewrite the file itself, not a new one, so its owner and mode stay
+    cat "$tmp" > "$ENV_FILE"
+    rm -f "$tmp"
     print_success "Settings saved."
 }
 
@@ -829,6 +871,11 @@ main() {
 
     print_success "Deployment completed successfully!"
 }
+
+# "source setup.sh --lib" only defines the functions (tests/setup-env.sh)
+if [ "${1:-}" = --lib ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 # Run main function with all arguments
 main "$@"

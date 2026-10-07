@@ -268,7 +268,7 @@ The upgrade script will:
 
 | What | Where | On upgrade |
 |------|-------|------------|
-| Settings (domain, sync frequency, timezone, npm proxy) | `.env` | kept |
+| Settings (domain, sync frequency, timezone, npm proxy) and your own lines | `.env` | kept |
 | Your own compose changes (ports, volumes, …) | `docker-compose.override.yml` | kept |
 | Repositories and package filters | `data/conf/apt-mirror/mirror.list` | kept |
 | Users and passwords | `data/auth/.htpasswd` | kept |
