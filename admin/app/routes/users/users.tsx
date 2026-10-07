@@ -186,6 +186,7 @@ export default function Users() {
                       size="small"
                       onClick={() => handleChangePasswordClick(user.username)}
                       disabled={isDeleting}
+                      ariaLabel={`Change password of ${user.username}`}
                     >
                       <FontAwesomeIcon icon={faEdit} />
                     </FormButton>
@@ -195,6 +196,7 @@ export default function Users() {
                         size="small"
                         onClick={() => handleDeleteClick(user.username)}
                         disabled={isDeleting}
+                        ariaLabel={`Delete user ${user.username}`}
                       >
                         <FontAwesomeIcon icon={faTrash} />
                       </FormButton>
