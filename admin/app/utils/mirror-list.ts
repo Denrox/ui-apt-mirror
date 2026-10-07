@@ -137,8 +137,9 @@ export function validateRepositoryInput(
   const base = input.baseUrl?.trim() ?? '';
   if (!base) return 'Base URL is required';
   if (/\s/.test(base)) return 'Base URL cannot contain spaces';
-  if (base.includes('#') || base.includes('?')) {
-    return 'Base URL cannot contain a query or fragment';
+  // apt-mirror2 leaves ";parameters" out of the folder it stores a repository in, like a query.
+  if (/[#?;]/.test(base)) {
+    return 'Base URL cannot contain a query, ";" parameters or fragment';
   }
   if (!BASE_URL_RE.test(base)) return 'Base URL may only contain plain ASCII URL characters';
   let parsed: URL;
