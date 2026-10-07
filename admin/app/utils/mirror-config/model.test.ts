@@ -737,3 +737,17 @@ include_binary_packages http://example.org/synth sl
     expect(cfg.upstreamConflict(cfg.getSection('Synth')!)).toMatch(/"Src" mirrors source packages/);
   });
 });
+
+describe('Usage snippet folder', () => {
+  it('points at the folder the sync writes to, for any spelling of the base URL', () => {
+    for (const [baseUrl, uri] of [
+      ['HTTPS://Download.Docker.com:443/linux/ubuntu/', 'http://mirror.intra/download.docker.com/linux/ubuntu'],
+      ['http://Aptly:8080//debian', 'http://mirror.intra/aptly:8080/debian'],
+    ]) {
+      const cfg = MirrorConfig.parse(BASE);
+      cfg.addSection(input({ baseUrl }), 'mirror.intra');
+      const section = cfg.getSection('Docker Ubuntu')!;
+      expect(cfg.sectionUsageLines(section)).toContain(`URIs: ${uri}`);
+    }
+  });
+});

@@ -567,9 +567,9 @@ function buildUsage(
   mirrorDomain: string,
 ): UsageNode {
   const comps = input.components.join(' ');
-  const url = new URL(base);
-  // apt-mirror2 keeps a non-default port in the folder name (host:port).
-  const mirrorPath = normalizeUrl(`${url.host}${url.pathname}`);
+  // The folder the sync writes the repository to (host[:port]/path), so the snippet always
+  // points where the files are.
+  const mirrorPath = mirrorDirOf(base) ?? normalizeUrl(base.replace(/^[a-z]+:\/\//i, ''));
   const lines = [
     `#Types: deb${input.includeSrc ? ' deb-src' : ''}`,
     `#URIs: http://${mirrorDomain}/${mirrorPath}`,
