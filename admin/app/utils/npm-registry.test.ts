@@ -7,6 +7,8 @@ import {
   isValidDistTag,
   isValidVersion,
   isWebLoginPath,
+  logoutPathToken,
+  tarballsAt,
   mergePublish,
   nextRev,
   packageScope,
@@ -18,6 +20,7 @@ import {
   publicCachePath,
   revMatches,
   scopeListsPackage,
+  upstreamUrl,
   upstreamHeaders,
   withoutAuditPackages,
   type PackageDoc,
@@ -207,6 +210,49 @@ describe('isValidDistTag', () => {
     expect(isValidDistTag('1.0.0')).toBe(false);
     expect(isValidDistTag('v2')).toBe(false);
     expect(isValidDistTag('a/b')).toBe(false);
+  });
+
+  it('rejects the names of Object.prototype properties (r3-npm-5)', () => {
+    for (const tag of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'toLocaleString']) {
+      expect(isValidDistTag(tag), tag).toBe(false);
+    }
+    expect(isValidDistTag('construct')).toBe(true);
+  });
+});
+
+describe('upstreamUrl (r3-npm-1)', () => {
+  const REG = 'https://registry.npmjs.org';
+  const href = (p: string, search?: string) => upstreamUrl(REG, p, search)?.href ?? null;
+
+  it('keeps every path on the registry', () => {
+    expect(href('is-number')).toBe(`${REG}/is-number`);
+    expect(href('@types%2fnode')).toBe(`${REG}/@types%2fnode`);
+    expect(href('-/v1/search', '?text=x')).toBe(`${REG}/-/v1/search?text=x`);
+    expect(href('-/user/org.couchdb.user:alice')).toBe(`${REG}/-/user/org.couchdb.user:alice`);
+    for (const p of ['http:/example.com/', 'http://example.com/', '//example.com/x', 'https:/x:8443/', 'file:/etc/passwd', 'javascript:alert(1)', '@:x@evil/']) {
+      const url = upstreamUrl(REG, p);
+      expect(url?.origin ?? REG, p).toBe(REG);
+    }
+    expect(href('http:/example.com/')).toBe(`${REG}/http:/example.com/`);
+  });
+
+  it('refuses dot segments and backslashes', () => {
+    for (const p of ['a/../b', 'a/%2e%2e/b', 'a%2f..%2fb', '.', 'a/./b', 'a\\b', 'a%5cb', '%E0%A4%A']) {
+      expect(upstreamUrl(REG, p), p).toBeNull();
+    }
+  });
+});
+
+describe('logoutPathToken', () => {
+  it('finds the token of npm logout requests only', () => {
+    expect(logoutPathToken('-/user/token/abc.def')).toBe('abc.def');
+    expect(logoutPathToken('-/user/token/abc/')).toBe('abc');
+    expect(logoutPathToken('-/user/token')).toBe('');
+    expect(logoutPathToken('%2d/user%2ftoken/abc')).toBe('abc');
+    expect(logoutPathToken('-/user/token/%E0%A4%A')).toBe('');
+    expect(logoutPathToken('-/user/org.couchdb.user:alice')).toBeNull();
+    expect(logoutPathToken('-/user/tokens')).toBeNull();
+    expect(logoutPathToken('token')).toBeNull();
   });
 });
 
@@ -403,3 +449,21 @@ describe('scoped public names', () => {
     for (const bad of [null, [], 'x', 1]) expect(scopeListsPackage(bad, '@types/node')).toBe(false);
   });
 });
+
+describe('tarballsAt', () => {
+  it('points npmjs tarball URLs at this registry, and nothing else', () => {
+    const doc = JSON.stringify({
+      versions: {
+        '1.0.0': { dist: { tarball: 'https://registry.npmjs.org/@s/x/-/x-1.0.0.tgz' } },
+        '2.0.0': { dist: { tarball: 'https://example.com/x-2.0.0.tgz' } },
+      },
+      homepage: 'https://registry.npmjs.org/x',
+    });
+    const out = JSON.parse(tarballsAt(doc, 'http://npm.mirror.intra'));
+    expect(out.versions['1.0.0'].dist.tarball).toBe('http://npm.mirror.intra/@s/x/-/x-1.0.0.tgz');
+    expect(out.versions['2.0.0'].dist.tarball).toBe('https://example.com/x-2.0.0.tgz');
+    expect(out.homepage).toBe('https://registry.npmjs.org/x');
+    expect(tarballsAt('{"tarball" : "http://registry.npmjs.org/a/-/a-1.tgz"}', 'http://m')).toBe('{"tarball" : "http://m/a/-/a-1.tgz"}');
+  });
+});
+
