@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
+import type { Stats } from 'fs';
 import { isStaleTempDir, UPLOAD_TEMP_PREFIX } from './chunk-upload';
+import { isWithin } from './safe-path';
 
 // Smallest valid file of each format; anything shorter is truncated. Other files
 // (Packages, keys.json, notes) may legitimately be tiny or empty.
@@ -36,8 +38,39 @@ export interface HealthScan {
   scanErrors: string[];
 }
 
-/** Walks `dirs` (up to `maxDepth` levels), counting everything and removing stale upload temp dirs. */
-export async function scanTrees(dirs: string[], maxDepth = 20): Promise<HealthScan> {
+/**
+ * Stats `itemPath`, following a symlink only while its target stays inside `realRoots`.
+ * Null for a dangling link or one that leads out of the roots: those are skipped.
+ */
+export async function statInsideRoots(
+  itemPath: string,
+  realRoots: string[],
+): Promise<{ stats: Stats; isSymlink: boolean } | null> {
+  const own = await fs.lstat(itemPath);
+  if (!own.isSymbolicLink()) return { stats: own, isSymlink: false };
+  let real: string;
+  try {
+    real = await fs.realpath(itemPath);
+  } catch {
+    return null;
+  }
+  if (!realRoots.some((root) => isWithin(real, root))) return null;
+  return { stats: await fs.stat(itemPath), isSymlink: true };
+}
+
+/** Real paths of the roots that exist. */
+export async function realRootsOf(roots: string[]): Promise<string[]> {
+  const real = await Promise.all(roots.map((root) => fs.realpath(root).catch(() => null)));
+  return real.filter((root): root is string => root !== null);
+}
+
+/**
+ * Walks `dirs` (up to `maxDepth` levels), counting everything and removing stale upload temp
+ * dirs. Symlinks are followed only while they stay inside `roots`, and a temp dir is removed
+ * only when it is a real directory, never through a link.
+ */
+export async function scanTrees(dirs: string[], maxDepth = 20, roots: string[] = dirs): Promise<HealthScan> {
+  const realRoots = await realRootsOf(roots);
   const scan: HealthScan = {
     totalFiles: 0,
     totalDirectories: 0,
@@ -64,7 +97,10 @@ export async function scanTrees(dirs: string[], maxDepth = 20): Promise<HealthSc
       if (name.startsWith('.') && !isTemp) continue;
       const itemPath = path.join(dir, name);
       try {
-        const stats = await fs.stat(itemPath);
+        const found = await statInsideRoots(itemPath, realRoots);
+        if (!found) continue;
+        const { stats, isSymlink } = found;
+        if (isTemp && isSymlink) continue;
         if (stats.isDirectory() && isTemp) {
           if (await isStaleTempDir(itemPath)) {
             try {

@@ -19,6 +19,7 @@ import {
   writeChunk,
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
+import { searchFiles } from '~/utils/search-files';
 import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 import { getValidationError } from '~/utils/file-name';
 import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
@@ -344,60 +345,6 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
     registry: 'docker.io',
     repository: imageUrl,
   };
-}
-
-async function searchFiles(rootPath: string, searchQuery: string): Promise<any[]> {
-  const results: any[] = [];
-  const lowerQuery = searchQuery.toLowerCase();
-  // Real paths already walked, so symlink cycles can't recurse forever
-  const visited = new Set<string>();
-
-  async function searchDirectory(dirPath: string): Promise<void> {
-    try {
-      const realDirPath = await fs.realpath(dirPath);
-      if (visited.has(realDirPath)) return;
-      visited.add(realDirPath);
-
-      const items = await fs.readdir(dirPath);
-      
-      for (const itemName of items) {
-        // Skip hidden files except .tmp- directories
-        if (itemName.startsWith('.') && !itemName.startsWith('.tmp-')) {
-          continue;
-        }
-
-        const itemPath = path.join(dirPath, itemName);
-        
-        try {
-          const stats = await fs.stat(itemPath);
-          
-          // Check if the item name matches the search query
-          if (itemName.toLowerCase().includes(lowerQuery)) {
-            results.push({
-              name: itemName,
-              path: itemPath,
-              size: stats.isFile() ? stats.size : 0,
-              modified: stats.mtime,
-              isDirectory: stats.isDirectory(),
-            });
-          }
-          
-          // Recursively search subdirectories (but not .tmp- directories)
-          if (stats.isDirectory() && !itemName.startsWith('.tmp-')) {
-            await searchDirectory(itemPath);
-          }
-        } catch (itemError) {
-          // Skip items we can't access
-          console.error(`Error processing item: ${itemPath}`, itemError);
-        }
-      }
-    } catch (readError) {
-      console.error(`Error reading directory: ${dirPath}`, readError);
-    }
-  }
-
-  await searchDirectory(rootPath);
-  return results;
 }
 
 export async function action({ request }: Route.ActionArgs): Promise<{
@@ -785,7 +732,7 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
 
       try {
-        const results = await searchFiles(rootPath, searchQuery.trim());
+        const results = await searchFiles(rootPath, searchQuery.trim(), roots);
         return { success: true, results };
       } catch (error) {
         const errorMessage =
