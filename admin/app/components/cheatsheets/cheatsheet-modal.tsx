@@ -5,7 +5,8 @@ import Modal from '~/components/shared/modal/modal';
 import Tag from '~/components/shared/tag/tag';
 import FormButton from '~/components/shared/form/form-button';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import 'katex/dist/katex.min.css';
+import { cheatsheetRehypePlugins, cheatsheetRemarkPlugins } from '~/lib/cheatsheet-markdown';
 import { extractTitle, resolvePageLink, sheetSearch } from '~/lib/cheatsheets';
 
 export interface CheatsheetRef {
@@ -117,7 +118,8 @@ export default function CheatsheetModal({
           // popup never scrolls sideways on a phone.
           <div className="prose max-w-none break-words">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={cheatsheetRemarkPlugins}
+              rehypePlugins={cheatsheetRehypePlugins}
               components={{
                 table: ({ node: _node, ...props }) => (
                   <div className="overflow-x-auto">
