@@ -7,7 +7,7 @@ import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveEntry, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
-import { moveFile } from '~/utils/move-path';
+import { moveFile, restoreParkedMoves } from '~/utils/move-path';
 import {
   abortUpload,
   nameTakenError,
@@ -35,8 +35,10 @@ const OUTSIDE = 'Path is outside the file storage';
 const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
 
 // Uploads cut off by a restart leave temp dirs behind; uploads stuck in this process are swept.
+// A move cut off by a restart leaves its source parked under a hidden name; put it back.
 for (const dir of [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean)) {
   removeStaleTempDirs(dir).catch((error) => console.error('Failed to clean upload temp dirs:', error));
+  restoreParkedMoves(dir).catch((error) => console.error('Failed to restore parked moves:', error));
 }
 setInterval(() => {
   sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
