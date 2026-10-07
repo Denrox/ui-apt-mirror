@@ -18,7 +18,6 @@ import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {
   applyDocUpdate,
   auditPackageNames,
-  currentRev,
   isAuditPath,
   isFresh,
   isRegistryRequest,
@@ -26,7 +25,6 @@ import {
   isValidName,
   isValidVersion,
   isWebLoginPath,
-  legacyPublicCachePath,
   mergePublish,
   nextRev,
   packageScope,
@@ -367,8 +365,7 @@ async function loadPrivatePackage(
 
   const doc = await readPrivateDoc(packageName);
   if (!doc) return null;
-  doc._rev = currentRev(doc);
-  // Tarball URLs are computed per request: ones stored by older versions pointed at /npm/npm/….
+  // Tarball URLs are computed per request, so they follow the host the client used.
   for (const version of Object.values<any>(doc.versions ?? {})) {
     const stored = version?.dist?.tarball;
     if (typeof stored === 'string' && stored.includes('/-/')) {
@@ -381,42 +378,11 @@ async function loadPrivatePackage(
   };
 }
 
-/**
- * Moves a response cached by an older version into the current layout, so a mirror that is offline
- * after the upgrade still has it. The old layout let names collide, so a packument is taken over only
- * if it names this package (`x.meta` used to hold x's metadata) and a tarball only if it is a file.
- */
-async function adoptLegacyCache(route: NpmPath, cachePath: string): Promise<void> {
-  const legacy = legacyPublicCachePath(route);
-  if (!legacy || (await isCached(cachePath))) return;
-  const from = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, legacy));
-  if (!(await fs.lstat(from).catch(() => null))?.isFile()) return;
-  if (route.kind === 'package') {
-    const doc = parseJsonObject(await fs.readFile(from, 'utf-8'));
-    if (doc?.name !== route.name) return;
-  }
-
-  await fs.mkdir(path.dirname(cachePath), { recursive: true });
-  // Metadata first: if this is interrupted, the data is still found in the old place next time.
-  await fs.rename(`${from}.meta`, `${cachePath}.meta`).catch(() => {});
-  await fs.rename(from, cachePath).catch((error) => {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  });
-  // Drop the directories the old layout leaves empty (<name>-tarballs/…/-/).
-  for (let dir = path.dirname(from); dir !== path.resolve(PUBLIC_PACKAGES_DIR); dir = path.dirname(dir)) {
-    if (!(await fs.rmdir(dir).then(() => true, () => false))) break;
-  }
-}
-
 /** The cache file of a route in the public dir, or null for paths that are never cached. */
 async function publicCacheFile(route: NpmPath): Promise<string | null> {
   const cacheFile = publicCachePath(route);
   if (!cacheFile) return null;
-  const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cacheFile));
-  await adoptLegacyCache(route, cachePath).catch((error) => {
-    console.error(`Could not move the cached ${cacheFile} into the current layout:`, error);
-  });
-  return cachePath;
+  return insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cacheFile));
 }
 
 /** Cached upstream response; metadata is revalidated after a TTL, tarballs never change. */

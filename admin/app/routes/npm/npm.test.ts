@@ -56,18 +56,6 @@ const upstreamScopes: Record<string, Record<string, string>> = {
 
 beforeAll(async () => {
   process.env.NPM_PROXY_ENABLED = 'true';
-  // A private package in the layout of earlier versions, published before the upgrade.
-  const legacy = path.join(dirs.npm, 'private');
-  await fs.mkdir(path.join(legacy, '@legacy/pkg/-/@legacy'), { recursive: true });
-  await fs.writeFile(
-    path.join(legacy, '@legacy/pkg.json'),
-    JSON.stringify({
-      name: '@legacy/pkg',
-      versions: { '1.0.0': { name: '@legacy/pkg', version: '1.0.0', dist: { tarball: 'http://old/@legacy/pkg/-/@legacy/pkg-1.0.0.tgz' } } },
-      'dist-tags': { latest: '1.0.0' },
-    }),
-  );
-  await fs.writeFile(path.join(legacy, '@legacy/pkg/-/@legacy/pkg-1.0.0.tgz'), 'legacy tarball');
 });
 
 beforeEach(() => {
@@ -87,19 +75,6 @@ afterAll(async () => {
 });
 
 describe('npm registry route', () => {
-  it('keeps serving private packages stored in the old layout', async () => {
-    const res = await call(request('/@legacy%2fpkg'));
-    expect(res.status).toBe(200);
-    const doc = await res.json();
-    expect(doc['dist-tags'].latest).toBe('1.0.0');
-    expect(doc.versions['1.0.0'].dist.tarball).toBe(`http://${HOST}/@legacy/pkg/-/@legacy/pkg-1.0.0.tgz`);
-
-    const tgz = await call(request('/@legacy/pkg/-/@legacy/pkg-1.0.0.tgz'));
-    expect(tgz.status).toBe(200);
-    expect(await tgz.text()).toBe('legacy tarball');
-    expect(await publish('@legacy/pkg', '1.1.0')).toHaveProperty('status', 200);
-  });
-
   it('publishes <name>.json without breaking <name> (r2-npm-1)', async () => {
     expect((await publish('@acme/coll')).status).toBe(200);
     expect((await publish('@acme/coll.json')).status).toBe(200);
@@ -138,9 +113,8 @@ describe('npm registry route', () => {
   });
 
   it('refuses a scoped name that is in the public cache, also when npmjs cannot be reached', async () => {
-    // Cached by an older version, in the old layout.
-    await fs.mkdir(path.join(dirs.npm, 'public/@babel'), { recursive: true });
-    await fs.writeFile(path.join(dirs.npm, 'public/@babel/core'), JSON.stringify({ name: '@babel/core' }));
+    await fs.mkdir(path.join(dirs.npm, 'public/_packages/@babel/core'), { recursive: true });
+    await fs.writeFile(path.join(dirs.npm, 'public/_packages/@babel/core/package.json'), JSON.stringify({ name: '@babel/core' }));
     fetchMock.mockRejectedValue(new Error('offline'));
     expect((await publish('@babel/core', '99.0.0')).status).toBe(403);
   });
