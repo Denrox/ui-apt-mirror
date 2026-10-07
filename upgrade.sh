@@ -1,7 +1,8 @@
 #!/bin/bash
-# Landing block: keep at the top, don't change its size. The previous release's
-# upgrade.sh overwrites itself with this file and bash resumes reading at byte
-# 8192, where it hits 'exit 0'. Normal runs skip it. See upgrade-script.test.ts.
+# Landing block: keep at the top, don't change its size. The upgrade.sh of 2.x
+# releases before 2.4 overwrites itself with this file and bash resumes reading at
+# byte 8192, where it hits 'exit 0' instead of running whatever is there; version 3
+# then refuses that install. Normal runs skip it. See upgrade-script.test.ts.
 if false; then
 ###############################################################################
 ###############################################################################
@@ -101,8 +102,7 @@ if false; then
 ###############################################################################
 ###############################################################################
 ###############################################################################
-###############################################################################
-####
+
 exit 0
 fi
 
