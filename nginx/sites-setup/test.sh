@@ -106,11 +106,22 @@ check "edited: other sites are stock" 'stock admin.mirror.intra.conf d.test | cm
 check "edited: stock copy offered" 'stock files.mirror.intra.conf d.test | cmp -s - "$HOST/custom/files.mirror.intra.conf.stock"'
 check "edited: says the stock changed" 'grep -q "The stock files.mirror.intra.conf changed" "$CASE/log"'
 
-# 4. Domain changed after the override was copied
+# 4. Overrides are compared only as rendered for the install's domain or as the template:
+#    an unedited template copy (mirror.intra) on a d.test install is removed, but a
+#    copy that names another domain is the admin's, and stays (with its stock copy)
+new_case template-copy
+prev_override files.mirror.intra.conf mirror.intra
+render d.test
+check "template copy on d.test: unedited override removed" no_overrides
+check "template copy on d.test: site is stock" 'stock files.mirror.intra.conf d.test | cmp -s - "$SITES/files.mirror.intra.conf"'
+
 new_case domain-changed
 prev_override files.mirror.intra.conf old.test
+cp "$HOST/custom/files.mirror.intra.conf" "$CASE/edited.conf"
 render new.test
-check "domain changed: unedited override removed" no_overrides
+check "other domain: override kept" 'cmp -s "$CASE/edited.conf" "$HOST/custom/files.mirror.intra.conf"'
+check "other domain: override is used" 'cmp -s "$CASE/edited.conf" "$SITES/files.mirror.intra.conf"'
+check "other domain: stock copy offered" '[ -f "$HOST/custom/files.mirror.intra.conf.stock" ]'
 
 # 5. An editor that added CRLFs or stripped trailing spaces did not edit the config
 new_case whitespace
@@ -162,6 +173,32 @@ check "changed base: says the stock changed" 'grep -q "The stock files.mirror.in
 render mirror.intra
 check "changed base: next start still reminds" 'grep -q "Compare custom/files.mirror.intra.conf" "$CASE/log"'
 check "changed base: next start does not repeat the claim" '! grep -q "changed since" "$CASE/log"'
+
+# 10. An override whose only edit is another host name for one site (r3-upgrade-2):
+#     kept through a stock change, flagged, and still serves that name
+for domain in mirror.intra c.test; do
+    for other in files.example.org files.other.lan; do
+        new_case "rename-$domain-$other"
+        prev_override files.mirror.intra.conf "$domain"
+        prev_override admin.mirror.intra.conf "$domain"
+        sed -i "s/files\.${domain//./\\.}/$other/g" "$HOST/custom/files.mirror.intra.conf"
+        cp "$HOST/custom/files.mirror.intra.conf" "$CASE/edited.conf"
+        check "rename $domain -> $other: the edit applied" 'grep -q "server_name $other;" "$CASE/edited.conf"'
+        # On the release it was written for, nothing changes
+        render "$domain" "$PREV"
+        check "rename $domain -> $other: kept on the same release" 'cmp -s "$CASE/edited.conf" "$HOST/custom/files.mirror.intra.conf"'
+        # On the next release, the unedited admin copy goes and the renamed files one stays
+        render "$domain"
+        check "rename $domain -> $other: only files is an override (got: $(overrides))" \
+            '[ "$(overrides)" = "files.mirror.intra.conf " ]'
+        check "rename $domain -> $other: override is the user's file" 'cmp -s "$CASE/edited.conf" "$HOST/custom/files.mirror.intra.conf"'
+        check "rename $domain -> $other: site serves $other" 'grep -q "server_name $other;" "$SITES/files.mirror.intra.conf"'
+        check "rename $domain -> $other: stock copy offered" \
+            'stock files.mirror.intra.conf "$domain" | cmp -s - "$HOST/custom/files.mirror.intra.conf.stock"'
+        check "rename $domain -> $other: says the stock changed" 'grep -q "The stock files.mirror.intra.conf changed" "$CASE/log"'
+        check "rename $domain -> $other: not called unedited" '! grep -q "custom/files.mirror.intra.conf was the previous release" "$CASE/log"'
+    done
+done
 
 echo "$passes passed, $fails failed"
 [ "$fails" -eq 0 ]
