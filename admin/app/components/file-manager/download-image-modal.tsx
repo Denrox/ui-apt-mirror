@@ -81,12 +81,12 @@ export default function DownloadImageModal({
             id="image-url"
             value={imageUrl}
             onChange={setImageUrl}
-            placeholder="e.g., nginx, repo/image, docker.io/repo/image, gcr.io/project/image"
+            placeholder="e.g., nginx, repo/image, gcr.io/project/image, quay.io/org/image"
           />
           <p className="text-xs text-on-surface-variant mt-1">
-            Supports Docker Hub and Google Container Registry (GCR). Single
-            words (e.g., "nginx") will use docker.io/library/. Uses skopeo for
-            downloading images.
+            Public images from Docker Hub or any registry named in the image
+            (gcr.io, quay.io, ghcr.io, …). Single words (e.g., "nginx") use
+            docker.io/library/. Uses skopeo for downloading images.
           </p>
         </div>
 

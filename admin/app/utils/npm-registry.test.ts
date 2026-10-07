@@ -14,7 +14,6 @@ import {
   parseNpmPath,
   pathPackage,
   privateVersion,
-  legacyPublicCachePath,
   publicCachePath,
   revMatches,
   scopeListsPackage,
@@ -196,7 +195,6 @@ describe('revisions', () => {
     expect(revMatches(doc, undefined)).toBe(true);
     expect(revMatches(doc, doc._rev)).toBe(true);
     expect(revMatches(doc, '1-stale')).toBe(false);
-    expect(revMatches({ ...doc, _rev: undefined }, '0-legacy')).toBe(true);
   });
 });
 
@@ -315,7 +313,7 @@ describe('publicCachePath', () => {
     );
   });
 
-  it('gives names that collided in the old layout paths that do not overlap', () => {
+  it('gives names that could collide (x.meta, x-tarballs) paths that do not overlap', () => {
     const names = ['x', 'x.meta', 'x-tarballs', '@s/y', '@s-tarballs/y', '@s/y.meta'];
     const files = names.flatMap((n) => [
       publicCachePath(parseNpmPath(n))!,
@@ -329,14 +327,6 @@ describe('publicCachePath', () => {
   it('caches only .tgz tarballs, so none can be named like a .meta file', () => {
     expect(publicCachePath(parseNpmPath('x/-/x-1.0.0.tgz.meta'))).toBeNull();
     expect(publicCachePath(parseNpmPath('x/-/sub/x-1.0.0.tgz'))).toBeNull();
-  });
-
-  it('knows where older versions cached the same response', () => {
-    expect(legacyPublicCachePath(parseNpmPath('left-pad'))).toBe('left-pad');
-    expect(legacyPublicCachePath(parseNpmPath('@babel/core/-/core-7.0.0.tgz'))).toBe(
-      '@babel-tarballs/core/-/core-7.0.0.tgz',
-    );
-    expect(legacyPublicCachePath(parseNpmPath('left-pad/latest'))).toBeNull();
   });
 
   it('does not cache paths that would collide with a packument or depend on the query', () => {

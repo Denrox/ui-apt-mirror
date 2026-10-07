@@ -85,6 +85,15 @@ are kept.
   - Cheatsheet sources (add GitHub repositories, update, remove)
   - User management and settings
 
+Failed logins (web and `npm login`) are limited per client address and per
+username. The container has no IPv6 address, so Docker's userland proxy
+connects IPv6 clients and clients on the Docker host itself (`127.0.0.1`,
+`::1`) from the network gateway, and they all reach the mirror with that one
+address. The limit for the gateway is per username, so one of those clients
+can't lock the others out, but they can't be told apart either. The same goes
+for a reverse proxy in front of the mirror: its clients share its address, and
+the mirror ignores `X-Forwarded-For` because any client can send one.
+
 ### File Repository (files.mirror.intra)
 
 - **URL**: `http://files.mirror.intra`
@@ -274,30 +283,36 @@ instead (same format, merged on top by `start.sh`). To change an nginx site,
 copy it from the running container (`docker exec ui-apt-mirror cat
 /etc/nginx/sites-available/files.mirror.intra.conf`) to
 `data/conf/nginx/custom/files.mirror.intra.conf` and edit it there; delete the
-file to go back to the stock config. An override that is an unedited stock
-config of an earlier release (2.4.x upgrades created those) is moved to
-`data/conf/nginx/custom.unedited-<date>/` and the current stock config is used.
+file to go back to the stock config. An override that is the previous
+release's stock config, unedited, is removed on upgrade and the current stock
+config is used.
 
-#### Upgrading from older versions
+#### Supported upgrades
 
-The first upgrade of an install that predates `.env` migrates it automatically:
-settings are read from the old `docker-compose.yml`, nginx configs you had
-edited become overrides in `data/conf/nginx/custom/` (unedited ones, from any
-release, are replaced by the current stock configs), and private files are
-copied out of the old container (they were not stored on the host before). If
-the old `docker-compose.yml` had hand edits, it is saved under `backups/` and
-the upgrade tells you to move those edits to `docker-compose.override.yml`.
+`./upgrade.sh` upgrades from the latest release only (3.0 to 3.1, then 3.1 to
+3.2, and so on). Version 3 does not upgrade 2.x installs: its `setup.sh`,
+`upgrade.sh` and `start.sh` recognise one (it has no `.ui-apt-mirror-version`
+file) and stop before changing anything.
 
-Every install signs logins with its own secret now, so everyone has to sign in
-again once, and npm tokens from `npm login` must be renewed.
+#### Moving from 2.x
 
-Installs whose `upgrade.sh` does not copy a new `setup.sh` (versions from before
-August 2025) should fetch the current `upgrade.sh` before upgrading:
-
-```bash
-curl -fsSLO https://raw.githubusercontent.com/Denrox/ui-apt-mirror/master/upgrade.sh
-chmod +x upgrade.sh && ./upgrade.sh
-```
+1. Back up the 2.x install's settings, users, signing keys and files (in its
+   directory):
+   ```bash
+   tar -czf ../ui-apt-mirror-2.x-backup.tar.gz .env docker-compose*.yml data/conf data/auth \
+       data/data/apt-mirror/gpg data/data/files data/data/files-private
+   ```
+2. Install version 3 in a new directory. It stops and replaces the 2.x
+   container, which has the same name and ports:
+   ```bash
+   curl -fsSLO https://ui-apt-mirror.dbashkatov.com/downloads/install.sh && bash install.sh
+   ```
+3. Copy over what you want to keep with `cp -a`, then run
+   `docker restart ui-apt-mirror`:
+   - `data/data/files` and `data/data/files-private`: public and private files
+   - `data/data/apt-mirror`: mirrored packages and the signing keys apt clients trust
+   - `data/conf/apt-mirror/mirror.list`: repositories
+4. Set up users, npm packages and cheatsheet sources again in the admin panel.
 
 ## Directory Structure
 
@@ -345,6 +360,21 @@ ui-apt-mirror/
         ├── apt-mirror/      # APT mirror logs
         └── nginx/           # Nginx logs
 ```
+
+## Releasing
+
+An upgrade recognises the previous release's stock nginx site configs among
+the overrides in `data/conf/nginx/custom/` and replaces them with the new
+stock configs. After tagging a release, replace the list of those configs with
+the new release's and commit it, so the next version recognises them:
+
+```bash
+git tag v3.0.0
+nginx/sites-setup/update-released-sites.sh v3.0.0
+git commit -m "List the stock nginx site configs of v3.0.0" nginx/sites-setup/released-sites.sha256
+```
+
+`nginx/sites-setup/test.sh` checks that the list matches the tag it names.
 
 ## License
 

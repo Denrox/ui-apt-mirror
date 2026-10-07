@@ -32,6 +32,47 @@ interface AddRepoModalProps {
   readonly title?: string;
   /** Submit button label; defaults to "Add Repository"/"Adding...". */
   readonly submitLabel?: string;
+  /** Upstreams of the enabled repositories, to warn about package filters they would share. */
+  readonly upstreams?: readonly { url: string; title: string; filtered: boolean }[];
+}
+
+/** Base URL as the server writes it (lower-case scheme and host, no trailing slash). */
+function canonicalUrl(url: string): string {
+  try {
+    const u = new URL(url.trim());
+    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return url.trim().replace(/\/+$/, '');
+  }
+}
+
+/** Package filters as the server counts them (architectures are not a filter). */
+const hasPackageFilter = (v: NewRepoValues): boolean =>
+  Boolean(
+    v.includeSourceName.trim() ||
+      v.includeBinaryPackages.trim() ||
+      v.excludeBinaryPackages.trim() ||
+      v.includeSections.trim(),
+  );
+
+/**
+ * apt-mirror2 keeps one package filter per upstream: a warning when this repository and an
+ * enabled one on the same base URL differ in being filtered (the server refuses that).
+ */
+export function sharedFilterWarning(
+  values: NewRepoValues,
+  upstreams: readonly { url: string; title: string; filtered: boolean }[],
+  ownTitle?: string,
+): string | null {
+  if (!values.baseUrl.trim()) return null;
+  const url = canonicalUrl(values.baseUrl);
+  const filtered = hasPackageFilter(values);
+  const others = upstreams.filter((u) => u.url === url && u.title !== ownTitle && u.filtered !== filtered);
+  if (!others.length) return null;
+  const names = [...new Set(others.map((o) => `"${o.title}"`))].join(', ');
+  return filtered
+    ? `${names} uses the same upstream without a package filter. apt-mirror2 filters per base URL, so this filter would restrict ${names} too. Disable it first, or give it the same filter.`
+    : `${names} uses the same upstream with a package filter. apt-mirror2 filters per base URL, so this repository would only get the packages ${names} selects. Add the same filter here, or disable ${names} first.`;
 }
 
 const EMPTY: NewRepoValues = {
@@ -90,6 +131,7 @@ export default function AddRepoModal({
   initialValues,
   title = 'Add Repository',
   submitLabel,
+  upstreams = [],
 }: AddRepoModalProps) {
   const [values, setValues] = useState<NewRepoValues>(EMPTY);
   const [showFilters, setShowFilters] = useState(false);
@@ -156,6 +198,8 @@ export default function AddRepoModal({
     }
   };
 
+  const filterWarning = sharedFilterWarning(values, upstreams, initialValues?.title);
+
   const isValid =
     values.title.trim() !== '' &&
     values.baseUrl.trim() !== '' &&
@@ -186,6 +230,11 @@ export default function AddRepoModal({
             placeholder="http://archive.ubuntu.com/ubuntu"
             disabled={isSubmitting}
           />
+          {filterWarning && (
+            <p role="alert" className="text-[12px] leading-relaxed text-error">
+              {filterWarning}
+            </p>
+          )}
         </FormField>
 
         <FormField label="Suites" required>
@@ -250,8 +299,9 @@ export default function AddRepoModal({
                 <strong>exactly</strong> (space/comma separated) and{' '}
                 <strong>dependencies are not pulled in automatically</strong> —
                 list every package you need. Leave blank to mirror everything.
-                Filters apply to every repository with the same base URL, and
-                clients still see the full upstream package list.
+                Filters apply to every repository with the same base URL (apt-mirror2
+                keeps one filter per upstream), so all repositories on one upstream
+                must be filtered or none. Clients still see the full upstream package list.
               </p>
 
               <FormField label="Architectures">

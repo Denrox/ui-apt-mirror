@@ -58,6 +58,17 @@ const CONTROL_RE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 // URL characters (RFC 3986) without whitespace, `?` and `#`: any other character could be read
 // differently by apt-mirror2 (Python splits on Unicode whitespace) than by this app.
 const BASE_URL_RE = /^[A-Za-z0-9\-._~:\/@!$&'()*+,;=%\[\]]+$/;
+// Characters a title must not contain because they do not show: format characters (zero-width
+// space and joiners, bidi embeddings, overrides and isolates, U+FEFF), private-use and
+// unassigned code points, lone surrogates, the object replacement character and the blank
+// "letters" (Hangul fillers, Braille blank). Two titles would otherwise look the same, and a
+// bidi override displays a title reversed.
+const INVISIBLE_RE = /[\p{Cf}\p{Co}\p{Cn}\p{Cs}\u115F\u1160\u2800\u3164\uFFA0\uFFFC\uFFFD]/u;
+
+/** A title as it is compared for duplicates: NFKC-normalised, case-folded, single spaces. */
+export function titleKey(title: string): string {
+  return title.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
 
 export function validateRepositoryInput(
   input: NewRepositoryInput,
@@ -88,7 +99,10 @@ export function validateRepositoryInput(
   if (title.includes('---') || /[\n\r]/.test(title)) {
     return 'Title cannot contain "---" or line breaks';
   }
-  if (existingTitles.some((t) => t.toLowerCase() === title.toLowerCase())) {
+  if (INVISIBLE_RE.test(title)) {
+    return 'Title cannot contain invisible, bidirectional or private-use characters';
+  }
+  if (existingTitles.some((t) => titleKey(t) === titleKey(title))) {
     return `A repository titled "${title}" already exists`;
   }
 

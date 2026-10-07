@@ -79,6 +79,29 @@ describe('attemptLogin', () => {
     ).toEqual({ ok: true });
   });
 
+  it('is not reset by a correct login to another account (r3-auth-2)', async () => {
+    writePrivateFile(
+      htpasswdPath,
+      `erin:${await hashPassword('right')}\nmallory:${await hashPassword('mine')}\n`,
+    );
+    const ip = request('7.7.7.7');
+    const results: string[] = [];
+    for (let round = 0; round < 2; round++) {
+      for (let i = 0; i < 4; i++) {
+        const r = await attemptLogin(ip, { username: 'erin', password: `guess${round}${i}` });
+        results.push(r.retryAfter ? '429' : String(r.ok));
+      }
+      const own = await attemptLogin(ip, { username: 'mallory', password: 'mine' });
+      results.push(own.retryAfter ? '429' : String(own.ok));
+    }
+    expect(results).toEqual([
+      'false', 'false', 'false', 'false', 'true',
+      'false', '429', '429', '429', '429',
+    ]);
+    // Erin herself, elsewhere, is not locked out by one address.
+    expect(await attemptLogin(request('7.7.7.8'), { username: 'erin', password: 'right' })).toEqual({ ok: true });
+  });
+
   it('clears the counters on success', async () => {
     writePrivateFile(htpasswdPath, `dave:${await hashPassword('right')}\n`);
     for (let i = 0; i < 4; i++) {
@@ -159,19 +182,6 @@ describe('revokeSession (logout)', () => {
     expect(await validateAuthToken(other)).not.toBeNull();
     const file = path.join(path.dirname(htpasswdPath), '.tokens-revoked');
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-  });
-
-  it('revokes tokens issued before jti existed', async () => {
-    writePrivateFile(htpasswdPath, 'admin:x\nfrank:y\n');
-    const { default: jwt } = await import('jsonwebtoken');
-    const { getJwtSecret } = await import('./server-auth');
-    const legacy = jwt.sign(
-      { username: 'frank', type: 'web', iatMs: Date.now(), exp: Math.floor(Date.now() / 1000) + 3600 },
-      getJwtSecret(),
-    );
-    expect(await validateAuthToken(legacy)).not.toBeNull();
-    await revokeSession(cookieRequest(legacy));
-    expect(await validateAuthToken(legacy)).toBeNull();
   });
 
   it('ignores requests without a valid cookie', async () => {

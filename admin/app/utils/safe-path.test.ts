@@ -9,6 +9,7 @@ import {
   resolveInside,
   SYNC_RUNNING_ERROR,
   writeBlockedReason,
+  MIRROR_STRUCTURE_ERROR,
 } from './safe-path';
 
 let base: string;
@@ -99,7 +100,11 @@ describe('resolveEntry', () => {
 });
 
 describe('writeBlockedReason', () => {
-  const dirs = () => ({ mirror: path.join(base, 'apt-mirror'), npm: path.join(base, 'npm') });
+  const dirs = () => ({
+    mirror: path.join(base, 'apt-mirror'),
+    mirrorRoot: path.join(base, 'apt-mirror', 'mirror'),
+    npm: path.join(base, 'npm'),
+  });
 
   it('allows anything outside the managed dirs, even during a sync', () => {
     expect(writeBlockedReason(path.join(files, 'new'), 'add', true, dirs())).toBeNull();
@@ -107,10 +112,35 @@ describe('writeBlockedReason', () => {
   });
 
   it('only allows removal in the mirror and npm dirs', () => {
-    for (const dir of Object.values(dirs())) {
+    for (const dir of [dirs().mirrorRoot, dirs().npm]) {
       expect(writeBlockedReason(path.join(dir, 'x'), 'add', false, dirs())).toBe(MANAGED_DIR_ERROR);
       expect(writeBlockedReason(path.join(dir, 'x'), 'remove', false, dirs())).toBeNull();
     }
+  });
+
+  it('keeps the signing keys and the mirror folders themselves (r3-files-4)', () => {
+    const d = dirs();
+    for (const name of ['gpg', 'gpg/keys.json', 'gpg/gnupg', 'gpg/gnupg/private-keys-v1.d/K.key', 'mirror', 'mirror/', 'skel', 'var', 'other']) {
+      expect(writeBlockedReason(path.join(d.mirror, name), 'remove', false, d)).toBe(MIRROR_STRUCTURE_ERROR);
+    }
+    expect(writeBlockedReason(path.join(d.mirror, 'mirror', 'deb.debian.org'), 'remove', false, d)).toBeNull();
+    expect(writeBlockedReason(path.join(d.mirror, 'mirror', 'deb.debian.org', 'pool'), 'remove', false, d)).toBeNull();
+  });
+
+  it('judges a link in the mirror by where it is, not where it points (r3-files-4)', () => {
+    const d = dirs();
+    fs.mkdirSync(path.join(d.mirror, 'gpg'), { recursive: true });
+    fs.mkdirSync(d.mirrorRoot, { recursive: true });
+    // A link inside the published tree to the keys can go; removing it leaves the keys.
+    fs.symlinkSync(path.join(d.mirror, 'gpg'), path.join(d.mirrorRoot, 'keys-link'));
+    expect(writeBlockedReason(path.join(d.mirrorRoot, 'keys-link'), 'remove', false, d)).toBeNull();
+    // Reaching the keys through a link to them is still the keys.
+    expect(writeBlockedReason(path.join(d.mirrorRoot, 'keys-link', 'keys.json'), 'remove', false, d)).toBe(
+      MIRROR_STRUCTURE_ERROR,
+    );
+    // A link from public files into the mirror folders removes only the link.
+    fs.symlinkSync(d.mirrorRoot, path.join(files, 'mirror-link'));
+    expect(writeBlockedReason(path.join(files, 'mirror-link'), 'remove', false, d)).toBeNull();
   });
 
   it('judges a symlink by where it is and where it points', () => {

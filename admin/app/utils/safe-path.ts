@@ -77,15 +77,37 @@ function touches(p: string, root: string): boolean {
 
 export const MANAGED_DIR_ERROR = 'This folder is managed by the mirror; only deletion is allowed here';
 export const SYNC_RUNNING_ERROR = 'A mirror sync is running; try again after it finishes';
+export const MIRROR_STRUCTURE_ERROR =
+  'Only files inside the published mirror tree can be deleted here; the signing keys and the mirror folders are kept';
 
-/** Why a write to the entry `target` is refused: mirror and npm dirs only allow removal, the mirror none during a sync. */
+/**
+ * Why a write to the entry `target` is refused: mirror and npm dirs only allow removal, the
+ * mirror none during a sync. In the mirror dir only entries inside the published tree may be
+ * removed: never the signing keys (`gpg/`, pinned by apt clients) or the `mirror`, `skel` and
+ * `var` folders themselves. A symlink there is judged by where it is, since removing it never
+ * touches its target.
+ */
 export function writeBlockedReason(
   target: string,
   op: 'add' | 'remove',
   syncRunning: boolean,
-  dirs = { mirror: appConfig.mirroredPackagesDir, npm: appConfig.npmPackagesDir },
+  dirs = {
+    mirror: appConfig.mirroredPackagesDir,
+    mirrorRoot: appConfig.mirrorRoot,
+    npm: appConfig.npmPackagesDir,
+  },
 ): string | null {
   if (syncRunning && touches(target, dirs.mirror)) return SYNC_RUNNING_ERROR;
+  if (op === 'remove') {
+    const entry = entryPathOf(target);
+    const publishedTree = realPathOf(dirs.mirrorRoot);
+    if (
+      isWithin(entry, realPathOf(dirs.mirror)) &&
+      !(isWithin(entry, publishedTree) && entry !== publishedTree)
+    ) {
+      return MIRROR_STRUCTURE_ERROR;
+    }
+  }
   if (op === 'add' && (touches(target, dirs.mirror) || touches(target, dirs.npm))) {
     return MANAGED_DIR_ERROR;
   }

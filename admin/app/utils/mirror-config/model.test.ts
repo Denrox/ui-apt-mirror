@@ -530,3 +530,84 @@ describe('enabledHosts', () => {
     expect(cfg.enabledHosts()).toEqual(['archive.ubuntu.com']);
   });
 });
+
+describe('base URLs with a port (r3-repos-2)', () => {
+  it('points the Usage snippet at the host:port folder apt-mirror2 uses', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ title: 'LAN', baseUrl: 'http://aptly.lan:8080/debian', trusted: false }), 'mirror.intra');
+    const section = cfg.getSection('LAN')!;
+    expect(cfg.sectionUsageLines(section)).toContain('URIs: http://mirror.intra/aptly.lan:8080/debian');
+  });
+
+  it('keeps the key host without the port', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ title: 'LAN', baseUrl: 'http://192.168.0.10:18099/', trusted: false }), 'mirror.intra');
+    expect(cfg.sectionHosts(cfg.getSection('LAN')!)).toEqual(['192.168.0.10']);
+  });
+
+  it('leaves snippets of upstreams without a port alone', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    expect(cfg.sectionUsageLines(cfg.getSection('Ubuntu Noble')!)).toContain(
+      'URIs: http://mirror.intra/archive.ubuntu.com/ubuntu',
+    );
+  });
+});
+
+describe('one-line trusted snippets (r3-repos-5)', () => {
+  const DOCKER = `# ---start---Docker Debian 13---
+## Docker CE for Debian 13
+deb https://download.docker.com/linux/debian trixie stable
+# Usage start
+#deb [trusted=yes] http://mirror.intra/download.docker.com/linux/debian trixie stable
+# Usage end
+# ---end---Docker Debian 13---
+`;
+
+  it('reads trusted from a one-line [trusted=yes] Usage line', () => {
+    const cfg = MirrorConfig.parse(DOCKER);
+    expect(cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)?.trusted).toBe(true);
+  });
+
+  it('keeps Trusted: yes when the section is saved unchanged', () => {
+    const cfg = MirrorConfig.parse(DOCKER);
+    const editable = cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)!;
+    cfg.editSection('Docker Debian 13', editable, 'mirror.intra');
+    expect(cfg.sectionUsageLines(cfg.getSection('Docker Debian 13')!)).toContain('Trusted: yes');
+  });
+
+  it('does not treat other options as trusted', () => {
+    const cfg = MirrorConfig.parse(DOCKER.replace('[trusted=yes]', '[arch=amd64]'));
+    expect(cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)?.trusted).toBe(false);
+  });
+});
+
+describe('upstreams shared by several sections (r3-repos-3)', () => {
+  const LIST = `# ---start---Hello---
+deb http://deb.debian.org/debian trixie main
+include_binary_packages http://deb.debian.org/debian hello
+# ---end---Hello---
+# ---start---Updates---
+deb [arch=amd64] http://DEB.debian.org/debian/ trixie-updates main
+# ---end---Updates---
+# ---start---Off---
+#deb http://deb.debian.org/debian bookworm main
+# ---end---Off---
+# ---start---Ubuntu---
+deb http://archive.ubuntu.com/ubuntu noble main
+# ---end---Ubuntu---
+`;
+
+  it('lists the other enabled sections on the same upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Updates')!)).toEqual([{ title: 'Hello', filtered: true }]);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Ubuntu')!)).toEqual([]);
+  });
+
+  it('reports a filtered and an unfiltered section on one upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.filterConflict(cfg.getSection('Updates')!)).toMatch(/"Updates" has no package filter/);
+    expect(cfg.filterConflict(cfg.getSection('Hello')!)).toMatch(/"Updates" would only get the packages "Hello" selects/);
+    expect(cfg.filterConflict(cfg.getSection('Off')!)).toBeNull();
+    expect(cfg.filterConflict(cfg.getSection('Ubuntu')!)).toBeNull();
+  });
+});

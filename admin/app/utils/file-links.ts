@@ -28,6 +28,16 @@ export function viewOfPath(p: string | null | undefined, dirs: StorageDirs): Fil
   return 'public-files';
 }
 
+/**
+ * Whether the file manager offers to delete `p`. In the mirror dir only entries inside the
+ * published tree can be deleted, never the signing keys or the mirror folders themselves
+ * (the server enforces this too).
+ */
+export function canDelete(p: string, dirs: StorageDirs): boolean {
+  if (relativeTo(p, dirs.mirroredPackagesDir) === null) return true;
+  return Boolean(relativeTo(p, dirs.mirrorRoot));
+}
+
 /** URL path for a relative file path: every segment percent-encoded, so `#`, `%` and `?` survive. */
 export function encodePathSegments(relative: string): string {
   return relative.split('/').map(encodeURIComponent).join('/');

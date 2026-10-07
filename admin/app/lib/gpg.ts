@@ -214,9 +214,20 @@ export async function signReleasesForHost(host: string): Promise<number> {
   return signedCount(stdout);
 }
 
-/** Put back the upstream signatures of Release files signed with the host's key (run before deleting it). */
-export async function restoreUpstreamSignatures(host: string): Promise<void> {
+/** Count of Release files sign-releases.sh --restore could not give their upstream signatures back. */
+export function unrestoredCount(output: string): number {
+  const match = /Not restored: (\d+) Release file/.exec(output);
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Put back the upstream signatures of Release files signed with the host's key (run before
+ * deleting it). Returns how many Release files have no saved upstream signature: those keep
+ * our signature until the next sync replaces them.
+ */
+export async function restoreUpstreamSignatures(host: string): Promise<number> {
   assertValidHost(host);
-  if (!(await getKey(host))) return;
-  await execAsync(`${appConfig.signReleasesScriptPath} --restore ${host}`, { env: signScriptEnv() });
+  if (!(await getKey(host))) return 0;
+  const { stdout } = await execAsync(`${appConfig.signReleasesScriptPath} --restore ${host}`, { env: signScriptEnv() });
+  return unrestoredCount(stdout);
 }

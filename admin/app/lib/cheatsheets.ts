@@ -164,8 +164,8 @@ export interface IndexEntry {
   title: string;
   categories: string[];
   text: string;
-  /** Section headings below the title, one per line; missing in indexes from before it was added. */
-  headings?: string;
+  /** Section headings below the title, one per line. */
+  headings: string;
 }
 
 const MAX_HEADINGS_TEXT = 2_000;
@@ -267,7 +267,7 @@ function folded(entry: IndexEntry) {
   if (!f) {
     const title = foldText(entry.title);
     const titleWords = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-    const headings = foldText(entry.headings ?? '');
+    const headings = foldText(entry.headings);
     folds.set(entry, (f = { title, titleWords, headings, text: foldText(entry.text) }));
   }
   return f;

@@ -20,6 +20,15 @@ export function isPublicHostRequest(request: Request): boolean {
 }
 
 /**
+ * "admin.mirror.intra." (fully qualified, with the root dot) is the same host
+ * as "admin.mirror.intra". nginx's $host drops the dot, the browser's Origin
+ * keeps it.
+ */
+function withoutRootDot(hostname: string): string {
+  return hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
+}
+
+/**
  * Why a state-changing request must be refused as cross-origin, or null.
  *
  * Browsers send Sec-Fetch-Site and Origin on every POST; a request from
@@ -44,8 +53,8 @@ export function crossOriginError(request: Request): string | null {
       return `Cross-origin request refused (Origin: ${origin})`;
     }
     // Hostnames only: nginx passes Host without the port the browser used.
-    const ownHost = new URL(request.url).hostname.toLowerCase();
-    if (!originHost || originHost !== ownHost) {
+    const ownHost = withoutRootDot(new URL(request.url).hostname.toLowerCase());
+    if (!originHost || withoutRootDot(originHost) !== ownHost) {
       return `Cross-origin request refused (Origin: ${origin})`;
     }
   }

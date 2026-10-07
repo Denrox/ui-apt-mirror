@@ -7,7 +7,7 @@ import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveEntry, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
-import { moveFile } from '~/utils/move-path';
+import { moveFile, renameEntry, restoreParkedMoves } from '~/utils/move-path';
 import {
   abortUpload,
   nameTakenError,
@@ -23,6 +23,8 @@ import { searchFiles } from '~/utils/search-files';
 import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 import { getValidationError } from '~/utils/file-name';
 import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
+import { BodyTooLargeError, readFormData } from '~/utils/limited-form-data';
+import { parseImageUrl } from '~/utils/image-ref';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,8 +37,10 @@ const OUTSIDE = 'Path is outside the file storage';
 const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
 
 // Uploads cut off by a restart leave temp dirs behind; uploads stuck in this process are swept.
+// A move cut off by a restart leaves its source parked under a hidden name; put it back.
 for (const dir of [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean)) {
   removeStaleTempDirs(dir).catch((error) => console.error('Failed to clean upload temp dirs:', error));
+  restoreParkedMoves(dir).catch((error) => console.error('Failed to restore parked moves:', error));
 }
 setInterval(() => {
   sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
@@ -79,18 +83,8 @@ async function deleteFile(filePath: string): Promise<boolean> {
 }
 
 async function renameFile(oldPath: string, newName: string): Promise<boolean> {
-  try {
-    const dirPath = path.dirname(oldPath);
-    const newPath = path.join(dirPath, newName);
-
-    // lstat: a dangling symlink still takes the name
-    if (await pathExists(newPath)) return false;
-
-    await fs.rename(oldPath, newPath);
-    return true;
-  } catch (error) {
-    return false;
-  }
+  // Never replaces an entry, even one created after a taken-name check.
+  return renameEntry(oldPath, newName);
 }
 
 async function downloadFile(url: string, destPath: string): Promise<DownloadResult> {
@@ -109,20 +103,9 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
 
     await mkdirOwned(path.dirname(destPath));
 
-    if (file && typeof file?.arrayBuffer === 'function') {
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      await fs.writeFile(destPath, buffer, { flag: 'wx' });
-    } else if (file?.stream) {
-      const stream = file.stream();
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        chunks.push(Buffer.from(chunk));
-      }
-      const buffer = Buffer.concat(chunks);
-      await fs.writeFile(destPath, buffer, { flag: 'wx' });
-    } else if (file && file.buffer) {
-      await fs.writeFile(destPath, file.buffer, { flag: 'wx' });
+    // Written as it is read; the body itself is capped by readFormData.
+    if (typeof file?.stream === 'function') {
+      await fs.writeFile(destPath, file.stream(), { flag: 'wx' });
     } else {
       throw new Error('Unsupported file type');
     }
@@ -215,6 +198,12 @@ async function downloadImage(
   if (!ARCHITECTURES.has(architecture)) {
     throw new Error('Invalid architecture');
   }
+  const registryInfo = parseImageUrl(imageUrl);
+  if (!registryInfo) {
+    throw new Error(
+      'Invalid image name. Use a name such as busybox, project/image or quay.io/project/image, and put the tag in the Tag field',
+    );
+  }
   const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
   const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
   const fullPath = path.join(destPath, fileName);
@@ -228,13 +217,6 @@ async function downloadImage(
     // Pull to a hidden temp dir and link into place when complete.
     tempDir = await fs.mkdtemp(path.join(destPath, `${UPLOAD_TEMP_PREFIX}img-`));
     const tempPath = path.join(tempDir, fileName);
-
-    const registryInfo = parseImageUrl(imageUrl);
-    if (!registryInfo) {
-      throw new Error(
-        'Invalid image URL format. Please use format: project/image or gcr.io/project/image',
-      );
-    }
 
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
     const skopeoCopy = async (image: string) => {
@@ -304,49 +286,6 @@ async function downloadImage(
   }
 }
 
-interface RegistryInfo {
-  registry: string;
-  repository: string;
-}
-
-function parseImageUrl(imageUrl: string): RegistryInfo | null {
-  if (imageUrl.startsWith('gcr.io/')) {
-    return {
-      registry: 'gcr.io',
-      repository: imageUrl.substring('gcr.io/'.length),
-    };
-  }
-
-  if (imageUrl.includes('.gcr.io/')) {
-    const parts = imageUrl.split('/');
-    if (parts.length >= 2) {
-      return {
-        registry: parts[0],
-        repository: parts.slice(1).join('/'),
-      };
-    }
-  }
-
-  if (imageUrl.startsWith('docker.io/')) {
-    return {
-      registry: 'docker.io',
-      repository: imageUrl.substring('docker.io/'.length),
-    };
-  }
-
-  if (!imageUrl.includes('/')) {
-    return {
-      registry: 'docker.io',
-      repository: `library/${imageUrl}`,
-    };
-  }
-
-  return {
-    registry: 'docker.io',
-    repository: imageUrl,
-  };
-}
-
 export async function action({ request }: Route.ActionArgs): Promise<{
   success: boolean;
   message?: string;
@@ -357,8 +296,14 @@ export async function action({ request }: Route.ActionArgs): Promise<{
 }> {
   await requireAuthMiddleware(request);
   const roots = storageRoots();
+  let formData: FormData;
   try {
-    const formData = await request.formData();
+    formData = await readFormData(request);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) return { success: false, error: error.message };
+    return { success: false, error: 'An unexpected error occurred' };
+  }
+  try {
     const intent = formData.get('intent') as string;
 
     if (intent === 'test') {

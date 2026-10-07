@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import {
+  appendFileSync,
   chmodSync,
   readFileSync,
   renameSync,
@@ -180,38 +181,159 @@ export function isTokenCurrent(
   return issuedAtMs !== undefined && issuedAtMs >= validAfter;
 }
 
-// Single tokens ended by logout: "<token id> <exp seconds>" lines, dropped
-// once the token would have expired anyway.
+// Single tokens ended by logout: "<token id> <exp seconds> <user>" lines,
+// dropped once the token would have expired anyway.
+//
+// Logins aren't limited, so a user can log in and out in a loop. The list is
+// kept in memory and a logout appends one line; the file is rewritten only
+// when it has doubled since the last rewrite, without what had expired. Each user has at most
+// MAX_REVOKED_PER_USER entries: past that, a logout ends all of the user's
+// tokens through .tokens-valid-after instead (all their other sessions and
+// npm tokens included) and their entries are dropped.
 export function revokedTokensPath(htpasswdFile: string): string {
   return path.join(path.dirname(htpasswdFile), '.tokens-revoked');
 }
 
-export function parseRevokedTokens(content: string): Map<string, number> {
-  const entries = new Map<string, number>();
+/** Longest lifetime of any token (npm tokens); valid-after times older than this are dropped. */
+export const TOKEN_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
+export const MAX_REVOKED_PER_USER = 1000;
+const COMPACT_SLACK_LINES = 1000;
+
+interface RevokedEntry {
+  exp: number;
+  user: string;
+}
+
+export function parseRevokedTokens(content: string): Map<string, RevokedEntry> {
+  const entries = new Map<string, RevokedEntry>();
   for (const line of content.split('\n')) {
-    const [id, exp, ...rest] = line.trim().split(/\s+/);
-    if (id && !rest.length && /^\d+$/.test(exp ?? '')) entries.set(id, Number(exp));
+    const [id, exp, user, ...rest] = line.trim().split(/\s+/);
+    if (id && user && !rest.length && /^\d+$/.test(exp ?? '')) entries.set(id, { exp: Number(exp), user });
   }
   return entries;
 }
 
+interface RevokedStore {
+  key: string | null;
+  entries: Map<string, RevokedEntry>;
+  byUser: Map<string, Set<string>>;
+  lines: number;
+  // Lines after the last rewrite: the next one is due when the file has doubled.
+  base: number;
+}
+
+const revokedStores = new Map<string, RevokedStore>();
+
+function fileKey(file: string): string | null {
+  try {
+    const st = statSync(file);
+    return `${st.ino}:${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null;
+  }
+}
+
+function addRevoked(store: RevokedStore, id: string, entry: RevokedEntry): void {
+  store.entries.set(id, entry);
+  let ids = store.byUser.get(entry.user);
+  if (!ids) store.byUser.set(entry.user, (ids = new Set()));
+  ids.add(id);
+}
+
+function dropRevoked(store: RevokedStore, id: string): void {
+  const entry = store.entries.get(id);
+  if (!entry) return;
+  store.entries.delete(id);
+  const ids = store.byUser.get(entry.user);
+  ids?.delete(id);
+  if (ids && !ids.size) store.byUser.delete(entry.user);
+}
+
+/** Drops expired entries and rewrites the file with what is left. */
+function compactRevoked(file: string, store: RevokedStore, nowSeconds: number): void {
+  for (const [id, { exp }] of [...store.entries]) {
+    if (exp < nowSeconds) dropRevoked(store, id);
+  }
+  const lines = [...store.entries].map(([id, { exp, user }]) => `${id} ${exp} ${user}\n`);
+  writePrivateFile(file, lines.join(''));
+  store.lines = store.base = lines.length;
+  store.key = fileKey(file);
+}
+
+function needsCompaction(store: RevokedStore): boolean {
+  return store.lines > 2 * store.base + COMPACT_SLACK_LINES;
+}
+
+function loadRevoked(htpasswdFile: string, now = Date.now()): RevokedStore {
+  const file = revokedTokensPath(htpasswdFile);
+  const key = fileKey(file);
+  const known = revokedStores.get(file);
+  if (known && known.key === key) return known;
+
+  const store: RevokedStore = { key, entries: new Map(), byUser: new Map(), lines: 0, base: 0 };
+  const nowSeconds = Math.floor(now / 1000);
+  if (key !== null) {
+    const content = readFileSync(file, 'utf-8');
+    for (const [id, entry] of parseRevokedTokens(content)) {
+      if (entry.exp >= nowSeconds) addRevoked(store, id, entry);
+    }
+    store.lines = content.split('\n').filter((line) => line.trim()).length;
+  }
+  store.base = store.entries.size;
+  revokedStores.set(file, store);
+  if (needsCompaction(store)) {
+    try {
+      compactRevoked(file, store, nowSeconds);
+    } catch (error) {
+      // Still correct, only bigger than it needs to be: try again next logout.
+      console.error(`Could not compact ${file}:`, error);
+    }
+  }
+  return store;
+}
+
 export function isTokenRevoked(htpasswdFile: string, id: string): boolean {
-  return readCached(revokedTokensPath(htpasswdFile), parseRevokedTokens, new Map()).has(id);
+  return loadRevoked(htpasswdFile).entries.has(id);
 }
 
 export function revokeToken(
   htpasswdFile: string,
   id: string,
   expSeconds: number,
+  username: string,
   now = Date.now(),
 ): void {
   if (!id || /\s/.test(id)) throw new Error('Invalid token id');
+  if (!username || /[\s:]/.test(username)) {
+    throw new Error(`Refusing to revoke a token of invalid username ${JSON.stringify(username)}`);
+  }
+  const file = revokedTokensPath(htpasswdFile);
   const nowSeconds = Math.floor(now / 1000);
-  const entries = new Map(
-    readCached(revokedTokensPath(htpasswdFile), parseRevokedTokens, new Map()),
-  ).set(id, expSeconds);
-  const lines = [...entries]
-    .filter(([, exp]) => exp >= nowSeconds)
-    .map(([tokenId, exp]) => `${tokenId} ${exp}\n`);
-  writePrivateFile(revokedTokensPath(htpasswdFile), lines.join(''));
+  const store = loadRevoked(htpasswdFile, now);
+  if (expSeconds < nowSeconds || store.entries.has(id)) return;
+
+  const ids = store.byUser.get(username);
+  if (ids && ids.size >= MAX_REVOKED_PER_USER) {
+    for (const old of [...ids]) {
+      if (store.entries.get(old)!.exp < nowSeconds) dropRevoked(store, old);
+    }
+  }
+  if ((store.byUser.get(username)?.size ?? 0) >= MAX_REVOKED_PER_USER) {
+    revokeTokens(htpasswdFile, username, TOKEN_MAX_AGE_MS, now);
+    for (const old of [...store.byUser.get(username)!]) dropRevoked(store, old);
+    compactRevoked(file, store, nowSeconds);
+    return;
+  }
+
+  addRevoked(store, id, { exp: expSeconds, user: username });
+  const line = `${id} ${expSeconds} ${username}\n`;
+  if (store.key === null) {
+    writePrivateFile(file, line);
+    store.lines = 1;
+  } else {
+    appendFileSync(file, line);
+    store.lines++;
+  }
+  store.key = fileKey(file);
+  if (needsCompaction(store)) compactRevoked(file, store, nowSeconds);
 }

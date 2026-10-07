@@ -1,5 +1,5 @@
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { closureOptionsError, resolveClosure } from '~/lib/dep-closure';
+import { closureOptionsError, resolveClosure, ResolveBusyError, runResolveExclusive } from '~/lib/dep-closure';
 import { UpstreamFetchError } from '~/lib/upstream-fetch';
 
 const tokens = (v: FormDataEntryValue | null): string[] =>
@@ -51,7 +51,7 @@ export async function action({ request }: { request: Request }) {
       return Response.json({ error: invalid }, { status: 400 });
     }
 
-    const result = await resolveClosure(options);
+    const result = await runResolveExclusive(() => resolveClosure(options));
 
     if (result.indexSize === 0) {
       return Response.json(
@@ -65,6 +65,9 @@ export async function action({ request }: { request: Request }) {
 
     return Response.json(result);
   } catch (error) {
+    if (error instanceof ResolveBusyError) {
+      return Response.json({ error: error.message }, { status: 429 });
+    }
     if (error instanceof UpstreamFetchError) {
       return Response.json({ error: error.message }, { status: 502 });
     }

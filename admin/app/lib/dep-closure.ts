@@ -75,44 +75,134 @@ function relationNames(field: string | undefined): string[] {
 const FETCH_TIMEOUT_MS = 60_000;
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_INDEX_BYTES = 512 * 1024 * 1024;
+/** Most component × architecture combinations one resolve may load (each also loads binary-all). */
+export const MAX_INDEX_COMBINATIONS = 6;
 
-async function gunzip(buf: Buffer): Promise<Buffer> {
-  return new Promise((resolve, reject) =>
-    zlib.gunzip(buf, { maxOutputLength: MAX_INDEX_BYTES }, (err, out) =>
-      err ? reject(err) : resolve(out),
-    ),
-  );
+// Only these fields of a stanza matter for the closure; the rest is skipped unread.
+const WANTED_FIELDS = new Set(['package', 'depends', 'pre-depends', 'recommends', 'provides']);
+const NEWLINE = 0x0a;
+
+/**
+ * Parses a Packages index chunk by chunk, keeping only the fields the closure needs. The
+ * decompressed index (hundreds of MB for Debian main) is never held in memory as a whole,
+ * and every kept value is a new string, not a slice that would keep a whole chunk alive.
+ */
+export class PackagesParser {
+  private rest: Buffer | null = null;
+  private fields: Record<string, string> = {};
+  private current: string | null = null;
+
+  constructor(
+    private readonly graph: DepGraph,
+    private readonly includeRecommends: boolean,
+  ) {}
+
+  push(chunk: Buffer): void {
+    const buf = this.rest ? Buffer.concat([this.rest, chunk]) : chunk;
+    let start = 0;
+    for (let nl = buf.indexOf(NEWLINE, start); nl !== -1; nl = buf.indexOf(NEWLINE, start)) {
+      this.line(buf, start, nl);
+      start = nl + 1;
+    }
+    this.rest = start < buf.length ? Buffer.from(buf.subarray(start)) : null;
+  }
+
+  end(): void {
+    if (this.rest) this.line(this.rest, 0, this.rest.length);
+    this.rest = null;
+    this.finish();
+  }
+
+  private line(buf: Buffer, start: number, end: number): void {
+    if (end > start && buf[end - 1] === 0x0d) end--;
+    if (end === start) {
+      this.finish();
+      return;
+    }
+    const first = buf[start];
+    if (first === 0x20 || first === 0x09) {
+      if (this.current) this.fields[this.current] += ' ' + buf.toString('utf8', start, end).trim();
+      return;
+    }
+    const colon = buf.indexOf(0x3a, start);
+    if (colon === -1 || colon > end) {
+      this.current = null;
+      return;
+    }
+    const name = buf.toString('latin1', start, colon).toLowerCase();
+    if (!WANTED_FIELDS.has(name)) {
+      this.current = null;
+      return;
+    }
+    this.current = name;
+    this.fields[name] = buf.toString('utf8', colon + 1, end).trim();
+  }
+
+  private finish(): void {
+    const fields = this.fields;
+    this.fields = {};
+    this.current = null;
+    const name = fields['package'];
+    if (!name) return;
+
+    const { pkgs, provides } = this.graph;
+    const deps = [
+      ...relationNames(fields['pre-depends']),
+      ...relationNames(fields['depends']),
+      ...(this.includeRecommends ? relationNames(fields['recommends']) : []),
+    ];
+    // Last stanza wins for duplicate names across components (fine for closure).
+    pkgs.set(name, { deps });
+
+    for (const prov of relationNames(fields['provides'])) {
+      if (!provides.has(prov)) provides.set(prov, new Set());
+      provides.get(prov)!.add(name);
+    }
+  }
 }
 
-/** Decompress an .xz buffer by piping it through the `xz` binary. */
-async function unxz(buf: Buffer): Promise<Buffer> {
+/** Decompress a .gz buffer into the parser, in chunks. */
+function gunzipInto(buf: Buffer, parser: PackagesParser): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const gunzip = zlib.createGunzip();
+    let size = 0;
+    gunzip.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_INDEX_BYTES) gunzip.destroy(new Error('Package index is too large'));
+      else parser.push(chunk);
+    });
+    gunzip.on('error', reject);
+    gunzip.on('end', resolve);
+    gunzip.end(buf);
+  });
+}
+
+/** Decompress an .xz buffer into the parser by piping it through the `xz` binary. */
+function unxzInto(buf: Buffer, parser: PackagesParser): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('xz', ['-dc']);
-    const chunks: Buffer[] = [];
     let size = 0;
-    child.stdout.on('data', (c) => {
-      size += c.length;
+    child.stdout.on('data', (chunk: Buffer) => {
+      size += chunk.length;
       if (size > MAX_INDEX_BYTES) child.kill();
-      else chunks.push(c);
+      else parser.push(chunk);
     });
     child.on('error', reject);
-    child.on('close', (code) =>
-      code === 0
-        ? resolve(Buffer.concat(chunks))
-        : reject(new Error(`xz exited with ${code}`)),
-    );
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`xz exited with ${code}`))));
     child.stdin.on('error', () => {});
     child.stdin.end(buf);
   });
 }
 
-/** Fetch and decompress one Packages index; returns null if unavailable. */
-async function fetchIndex(
+/** Fetch one Packages index and parse it into the graph; false if unavailable. */
+async function loadIndex(
   baseUrl: string,
   suite: string,
   component: string,
   arch: string,
-): Promise<string | null> {
+  graph: DepGraph,
+  includeRecommends: boolean,
+): Promise<boolean> {
   const dir = `${baseUrl.replace(/\/+$/, '')}/dists/${suite}/${component}/binary-${arch}`;
   const candidates: Array<{ url: string; kind: 'gz' | 'xz' | 'raw' }> = [
     { url: `${dir}/Packages.gz`, kind: 'gz' },
@@ -126,15 +216,18 @@ async function fetchIndex(
         maxBytes: MAX_DOWNLOAD_BYTES,
       });
       if (!buf) continue;
-      if (kind === 'gz') return (await gunzip(buf)).toString('utf-8');
-      if (kind === 'xz') return (await unxz(buf)).toString('utf-8');
-      return buf.toString('utf-8');
+      const parser = new PackagesParser(graph, includeRecommends);
+      if (kind === 'gz') await gunzipInto(buf, parser);
+      else if (kind === 'xz') await unxzInto(buf, parser);
+      else parser.push(buf);
+      parser.end();
+      return true;
     } catch (err) {
       // A refused address, timeout or oversized answer would repeat for every variant
       if (err instanceof UpstreamFetchError) throw err;
     }
   }
-  return null;
+  return false;
 }
 
 /** Parse a Packages file, merging into the graph's name→info and provides maps. */
@@ -143,37 +236,9 @@ export function parsePackages(
   graph: DepGraph,
   includeRecommends: boolean,
 ): void {
-  const { pkgs, provides } = graph;
-  for (const stanza of text.split(/\n\n+/)) {
-    if (!stanza.trim()) continue;
-    const fields: Record<string, string> = {};
-    let current = '';
-    for (const line of stanza.split('\n')) {
-      if (/^\s/.test(line)) {
-        if (current) fields[current] += ' ' + line.trim();
-      } else {
-        const idx = line.indexOf(':');
-        if (idx === -1) continue;
-        current = line.slice(0, idx).toLowerCase();
-        fields[current] = line.slice(idx + 1).trim();
-      }
-    }
-    const name = fields['package'];
-    if (!name) continue;
-
-    const deps = [
-      ...relationNames(fields['pre-depends']),
-      ...relationNames(fields['depends']),
-      ...(includeRecommends ? relationNames(fields['recommends']) : []),
-    ];
-    // Last stanza wins for duplicate names across components (fine for closure).
-    pkgs.set(name, { deps });
-
-    for (const prov of relationNames(fields['provides'])) {
-      if (!provides.has(prov)) provides.set(prov, new Set());
-      provides.get(prov)!.add(name);
-    }
-  }
+  const parser = new PackagesParser(graph, includeRecommends);
+  parser.push(Buffer.from(text, 'utf8'));
+  parser.end();
 }
 
 /**
@@ -231,11 +296,37 @@ export function closureOptionsError(opts: ClosureOptions): string | null {
     return (err as Error).message;
   }
   if (/[?#]/.test(opts.baseUrl)) return 'Base URL cannot contain a query or fragment';
+  if (opts.components.length * opts.arches.length > MAX_INDEX_COMBINATIONS) {
+    return `Resolve at most ${MAX_INDEX_COMBINATIONS} component × architecture combinations at once (for example 3 components × 2 architectures)`;
+  }
   const tokens = [opts.suite, ...opts.components, ...opts.arches];
   if (!tokens.every(isPathToken)) {
     return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ / (no "..")';
   }
   return null;
+}
+
+/** Thrown when too many resolves are already running or waiting. */
+export class ResolveBusyError extends Error {}
+
+const MAX_WAITING_RESOLVES = 2;
+let resolveQueue: Promise<unknown> = Promise.resolve();
+let pendingResolves = 0;
+
+/**
+ * Run resolves one at a time: each loads whole package indices, and several at once (two tabs)
+ * could push the shared admin process towards running out of memory. A few may wait.
+ */
+export function runResolveExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  if (pendingResolves > MAX_WAITING_RESOLVES) {
+    return Promise.reject(new ResolveBusyError('Other dependency resolves are running; try again in a minute'));
+  }
+  pendingResolves++;
+  const run = resolveQueue.then(fn).finally(() => {
+    pendingResolves--;
+  });
+  resolveQueue = run.catch(() => undefined);
+  return run;
 }
 
 /** Resolve the dependency closure of `seeds` against the upstream indices. */
@@ -247,8 +338,7 @@ export async function resolveClosure(
   for (const component of opts.components) {
     // binary-all holds Architecture: all packages shared by every arch.
     for (const arch of [...opts.arches, 'all']) {
-      const text = await fetchIndex(opts.baseUrl, opts.suite, component, arch);
-      if (text) parsePackages(text, graph, !!opts.includeRecommends);
+      await loadIndex(opts.baseUrl, opts.suite, component, arch, graph, !!opts.includeRecommends);
     }
   }
 

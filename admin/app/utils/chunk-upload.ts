@@ -16,6 +16,13 @@ interface Upload {
 
 const uploads = new Map<string, Upload>();
 
+/** How long a finished upload still acknowledges a resent chunk (the client retries for seconds). */
+export const FINISHED_UPLOAD_MS = 10 * 60 * 1000;
+
+// Finished uploads by id: a resent last chunk, whose first answer was lost, is acknowledged
+// instead of reported as a failure while the file is stored.
+const finished = new Map<string, { destPath: string; totalChunks: number; finishedAt: number }>();
+
 export class UploadError extends Error {}
 
 export const nameTakenError = (name: string) =>
@@ -73,6 +80,21 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
     throw new UploadError('Invalid chunk index');
   }
   const destPath = path.join(dir, fileName);
+
+  const done = finished.get(fileId);
+  if (done) {
+    finished.delete(fileId);
+    if (
+      now - done.finishedAt <= FINISHED_UPLOAD_MS &&
+      done.destPath === destPath &&
+      done.totalChunks === totalChunks &&
+      (await pathExists(destPath))
+    ) {
+      finished.set(fileId, done);
+      return chunkIndex === totalChunks - 1 ? 'done' : 'chunk';
+    }
+  }
+
   let upload = uploads.get(fileId);
 
   if (chunkIndex === 0) {
@@ -127,6 +149,7 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
     await fs.rm(upload.tempDir, { recursive: true, force: true });
   }
   giveToDirOwner(destPath);
+  finished.set(fileId, { destPath, totalChunks, finishedAt: now });
   return 'done';
 }
 
@@ -180,6 +203,9 @@ function isActiveTempDir(dir: string): boolean {
 
 /** Drops in-progress uploads that stopped receiving chunks. */
 export async function sweepStaleUploads(maxAgeMs = STALE_UPLOAD_MS, now = Date.now()) {
+  for (const [fileId, done] of finished) {
+    if (now - done.finishedAt > FINISHED_UPLOAD_MS) finished.delete(fileId);
+  }
   for (const [fileId, upload] of uploads) {
     if (now - upload.touchedAt > maxAgeMs) {
       uploads.delete(fileId);

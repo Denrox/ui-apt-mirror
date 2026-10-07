@@ -71,6 +71,12 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
   }
 }
 
+/** One spelling per folder: no `.`/`..` segments, doubled or trailing slashes. */
+export function canonicalPath(p: string): string {
+  const normalized = path.posix.normalize(p);
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+}
+
 /** What the anonymous files host may browse: public files and the published mirror tree. */
 export function publicRoots(): string[] {
   return [appConfig.filesDir, appConfig.mirrorRoot];
@@ -97,6 +103,12 @@ export async function loader({ request }: { request: Request }) {
 
   const searchParams = url.searchParams;
   const requestedPath = searchParams.get('path');
+  // The page lists a folder's entries by their path below currentPath; another spelling of
+  // the same folder (a trailing slash, `//`, `/./`) showed it as empty.
+  if (requestedPath && canonicalPath(requestedPath) !== requestedPath) {
+    searchParams.set('path', canonicalPath(requestedPath));
+    throw new Response(null, { status: 302, headers: { Location: `${url.pathname}?${searchParams}` } });
+  }
   let rootPath = appConfig.filesDir;
   
   if (requestedPath) {

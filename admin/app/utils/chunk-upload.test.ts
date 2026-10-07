@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import {
   abortUpload,
+  FINISHED_UPLOAD_MS,
   isStaleTempDir,
   removeStaleTempDirs,
   sweepStaleUploads,
@@ -100,6 +101,38 @@ describe('writeChunk', () => {
     await expect(chunk('h', 1, 2, 'two')).rejects.toThrow(/already exists/);
     expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('other');
     expect(fs.existsSync(uploadTempDir(dir, 'h'))).toBe(false);
+  });
+});
+
+describe('a resent last chunk (r3-files-8)', () => {
+  it('is acknowledged for a 2-chunk upload without writing it again', async () => {
+    expect(await chunk('last2', 0, 2, 'one')).toBe('chunk');
+    expect(await chunk('last2', 1, 2, 'two')).toBe('done');
+    expect(await chunk('last2', 1, 2, 'two')).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('onetwo');
+  });
+
+  it('is acknowledged for a 1-chunk upload', async () => {
+    expect(await chunk('last1', 0, 1, 'only')).toBe('done');
+    expect(await chunk('last1', 0, 1, 'only')).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('only');
+  });
+
+  it('is not acknowledged once the file is gone, or for another name', async () => {
+    expect(await chunk('last3', 0, 1, 'x')).toBe('done');
+    // The same id for another name is a new upload.
+    expect(await chunk('last3', 0, 1, 'y', 'g.bin')).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'g.bin'), 'utf-8')).toBe('y');
+    expect(await chunk('last4', 0, 2, 'a', 'k.bin')).toBe('chunk');
+    expect(await chunk('last4', 1, 2, 'b', 'k.bin')).toBe('done');
+    fs.rmSync(path.join(dir, 'k.bin'));
+    await expect(chunk('last4', 1, 2, 'b', 'k.bin')).rejects.toThrow(/interrupted/);
+  });
+
+  it('is forgotten after a while', async () => {
+    expect(await chunk('last5', 0, 1, 'x', 'h.bin')).toBe('done');
+    await sweepStaleUploads(undefined, Date.now() + FINISHED_UPLOAD_MS + 1);
+    await expect(chunk('last5', 0, 1, 'x', 'h.bin')).rejects.toThrow(/already exists/);
   });
 });
 

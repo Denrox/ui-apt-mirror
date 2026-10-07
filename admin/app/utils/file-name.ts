@@ -1,9 +1,14 @@
 /** Longest file name most filesystems accept (NAME_MAX), in bytes. */
 export const MAX_NAME_BYTES = 255;
 
-// Bidi overrides/isolates and zero-width characters make a name display as something else,
-// e.g. "x‮txt.exe" shows as "xexe.txt".
-const SPOOFING_CHARS = /[؜​-‏‪-‮⁠-⁤⁦-⁩﻿]/;
+// Characters that make a name display as something else: format characters (bidi controls,
+// e.g. "x\u202Etxt.exe" shows as "xexe.txt", zero-width characters, the soft hyphen, tags),
+// line and paragraph separators, and the Hangul fillers and Mongolian vowel separator, which
+// render blank.
+const SPOOFING_CHARS = /[\p{Cf}\p{Zl}\p{Zp}\u115F\u1160\u180E\u3164\uFFA0]/u;
+
+// Look like "/", so the name reads as a path.
+const SLASH_LOOKALIKES = /[\u2044\u2215\u29F8\uFF0F]/;
 
 /** Why `name` is not acceptable as a new file or folder name, or null. */
 export function getValidationError(name: string): string | null {
@@ -15,7 +20,12 @@ export function getValidationError(name: string): string | null {
     return "Name cannot contain './', '../', or other path traversal characters";
   }
 
-  if (/[<>:"|?*\x00-\x1f\x7f]/.test(name)) {
+  if (name !== name.trim()) {
+    return 'Name cannot start or end with a space';
+  }
+
+  // \p{Cc}: C0 and C1 control characters and DEL; U+009B starts a terminal escape.
+  if (/[<>:"|?*]/.test(name) || /\p{Cc}/u.test(name) || SLASH_LOOKALIKES.test(name)) {
     return 'Name contains invalid characters';
   }
 

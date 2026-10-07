@@ -78,8 +78,7 @@ async function readRegistry(): Promise<CheatsheetSource[]> {
   try {
     const data = JSON.parse(await fs.readFile(registryPath(), 'utf-8'));
     if (!Array.isArray(data?.sources)) return [];
-    // Names stored before they were cleaned (any length, newlines) are cleaned here.
-    return (data.sources as CheatsheetSource[]).map((s) => ({ ...s, name: cleanSourceName(s.name ?? '') || s.id }));
+    return data.sources as CheatsheetSource[];
   } catch {
     return [];
   }
@@ -545,9 +544,7 @@ export async function loadIndex(id: string): Promise<IndexEntry[]> {
   if (cached && cached.mtimeMs === st.mtimeMs) return cached.entries;
   const entries = (async () => {
     try {
-      const list = await parseIndex(await fs.readFile(p, 'utf-8'));
-      await addMissingHeadings(id, list);
-      return list;
+      return await parseIndex(await fs.readFile(p, 'utf-8'));
     } catch {
       return [];
     }
@@ -585,6 +582,8 @@ export async function writeIndex(file: string, entries: IndexEntry[]) {
 }
 
 export async function parseIndex(text: string): Promise<IndexEntry[]> {
+  // Any other JSON array (written by hand, or by a test) is read in one go.
+  if (!text.startsWith('[\n')) return JSON.parse(text) as IndexEntry[];
   const entries: IndexEntry[] = [];
   let sliceStart = performance.now();
   let start = 0;
@@ -594,29 +593,13 @@ export async function parseIndex(text: string): Promise<IndexEntry[]> {
     const line = text.slice(start, end).replace(/,$/, '');
     start = end + 1;
     if (line === '[' || line === ']' || !line) continue;
-    const value = JSON.parse(line) as IndexEntry | IndexEntry[];
-    if (Array.isArray(value)) entries.push(...value);
-    else entries.push(value);
+    entries.push(JSON.parse(line) as IndexEntry);
     if ((entries.length & 63) === 0 && performance.now() - sliceStart > INDEX_SLICE_MS) {
       await yieldToOthers();
       sliceStart = performance.now();
     }
   }
   return entries;
-}
-
-// Indexes written before headings were indexed get them from the stored
-// pages, in memory only; the next Update writes them to index.json.
-async function addMissingHeadings(id: string, entries: IndexEntry[]) {
-  const missing = entries.filter((e) => e.headings === undefined);
-  for (let i = 0; i < missing.length; i += 32) {
-    await Promise.all(
-      missing.slice(i, i + 32).map(async (e) => {
-        const markdown = await readPage(id, e.path).catch(() => null);
-        e.headings = markdown ? extractHeadings(markdown) : '';
-      }),
-    );
-  }
 }
 
 export async function categoryCounts(id: string): Promise<{ name: string; count: number }[]> {
