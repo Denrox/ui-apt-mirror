@@ -1,29 +1,99 @@
 #!/bin/bash
 # Renders the nginx sites from the image's templates; data/conf/nginx/custom/<name>
-# overrides one. Run by entrypoint.sh. The paths can be changed for tests.
+# overrides one. Run by entrypoint.sh. The paths can be changed for tests (see test.sh).
+#
+# "source render-sites.sh --lib" only defines the hash helpers (update-released-sites.sh).
 set -e
 
+# Stock configs are recognised by a hash of their text with the domain they were
+# rendered for replaced by a placeholder. CRs, trailing spaces and a missing final
+# newline are ignored, so an editor that only touched those does not count as an edit.
+# $1 = the domain the text on stdin was rendered for.
+site_normalise() {
+    local re
+    re=$(printf '%s' "$1" | sed 's/[][\.*^$/]/\\&/g')
+    sed -e 's/\r$//' -e 's/[[:space:]]*$//' -e "s/$re/@DOMAIN@/g" -e '$a\'
+}
+
+site_hash() {
+    site_normalise "$1" | sha256sum | cut -d' ' -f1
+}
+
+if [ "${1:-}" = --lib ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 NGINX_TEMPLATES=${NGINX_TEMPLATES:-/etc/nginx/templates}
 NGINX_HOSTCONF=${NGINX_HOSTCONF:-/etc/nginx/hostconf}
 NGINX_SITES=${NGINX_SITES:-/etc/nginx/sites-available}
+# Every site config shipped in a release tag; regenerate with update-released-sites.sh
+RELEASED_SITES=${RELEASED_SITES:-$SELF_DIR/released-sites.sha256}
 NGINX_CUSTOM="$NGINX_HOSTCONF/custom"
 MIRROR_DOMAIN="${MIRROR_DOMAIN:-mirror.intra}"
 ESCAPED_DOMAIN=$(printf '%s' "$MIRROR_DOMAIN" | sed 's/[&/\]/\\&/g')
+STAMP=$(date +%Y%m%d%H%M%S)
 
 render_site() {
     sed "s/mirror\.intra/${ESCAPED_DOMAIN}/g" "$1"
 }
 
-mkdir -p "$NGINX_CUSTOM"
+# The domain a stock config on disk was rendered for, from its first server_name
+# (files.<domain> in files.mirror.intra.conf). Old setup.sh versions rendered the
+# domain into the file and never again, so it can differ from MIRROR_DOMAIN.
+site_domain() {
+    local file=$1 name=$2 prefix server
+    prefix=${name%mirror.intra.conf}
+    server=$(sed -n 's/^[[:space:]]*server_name[[:space:]]\{1,\}\([^[:space:];]*\).*/\1/p' "$file" | head -n 1)
+    case $server in
+        "$prefix"?*) printf '%s' "${server#"$prefix"}" ;;
+    esac
+}
 
-# One-time migration: edited legacy site configs become custom overrides.
+# The hashes the file would have as a stock config, one per domain it may be rendered for
+file_hashes() {
+    local file=$1 name=$2 domain seen=" "
+    for domain in "$(site_domain "$file" "$name")" "$MIRROR_DOMAIN" mirror.intra; do
+        [ -n "$domain" ] || continue
+        case $seen in *" $domain "*) continue ;; esac
+        seen+="$domain "
+        site_hash "$domain" < "$file"
+    done
+}
+
+# Is the file an unedited <name> config from a release?
+released_stock() {
+    local file=$1 name=$2 hash
+    [ -f "$RELEASED_SITES" ] || return 1
+    for hash in $(file_hashes "$file" "$name"); do
+        grep -qF "$hash $name " "$RELEASED_SITES" && return 0
+    done
+    return 1
+}
+
+# Is the file this image's stock <name> config?
+current_stock() {
+    local file=$1 name=$2 tpl="$NGINX_TEMPLATES/$2" current hash
+    [ -f "$tpl" ] || return 1
+    current=$(site_hash mirror.intra < "$tpl")
+    for hash in $(file_hashes "$file" "$name"); do
+        [ "$hash" = "$current" ] && return 0
+    done
+    return 1
+}
+
+mkdir -p "$NGINX_CUSTOM"
+[ -f "$RELEASED_SITES" ] || echo "⚠️  $RELEASED_SITES is missing; stock configs of older releases are not recognised."
+
+# One-time migration from releases before 2.4: edited site configs become custom
+# overrides; unedited ones (the stock config of any release) are replaced.
 LEGACY_SITES="$NGINX_HOSTCONF/sites-available"
 if [ -d "$LEGACY_SITES" ]; then
     for legacy in "$LEGACY_SITES"/*.conf; do
         [ -f "$legacy" ] || continue
         name=$(basename "$legacy")
-        tpl="$NGINX_TEMPLATES/$name"
-        if [ -f "$tpl" ] && render_site "$tpl" | cmp -s - "$legacy"; then
+        if released_stock "$legacy" "$name" || current_stock "$legacy" "$name"; then
+            echo "   $name: unedited stock config of an earlier release; using the current one"
             continue
         fi
         if [ ! -e "$NGINX_CUSTOM/$name" ]; then
@@ -31,8 +101,24 @@ if [ -d "$LEGACY_SITES" ]; then
             echo "⚠️  Kept your modified nginx config as custom/$name (delete it to use the stock one)"
         fi
     done
-    mv "$LEGACY_SITES" "$NGINX_HOSTCONF/sites-available.migrated-$(date +%Y%m%d%H%M%S)"
+    mv "$LEGACY_SITES" "$NGINX_HOSTCONF/sites-available.migrated-$STAMP"
 fi
+
+# 2.4.x turned unedited configs into overrides too (any custom domain, or a stock
+# config that changed since); they would keep an old release's config forever.
+RETIRED="$NGINX_HOSTCONF/custom.unedited-$STAMP"
+for custom in "$NGINX_CUSTOM"/*.conf; do
+    [ -f "$custom" ] || continue
+    name=$(basename "$custom")
+    [ -f "$NGINX_TEMPLATES/$name" ] || continue
+    if released_stock "$custom" "$name" && ! current_stock "$custom" "$name"; then
+        mkdir -p "$RETIRED"
+        mv "$custom" "$RETIRED/$name"
+        rm -f "$NGINX_CUSTOM/$name.stock" "$NGINX_CUSTOM/.$name.stock-sha256"
+        echo "⚠️  custom/$name was an unedited stock config of an earlier release; using the current one"
+        echo "   (moved to $(basename "$RETIRED")/$name)"
+    fi
+done
 
 # Overrides hide later stock fixes; keep the new stock copy until the user deletes it.
 check_override() {
@@ -65,4 +151,5 @@ for tpl in "$NGINX_TEMPLATES"/*.conf; do
     fi
 done
 
-find "$NGINX_CUSTOM" -user 0 -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
+find "$NGINX_CUSTOM" "$NGINX_HOSTCONF"/custom.unedited-* -user 0 \
+    -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
