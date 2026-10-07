@@ -78,13 +78,14 @@ main() {
     print_info "Starting ui-apt-mirror installation..."
     validate_dependencies
 
-    local arch target archive
+    local arch target
     arch=$(detect_arch)
     target=${UI_APT_MIRROR_DIR:-$PWD/ui-apt-mirror}
     print_info "Detected architecture: $arch"
     check_target "$target"
 
-    # The release archive holds the scripts and the image of the same build.
+    # The release archive holds the scripts and the image of the same build. It is global so that the EXIT trap,
+    # which runs after main has returned, still sees its path.
     archive=$(mktemp)
     trap 'rm -f "$archive"' EXIT
     print_info "Downloading the latest release for $arch..."
@@ -92,7 +93,8 @@ main() {
 
     mkdir -p "$target"
     print_info "Extracting into $target..."
-    tar -xf "$archive" -C "$target"
+    tar --no-same-owner -xf "$archive" -C "$target"
+    rm -f "$archive"
     if [ ! -f "$target/setup.sh" ] || ! ls "$target"/dist/*.tar.gz &> /dev/null; then
         print_error "The downloaded release is incomplete (setup.sh or image missing)."
         exit 1
