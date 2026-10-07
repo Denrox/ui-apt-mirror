@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SIGN_SCRIPT = os.environ.get("SIGN_RELEASES_SCRIPT", "/usr/local/bin/sign-releases.sh")
+SIGN_SCRIPT = "/usr/local/bin/sign-releases.sh"
 
 
 def log(message: str) -> None:
