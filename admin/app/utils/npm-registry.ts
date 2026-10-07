@@ -38,9 +38,15 @@ export function isValidVersion(version: string): boolean {
   return version.length <= 256 && SEMVER_RE.test(version);
 }
 
-/** A tag may not look like a version or range, or `npm install pkg@tag` becomes ambiguous. */
+// Names every plain object inherits (`constructor`, `toString`, …): npmjs refuses them as tags.
+const RESERVED_DIST_TAGS = new Set(Object.getOwnPropertyNames(Object.prototype));
+
+/**
+ * A tag may not look like a version or range, or `npm install pkg@tag` becomes ambiguous, nor be
+ * the name of an Object.prototype property.
+ */
 export function isValidDistTag(tag: string): boolean {
-  return DIST_TAG_RE.test(tag) && !/^v\d/i.test(tag);
+  return DIST_TAG_RE.test(tag) && !/^v\d/i.test(tag) && !RESERVED_DIST_TAGS.has(tag);
 }
 
 function splitName(segments: string[]): { name: string; rest: string[] } | null {
@@ -292,6 +298,52 @@ export function pathPackage(raw: string): { name: string; rest: string[] } | nul
   const segments = decoded.split('/');
   if (segments[0] === '-') return segments[1] === 'package' ? splitName(segments.slice(2)) : null;
   return splitName(segments);
+}
+
+/**
+ * The upstream URL for a registry path (without the /npm prefix) and query, or null if the path
+ * could leave the registry: it is always a path on `registry`'s origin, never an absolute URL
+ * (`http:/host/`, `//host/`), and has no dot segments or backslashes that could climb out of the
+ * package the path was checked for.
+ */
+export function upstreamUrl(registry: string, packagePath: string, search = ''): URL | null {
+  const raw = packagePath.replace(/^\/+/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (/\\/.test(decoded) || decoded.split('/').some((s) => s === '.' || s === '..')) return null;
+  const base = new URL(registry);
+  const url = new URL(base.origin);
+  url.pathname = `/${raw}`;
+  url.search = search;
+  return url.origin === base.origin && url.pathname === `/${raw}` ? url : null;
+}
+
+/**
+ * An upstream response (packument, version) with its npmjs tarball URLs pointed at `origin`, so
+ * that every client fetches tarballs through this registry and its cache. npmjs serves a tarball
+ * at the same path, so only the origin changes.
+ */
+export function tarballsAt(json: string, origin: string): string {
+  return json.replace(/("tarball"\s*:\s*")https?:\/\/registry\.npmjs\.org\//g, (_, key) => `${key}${origin}/`);
+}
+
+/**
+ * `npm logout` sends `DELETE /-/user/token/<token>`. For such a path (also percent-encoded), the
+ * token in it ('' if there is none); null for other paths.
+ */
+export function logoutPathToken(packagePath: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(packagePath.replace(/^\/+/, ''));
+  } catch {
+    return /^(?:-|%2d)\/user\/token(?:\/|%2f|$)/i.test(packagePath) ? '' : null;
+  }
+  const match = /^-\/+user\/+token(?:\/(.*))?$/s.exec(decoded);
+  return match ? (match[1] ?? '').replace(/\/+$/, '') : null;
 }
 
 /** A version of a private packument by version or dist-tag (/<name>/<spec>), or null. */

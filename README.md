@@ -237,7 +237,10 @@ npm publish
 - Public packages (cached from npmjs.org) are stored in `data/data/npm/public/`
 - Published packages are **NOT** forwarded to npmjs.org
 - Private packages take precedence over cached public packages
-- Authentication tokens for npm are JWT-based and valid for 1 year
+- Authentication tokens for npm are JWT-based and valid for 1 year; `npm logout` ends the token on the server
+- A name that is a public package on npmjs.org cannot be published. If npmjs.org gives no clear answer
+  (an error, a rate limit), the publish is refused with 503; try again later. If npmjs.org cannot be
+  reached at all, only a scoped name whose scope has no public package in the cache can be published
 
 ### File Hosting
 

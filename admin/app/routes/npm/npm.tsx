@@ -2,8 +2,6 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from 'react-router';
 import { promises as fs } from 'fs';
 import path from 'path';
 import https from 'https';
-import http from 'http';
-import { URL } from 'url';
 import zlib from 'zlib';
 import { isWithin } from '~/utils/safe-path';
 import { hostAddress } from '~/utils/hosts';
@@ -11,6 +9,7 @@ import appConfig from '~/config/config.json';
 import {
   attemptLogin,
   createNpmAuthToken,
+  revokeNpmToken,
   validateNpmAuthToken,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
@@ -25,6 +24,7 @@ import {
   isValidName,
   isValidVersion,
   isWebLoginPath,
+  logoutPathToken,
   mergePublish,
   nextRev,
   packageScope,
@@ -35,9 +35,11 @@ import {
   publicCachePath,
   revMatches,
   scopeListsPackage,
+  tarballsAt,
   type DocResult,
   type NpmPath,
   upstreamHeaders,
+  upstreamUrl,
   withoutAuditPackages,
   type PackageDoc,
 } from '~/utils/npm-registry';
@@ -65,19 +67,14 @@ async function ensureCacheDir() {
   }
 }
 
+function bearerToken(request: Request): string | null {
+  return request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null;
+}
+
 async function extractNpmAuth(request: Request): Promise<{ username: string } | null> {
-  const authHeader = request.headers.get('Authorization');
-  if (authHeader) {
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (match) {
-      const token = match[1];
-      const user = await validateNpmAuthToken(token);
-      if (user) {
-        return { username: user.username };
-      }
-    }
-  }
-  return null;
+  const token = bearerToken(request);
+  const user = token ? await validateNpmAuthToken(token) : null;
+  return user ? { username: user.username } : null;
 }
 
 async function isCached(filePath: string): Promise<boolean> {
@@ -93,11 +90,15 @@ type Upstream = { data: Buffer; headers: Record<string, string>; status: number 
 
 async function fetchFromNpm(
   packagePath: string,
+  search = '',
   originalHeaders: Record<string, string> = {},
 ): Promise<Upstream> {
   return new Promise((resolve, reject) => {
-    const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
-    const client = npmUrl.protocol === 'https:' ? https : http;
+    const npmUrl = upstreamUrl(NPM_REGISTRY_URL, packagePath, search);
+    if (!npmUrl) {
+      reject(new Error('Not a path on the npm registry'));
+      return;
+    }
 
     const forwardedHeaders = upstreamHeaders(originalHeaders, ['if-none-match', 'if-modified-since', 'range'], {
       Accept: '*/*',
@@ -106,13 +107,13 @@ async function fetchFromNpm(
 
     const options = {
       hostname: npmUrl.hostname,
-      port: npmUrl.port || (npmUrl.protocol === 'https:' ? 443 : 80),
+      port: 443,
       path: npmUrl.pathname + npmUrl.search,
       method: 'GET',
       headers: forwardedHeaders,
     };
 
-    const req = client.request(options, (res) => {
+    const req = https.request(options, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk) => {
         chunks.push(chunk);
@@ -299,6 +300,10 @@ function notFound(): Response {
   });
 }
 
+function invalidPath(): Response {
+  return jsonResponse({ error: 'Bad request', reason: 'Not a valid registry path' }, 400);
+}
+
 function webLoginUnsupported(): Response {
   return jsonResponse(
     { error: 'Web login is not supported by this registry; use npm login --auth-type=legacy' },
@@ -310,41 +315,76 @@ function docError(result: Extract<DocResult, { status: number }>): Response {
   return jsonResponse({ error: result.reason, reason: result.reason }, result.status);
 }
 
-function tarballUrl(request: Request, packageName: string, tarballFile: string): string {
+/** This registry's origin as the client addressed it. */
+function registryOrigin(request: Request): string {
   const url = new URL(request.url);
-  return `${url.protocol}//${request.headers.get('host') ?? url.host}/${packageName}/-/${tarballFile}`;
+  return `${url.protocol}//${request.headers.get('host') ?? url.host}`;
 }
 
+function tarballUrl(request: Request, packageName: string, tarballFile: string): string {
+  return `${registryOrigin(request)}/${packageName}/-/${tarballFile}`;
+}
+
+type NameCheck =
+  | { verdict: 'public' | 'free' }
+  | { verdict: 'unverified'; reason: string };
+
 /**
- * Whether a name already belongs to a public package (upstream, or in our cache when offline).
- * Publishing such a name privately would replace the real package for every client.
+ * Whether a name already belongs to a public package. Publishing such a name privately would
+ * replace the real package for every client, so this fails closed: a name is free only when
+ * npmjs says so clearly (200 without the name, or 404). Any other answer (429, 5xx, …) leaves it
+ * unverified. Only when npmjs cannot be reached at all (an offline mirror) is a name taken as
+ * free without asking, and only if it is clearly private: a scoped name whose scope has no public
+ * package in our cache. An unscoped name could be any public package, so it waits for npmjs.
  *
  * A scoped name is never sent upstream: npmjs is asked only for the packages of its scope, and the
  * name is looked up in that list here. Unscoped names have no such list and are checked directly.
  */
-async function isPublicPackageName(packageName: string): Promise<boolean> {
+async function checkPublicName(packageName: string): Promise<NameCheck> {
   const cached = await publicCacheFile({ kind: 'package', name: packageName });
-  if (cached && (await isCached(cached))) return true;
+  if (cached && (await isCached(cached))) return { verdict: 'public' };
+
+  const scope = packageScope(packageName);
+  const url = scope
+    ? upstreamUrl(NPM_REGISTRY_URL, `-/org/${encodeURIComponent(scope)}/package`)
+    : upstreamUrl(NPM_REGISTRY_URL, packageName);
+  if (!url) return { verdict: 'unverified', reason: 'the name cannot be looked up' };
+
+  let res: Response;
   try {
-    const scope = packageScope(packageName);
-    if (scope) {
-      const res = await fetch(`${NPM_REGISTRY_URL}/-/org/${encodeURIComponent(scope)}/package`, {
-        signal: AbortSignal.timeout(15000),
-      });
-      if (res.status !== 200) {
-        await res.body?.cancel();
-        return false;
-      }
-      return scopeListsPackage(await res.json(), packageName);
-    }
-    const res = await fetch(`${NPM_REGISTRY_URL}/${packageName}`, {
-      method: 'HEAD',
-      signal: AbortSignal.timeout(5000),
-    });
-    return res.status === 200;
+    res = await fetch(url, scope
+      ? { signal: AbortSignal.timeout(15000) }
+      : { method: 'HEAD', signal: AbortSignal.timeout(5000) });
   } catch {
-    return false;
+    if (scope && !(await scopeIsCached(scope))) return { verdict: 'free' };
+    return {
+      verdict: 'unverified',
+      reason: scope
+        ? `npmjs.org cannot be reached, and @${scope} has public packages`
+        : 'npmjs.org cannot be reached, and an unscoped name may be a public package',
+    };
   }
+
+  if (res.status === 404) {
+    await res.body?.cancel().catch(() => {});
+    return { verdict: 'free' };
+  }
+  if (res.status !== 200) {
+    await res.body?.cancel().catch(() => {});
+    return { verdict: 'unverified', reason: `npmjs.org answered HTTP ${res.status}` };
+  }
+  if (!scope) return { verdict: 'public' };
+  const list: unknown = await res.json().catch(() => null);
+  if (!list || typeof list !== 'object' || Array.isArray(list)) {
+    return { verdict: 'unverified', reason: 'npmjs.org sent an unreadable package list' };
+  }
+  return { verdict: scopeListsPackage(list, packageName) ? 'public' : 'free' };
+}
+
+/** Whether any package of the scope is in the public cache. */
+async function scopeIsCached(scope: string): Promise<boolean> {
+  const dir = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, `_packages/@${scope}`));
+  return (await fs.readdir(dir).catch(() => [])).length > 0;
 }
 
 async function loadPrivatePackage(
@@ -400,7 +440,7 @@ async function loadPublicPackage(
   if (cached?.headers.etag) forwarded['if-none-match'] = cached.headers.etag;
 
   try {
-    const fetched = await fetchFromNpm(packagePath, forwarded);
+    const fetched = await fetchFromNpm(packagePath, '', forwarded);
     // Only successful responses are cached; a 404 or an error is passed on as is.
     if (fetched.status === 200) await saveToCache(cachePath, fetched.data, fetched.headers);
     else if (cached && fetched.status >= 500) throw new Error(`Upstream returned ${fetched.status}`);
@@ -466,6 +506,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return notFound();
   }
   if (isWebLoginPath(packagePath)) return webLoginUnsupported();
+  // Token paths carry a secret of this registry; they are never looked up upstream.
+  if (logoutPathToken(packagePath) !== null) return notFound();
+  if (!upstreamUrl(NPM_REGISTRY_URL, packagePath, url.search)) return invalidPath();
 
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {
@@ -485,7 +528,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
     if (isPrivate && route.kind === 'distTags') {
       const doc = await readPrivateDoc(route.name);
-      return jsonResponse(route.tag ? doc?.['dist-tags']?.[route.tag] : doc?.['dist-tags'] ?? {});
+      const tags = doc?.['dist-tags'] ?? {};
+      if (!route.tag) return jsonResponse(tags);
+      return Object.hasOwn(tags, route.tag) ? jsonResponse(tags[route.tag]) : notFound();
     } else if (isPrivate && (route.kind === 'package' || route.kind === 'tarball')) {
       const privatePackage = await loadPrivatePackage(
         request,
@@ -508,8 +553,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
       const cachePath = await publicCacheFile(route);
       ({ data, headers, status } = cachePath
         ? await loadPublicPackage(packagePath, cachePath, originalHeaders)
-        : await fetchFromNpm(packagePath + url.search));
+        : await fetchFromNpm(packagePath, url.search));
       headers['x-cache'] ??= 'BYPASS';
+      // Tarballs are fetched through this registry too (Yarn 1 does not rewrite npmjs URLs).
+      // Packuments and /<name>/<version|tag> documents: what names a tarball.
+      const isPackageDoc = route.kind === 'package' || (route.kind === 'other' && !!target && !packagePath.startsWith('-/'));
+      if (status === 200 && isPackageDoc) {
+        data = Buffer.from(tarballsAt(data.toString('utf-8'), registryOrigin(request)));
+      }
     }
 
     const contentType = headers['content-type'] || 'application/octet-stream';
@@ -565,7 +616,18 @@ async function publishPackage(
     return jsonResponse({ error: 'Invalid package name or version' }, 400);
   }
 
-  if (!(await isPrivatePackage(packageName)) && (await isPublicPackageName(packageName))) {
+  const check = (await isPrivatePackage(packageName)) ? null : await checkPublicName(packageName);
+  if (check?.verdict === 'unverified') {
+    return jsonResponse(
+      {
+        error: 'Service Unavailable',
+        reason: `Cannot check that "${packageName}" is not a public npm package (${check.reason}); try again later`,
+      },
+      503,
+      { 'Retry-After': '60' },
+    );
+  }
+  if (check?.verdict === 'public') {
     return jsonResponse(
       {
         error: 'Forbidden',
@@ -688,13 +750,51 @@ async function changeDistTag(
       }
       tags[tag] = version;
     } else {
-      if (!(tag in tags)) return jsonResponse({ error: `Tag not found: ${tag}` }, 404);
+      if (!Object.hasOwn(tags, tag)) return jsonResponse({ error: `Tag not found: ${tag}` }, 404);
       delete tags[tag];
     }
 
     await writePrivateDoc({ ...doc, 'dist-tags': tags, _rev: nextRev(doc._rev) });
     return jsonResponse({ ok: true }, request.method === 'PUT' ? 201 : 200);
   });
+}
+
+// A login is a name and a password; npm sends a few more fields, nothing near this.
+const MAX_LOGIN_BODY_BYTES = 64 * 1024;
+
+/** The request body as text, or null once it is longer than maxBytes (nothing more is read). */
+async function readBodyText(request: Request, maxBytes: number): Promise<string | null> {
+  if (Number(request.headers.get('content-length') ?? 0) > maxBytes) return null;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+/**
+ * `npm logout`: `DELETE /-/user/token/<token>`. The token is ended here, never sent upstream.
+ * nginx takes it out of the path, so that it is not written to any log, and passes it in
+ * X-Npm-Logout-Token; without either, the request's own Bearer token is the one logged out.
+ * The answer is the same whether or not the token was valid.
+ */
+async function npmLogout(request: Request, pathToken: string): Promise<Response> {
+  const token =
+    (pathToken && pathToken !== '-' ? pathToken : null) ??
+    request.headers.get('x-npm-logout-token') ??
+    bearerToken(request);
+  if (token) await revokeNpmToken(token);
+  return jsonResponse({ ok: true });
 }
 
 /** The audit request body without locally published packages, as plain JSON; null if unreadable. */
@@ -732,7 +832,11 @@ export async function action({ request }: ActionFunctionArgs) {
         username = decodeURIComponent(username);
       } catch {}
 
-      const body = parseJsonObject(await request.text());
+      const text = await readBodyText(request, MAX_LOGIN_BODY_BYTES);
+      if (text === null) {
+        return jsonResponse({ error: 'Payload Too Large', reason: 'The login request is too large' }, 413);
+      }
+      const body = parseJsonObject(text);
       if (!body) {
         return jsonResponse({ error: 'Bad request', reason: 'Request body must be a JSON object' }, 400);
       }
@@ -802,6 +906,17 @@ export async function action({ request }: ActionFunctionArgs) {
     return notFound();
   }
 
+  const logoutToken = logoutPathToken(packagePath);
+  if (logoutToken !== null) {
+    if (request.method !== 'DELETE') return notFound();
+    try {
+      return await npmLogout(request, logoutToken);
+    } catch (error) {
+      console.error('npm logout failed:', error instanceof Error ? error.message : 'unknown error');
+      return jsonResponse({ error: 'Logout failed' }, 500);
+    }
+  }
+
   const route = parseNpmPath(packagePath);
   const isWrite = request.method === 'PUT' || request.method === 'DELETE';
   const isLocalWrite =
@@ -858,6 +973,17 @@ export async function action({ request }: ActionFunctionArgs) {
   const target = pathPackage(packagePath);
   if (target && (await isPrivatePackage(target.name))) return notFound();
 
+  // Only audits are sent upstream. Other writes to npmjs' API (token create, profile, hooks, …)
+  // carry this registry's passwords and tokens, and npmjs would not accept them anyway.
+  if (request.method !== 'POST' || !isAuditPath(packagePath)) {
+    return jsonResponse(
+      { error: 'Method Not Allowed', reason: 'This registry does not support this request' },
+      405,
+    );
+  }
+  const npmUrl = upstreamUrl(NPM_REGISTRY_URL, packagePath, url.search);
+  if (!npmUrl) return invalidPath();
+
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {
     originalHeaders[key.toLowerCase()] = value;
@@ -871,38 +997,32 @@ export async function action({ request }: ActionFunctionArgs) {
       : new Response(message, { status, headers: { 'Content-Type': 'text/plain' } });
 
   try {
-    const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
-    const client = npmUrl.protocol === 'https:' ? https : http;
-    let body =
-      request.method !== 'GET' && request.method !== 'HEAD'
-        ? Buffer.from(await request.arrayBuffer())
-        : null;
-    if (body && isAuditPath(packagePath)) {
-      body = await publicAuditBody(body, originalHeaders['content-encoding'], isBulkAudit);
-      if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
-      delete originalHeaders['content-encoding'];
-      originalHeaders['content-type'] = 'application/json';
-    }
+    const body = await publicAuditBody(
+      Buffer.from(await request.arrayBuffer()),
+      originalHeaders['content-encoding'],
+      isBulkAudit,
+    );
+    if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
+    delete originalHeaders['content-encoding'];
+    originalHeaders['content-type'] = 'application/json';
 
     const forwardedHeaders = upstreamHeaders(
       originalHeaders,
       ['if-none-match', 'if-modified-since', 'range', 'content-encoding'],
       { 'Content-Type': originalHeaders['content-type'] || 'application/json' },
     );
-    if (body) {
-      forwardedHeaders['content-length'] = body.length.toString();
-    }
+    forwardedHeaders['content-length'] = body.length.toString();
 
     const options = {
       hostname: npmUrl.hostname,
-      port: npmUrl.port || (npmUrl.protocol === 'https:' ? 443 : 80),
+      port: 443,
       path: npmUrl.pathname + npmUrl.search,
       method: request.method,
       headers: forwardedHeaders,
     };
 
     return new Promise((resolve) => {
-      const req = client.request(options, (res) => {
+      const req = https.request(options, (res) => {
         const chunks: Buffer[] = [];
 
         res.on('data', (chunk) => {
@@ -971,7 +1091,7 @@ export async function action({ request }: ActionFunctionArgs) {
         resolve(upstreamFailed(408, 'Request timeout'));
       });
 
-      req.end(body ?? undefined);
+      req.end(body);
     });
   } catch (error) {
     console.error('NPM proxy action error:', error);
