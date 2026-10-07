@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import {
@@ -19,7 +20,10 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chunk-upload-'));
 });
 
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const chunk = (fileId: string, chunkIndex: number, totalChunks: number, data: string, fileName = 'f.bin') =>
   writeChunk({ fileId, dir, fileName, chunkIndex, totalChunks, data: Buffer.from(data) });
@@ -101,6 +105,37 @@ describe('writeChunk', () => {
     await expect(chunk('h', 1, 2, 'two')).rejects.toThrow(/already exists/);
     expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('other');
     expect(fs.existsSync(uploadTempDir(dir, 'h'))).toBe(false);
+  });
+});
+
+describe('the final store', () => {
+  // Something takes the name right before the upload stores its file, after every check.
+  const takeNameFirst = (data: string) => {
+    const realLink = fsp.link;
+    vi.spyOn(fsp, 'link').mockImplementation(async (existing, target) => {
+      if (!fs.existsSync(String(target))) fs.writeFileSync(String(target), data);
+      return realLink(existing, target);
+    });
+  };
+
+  it('never replaces a file stored under the name after the last check', async () => {
+    expect(await chunk('r1', 0, 2, 'one')).toBe('chunk');
+    takeNameFirst('renamed here');
+    await expect(chunk('r1', 1, 2, 'two')).rejects.toThrow(/already exists/);
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('renamed here');
+    expect(fs.existsSync(uploadTempDir(dir, 'r1'))).toBe(false);
+  });
+
+  it('of two uploads of one name finishing at once, one is stored and the other refused', async () => {
+    expect(await chunk('r2a', 0, 2, 'A')).toBe('chunk');
+    expect(await chunk('r2b', 0, 2, 'B')).toBe('chunk');
+    const results = await Promise.allSettled([chunk('r2a', 1, 2, 'A'), chunk('r2b', 1, 2, 'B')]);
+    const stored = results.filter((r) => r.status === 'fulfilled');
+    expect(stored).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(String(refused.reason)).toMatch(/already exists/);
+    expect(['AA', 'BB']).toContain(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8'));
+    expect(fs.readdirSync(dir)).toEqual(['f.bin']);
   });
 });
 

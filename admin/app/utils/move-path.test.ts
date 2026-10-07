@@ -3,7 +3,7 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { moveFile, renameEntry, restoreParkedMoves, MOVE_SOURCE_PREFIX } from './move-path';
+import { moveFile, moveHolds, renameEntry, restoreParkedMoves, MOVE_SOURCE_PREFIX } from './move-path';
 
 let base: string;
 let from: string;
@@ -26,15 +26,20 @@ afterEach(() => {
 });
 
 const realRename = fsp.rename;
-// `from` and `to` behave like separate mounts: renames between them fail with EXDEV.
-const crossDevice = () =>
-  vi.spyOn(fsp, 'rename').mockImplementation(async (oldPath, newPath) => {
-    const mount = (p: unknown) => (String(p).startsWith(to) ? 'to' : 'from');
-    if (mount(oldPath) !== mount(newPath)) {
-      throw Object.assign(new Error('EXDEV'), { code: 'EXDEV' });
-    }
+const realLink = fsp.link;
+// `from` and `to` behave like separate mounts: renames and hard links between them fail with EXDEV.
+const crossDevice = () => {
+  const mount = (p: unknown) => (String(p).startsWith(to) ? 'to' : 'from');
+  const exdev = () => Object.assign(new Error('EXDEV'), { code: 'EXDEV' });
+  vi.spyOn(fsp, 'link').mockImplementation(async (existing, target) => {
+    if (mount(existing) !== mount(target)) throw exdev();
+    return realLink(existing, target);
+  });
+  return vi.spyOn(fsp, 'rename').mockImplementation(async (oldPath, newPath) => {
+    if (mount(oldPath) !== mount(newPath)) throw exdev();
     return realRename(oldPath, newPath);
   });
+};
 
 describe('moveFile', () => {
   it('moves within one filesystem', async () => {
@@ -161,6 +166,144 @@ describe('moveFile', () => {
     expect(fs.readFileSync(path.join(from, 'dir', 'late.txt'), 'utf-8')).toBe('late');
     expect(fs.readFileSync(path.join(from, 'dir (not moved)', 'sub', 'b.txt'), 'utf-8')).toBe('b');
     expect(fs.readdirSync(to)).toEqual([]);
+  });
+
+  it('never replaces a file stored at the target after its placeholder was deleted', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      // During the copy the empty placeholder is deleted and an upload takes the name.
+      fs.unlinkSync(path.join(to, 'a.txt'));
+      fs.writeFileSync(path.join(to, 'a.txt'), 'new upload');
+      return realCp(...args);
+    });
+    expect(await moveFile(path.join(from, 'a.txt'), to)).toBe(false);
+    expect(fs.readFileSync(path.join(to, 'a.txt'), 'utf-8')).toBe('new upload');
+    expect(fs.readFileSync(path.join(from, 'a.txt'), 'utf-8')).toBe('a');
+    expect(fs.readdirSync(to)).toEqual(['a.txt']);
+    expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+
+  it('never replaces an empty file put in place of its placeholder', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      fs.renameSync(path.join(to, 'a.txt'), path.join(to, 'renamed.txt'));
+      fs.writeFileSync(path.join(to, 'a.txt'), '');
+      return realCp(...args);
+    });
+    expect(await moveFile(path.join(from, 'a.txt'), to)).toBe(false);
+    expect(fs.statSync(path.join(to, 'a.txt')).size).toBe(0);
+    expect(fs.readFileSync(path.join(from, 'a.txt'), 'utf-8')).toBe('a');
+  });
+
+  it('still moves a file when its placeholder was deleted and the name stayed free', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      fs.unlinkSync(path.join(to, 'a.txt'));
+      return realCp(...args);
+    });
+    expect(await moveFile(path.join(from, 'a.txt'), to)).toBe(true);
+    expect(fs.readFileSync(path.join(to, 'a.txt'), 'utf-8')).toBe('a');
+    expect(fs.existsSync(path.join(from, 'a.txt'))).toBe(false);
+  });
+
+  it('never replaces a file stored where a folder placeholder was', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      fs.rmdirSync(path.join(to, 'dir'));
+      fs.writeFileSync(path.join(to, 'dir'), 'theirs');
+      return realCp(...args);
+    });
+    expect(await moveFile(path.join(from, 'dir'), to)).toBe(false);
+    expect(fs.readFileSync(path.join(to, 'dir'), 'utf-8')).toBe('theirs');
+    expect(fs.readFileSync(path.join(from, 'dir', 'sub', 'b.txt'), 'utf-8')).toBe('b');
+  });
+
+  it('moves a file within one filesystem without replacing a taken name', async () => {
+    fs.writeFileSync(path.join(to, 'a.txt'), 'theirs');
+    expect(await moveFile(path.join(from, 'a.txt'), to)).toBe(false);
+    expect(fs.readFileSync(path.join(to, 'a.txt'), 'utf-8')).toBe('theirs');
+    expect(fs.readFileSync(path.join(from, 'a.txt'), 'utf-8')).toBe('a');
+    expect(await moveFile(path.join(from, 'dir', 'link'), to)).toBe(true);
+    expect(fs.readlinkSync(path.join(to, 'link'))).toBe('sub/b.txt');
+    expect(fs.existsSync(path.join(from, 'dir', 'link'))).toBe(false);
+  });
+
+  it('moves files where hard links are refused', async () => {
+    crossDevice();
+    vi.spyOn(fsp, 'link').mockRejectedValue(Object.assign(new Error('EPERM'), { code: 'EPERM' }));
+    expect(await moveFile(path.join(from, 'a.txt'), to)).toBe(true);
+    expect(fs.readFileSync(path.join(to, 'a.txt'), 'utf-8')).toBe('a');
+    expect(await moveFile(path.join(to, 'a.txt'), path.join(to))).toBe(false);
+    fs.mkdirSync(path.join(to, 'sub'));
+    expect(await moveFile(path.join(to, 'a.txt'), path.join(to, 'sub'))).toBe(true);
+    expect(fs.readFileSync(path.join(to, 'sub', 'a.txt'), 'utf-8')).toBe('a');
+    expect(fs.readdirSync(to)).toEqual(['sub']);
+    expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+
+  it('holds the parked source, the target and the folders above them while it copies', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    const seen: Record<string, boolean> = {};
+    vi.spyOn(fsp, 'cp').mockImplementation(async (src, ...rest) => {
+      seen.parked = moveHolds(String(src));
+      seen.inParked = moveHolds(path.join(String(src), 'sub', 'b.txt'));
+      seen.sourceFolder = moveHolds(from);
+      seen.target = moveHolds(path.join(to, 'dir'));
+      seen.targetFolder = moveHolds(to);
+      seen.base = moveHolds(base);
+      seen.sibling = moveHolds(path.join(from, 'a.txt'));
+      seen.oldName = moveHolds(path.join(from, 'dir'));
+      return realCp(src, ...rest);
+    });
+    expect(await moveFile(path.join(from, 'dir'), to)).toBe(true);
+    expect(seen).toEqual({
+      parked: true,
+      inParked: true,
+      sourceFolder: true,
+      target: true,
+      targetFolder: true,
+      base: true,
+      sibling: false,
+      oldName: false,
+    });
+    expect(moveHolds(from)).toBe(false);
+    expect(moveHolds(to)).toBe(false);
+  });
+
+  it('a restore while a move copies leaves its parked source alone', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      await restoreParkedMoves(base);
+      return realCp(...args);
+    });
+    expect(await moveFile(path.join(from, 'dir'), to)).toBe(true);
+    expect(fs.readFileSync(path.join(to, 'dir', 'sub', 'b.txt'), 'utf-8')).toBe('b');
+    expect(fs.existsSync(path.join(from, 'dir'))).toBe(false);
+    expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+
+  it('a later restore puts back a source a failed move could not put back', async () => {
+    crossDevice();
+    vi.spyOn(fsp, 'cp').mockRejectedValue(new Error('ENOSPC'));
+    // Putting it back fails once (a full disk), so it stays parked.
+    const realMkdir = fsp.mkdir;
+    vi.spyOn(fsp, 'mkdir').mockImplementation(async (p, ...rest) => {
+      if (String(p).startsWith(from + path.sep)) throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+      return realMkdir(p, ...rest);
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await moveFile(path.join(from, 'dir'), to)).toBe(false);
+    expect(fs.existsSync(path.join(from, 'dir'))).toBe(false);
+    vi.mocked(fsp.mkdir).mockRestore();
+    await restoreParkedMoves(base);
+    expect(fs.readFileSync(path.join(from, 'dir', 'sub', 'b.txt'), 'utf-8')).toBe('b');
+    expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
   });
 
   it('puts back a source a restart left parked', async () => {

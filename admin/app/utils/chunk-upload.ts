@@ -28,6 +28,13 @@ export class UploadError extends Error {}
 export const nameTakenError = (name: string) =>
   `"${name}" already exists here; rename or delete it first`;
 
+/** The target name is taken; callers tell it from other failures by type, not by message. */
+export class NameTakenError extends UploadError {
+  constructor(name: string) {
+    super(nameTakenError(name));
+  }
+}
+
 export const pathExists = (p: string) => fs.lstat(p).then(() => true, () => false);
 
 export function uploadTempDir(dir: string, fileId: string): string {
@@ -99,10 +106,11 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
 
   if (chunkIndex === 0) {
     if (upload) await fs.rm(upload.tempDir, { recursive: true, force: true });
-    if (await pathExists(destPath)) throw new UploadError(nameTakenError(fileName));
+    if (await pathExists(destPath)) throw new NameTakenError(fileName);
     const tempDir = uploadTempDir(dir, fileId);
     await fs.rm(tempDir, { recursive: true, force: true });
-    await fs.mkdir(tempDir, { recursive: true });
+    // Not recursive: an upload never creates the folder it goes into.
+    await fs.mkdir(tempDir);
     upload = {
       tempDir,
       // Fixed short name: `<fileName>.temp` exceeded NAME_MAX for valid 251-255 byte names.
@@ -139,12 +147,13 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
 
   if (upload.nextIndex < totalChunks) return 'chunk';
   uploads.delete(fileId);
-  if (await pathExists(destPath)) {
-    await fs.rm(upload.tempDir, { recursive: true, force: true });
-    throw new UploadError(nameTakenError(fileName));
-  }
   try {
-    await fs.rename(upload.tempFile, destPath);
+    // link(2), unlike rename(2), fails when the name exists, so nothing stored under it after
+    // the check at chunk 0 (another upload, a rename, a move) is ever replaced.
+    await fs.link(upload.tempFile, destPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new NameTakenError(fileName);
+    throw error;
   } finally {
     await fs.rm(upload.tempDir, { recursive: true, force: true });
   }

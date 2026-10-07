@@ -6,12 +6,19 @@ import { UPLOAD_TEMP_PREFIX, withBusyTempDir } from './chunk-upload';
 /** Prefix of the scratch dir a cross-mount copy is made in; stale ones are swept like upload temp dirs. */
 export const MOVE_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}move-`;
 
+const errorCode = (error: unknown) => (error as NodeJS.ErrnoException)?.code ?? '';
+
+// Hard links aren't possible here: fall back to claiming the name, then renaming over the claim.
+const NO_HARD_LINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EMLINK']);
+
 /**
  * Moves the entry `sourcePath` (a symlink stays a link) into the directory `destinationPath`;
  * false if the target name is taken or the move is invalid.
  *
- * The target name is claimed first with an exclusive create, so of two concurrent moves of the
- * same item only one proceeds, and nothing this call did not create is ever replaced or removed.
+ * Nothing this call did not create is ever replaced or removed. On one filesystem a file gets a
+ * hard link at the new name, which fails if the name is taken. Otherwise the target name is
+ * claimed first with an exclusive create, so of two concurrent moves of the same item only one
+ * proceeds, and the item only ever takes the place of that placeholder.
  */
 export async function moveFile(sourcePath: string, destinationPath: string): Promise<boolean> {
   const newPath = path.join(destinationPath, path.basename(sourcePath));
@@ -19,26 +26,67 @@ export async function moveFile(sourcePath: string, destinationPath: string): Pro
     return false;
   }
 
+  let stats;
+  try {
+    stats = await fs.lstat(sourcePath);
+  } catch {
+    return false;
+  }
+
+  // Public and private storage are separate mounts.
+  let sameMount = true;
+  if (!stats.isDirectory()) {
+    try {
+      await fs.link(sourcePath, newPath); // link(2) doesn't follow a symlink
+      return await dropOldName(sourcePath, newPath, stats.ino);
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === 'EXDEV') sameMount = false;
+      else if (!NO_HARD_LINK.has(code)) return false;
+    }
+  }
+
   let claim: Claim;
   try {
-    const stats = await fs.lstat(sourcePath);
     claim = await claimName(newPath, stats.isDirectory());
   } catch {
     return false;
   }
 
   try {
-    try {
-      // Replaces only our own placeholder: an empty dir or an empty file.
-      await fs.rename(sourcePath, newPath);
-    } catch (error) {
-      // Public and private storage are separate mounts.
-      if ((error as NodeJS.ErrnoException).code !== 'EXDEV') throw error;
-      await copyThenRemove(sourcePath, newPath, destinationPath);
+    if (sameMount) {
+      try {
+        if ((await placeOverClaim(sourcePath, claim)) === 'linked') {
+          return await dropOldName(sourcePath, newPath, stats.ino);
+        }
+        return true;
+      } catch (error) {
+        if (errorCode(error) !== 'EXDEV') throw error;
+      }
     }
+    await copyThenRemove(sourcePath, claim, destinationPath);
     return true;
   } catch {
     await releaseClaim(claim);
+    return false;
+  }
+}
+
+/**
+ * Removes `oldPath` once `newPath` is a hard link to it, but only while `oldPath` is still the
+ * entry with inode `ino`; otherwise removes the new link again. True when the entry moved.
+ */
+async function dropOldName(oldPath: string, newPath: string, ino: number): Promise<boolean> {
+  try {
+    if ((await fs.lstat(oldPath)).ino !== ino) throw new Error('Replaced meanwhile');
+    await fs.unlink(oldPath);
+    return true;
+  } catch {
+    try {
+      if ((await fs.lstat(newPath)).ino === ino) await fs.unlink(newPath);
+    } catch {
+      // Already gone.
+    }
     return false;
   }
 }
@@ -57,6 +105,40 @@ async function claimName(p: string, isDirectory: boolean): Promise<Claim> {
     await (await fs.open(p, 'wx')).close();
   }
   return { path: p, isDirectory, ino: (await fs.lstat(p)).ino };
+}
+
+const nameTaken = (p: string) =>
+  Object.assign(new Error(`${p} was taken meanwhile`), { code: 'EEXIST' });
+
+/**
+ * Puts `from` (on the same filesystem) under the name `claim` holds, but only while the name
+ * still holds our empty placeholder; never replaces anything else, even an entry stored there
+ * after the placeholder was deleted. A directory is renamed over its placeholder (rename(2)
+ * replaces only an empty directory). A file is hard-linked in once the placeholder is gone,
+ * since link(2) fails if the name was taken meanwhile; `from` then stays, for the caller to
+ * remove ('linked').
+ */
+async function placeOverClaim(from: string, claim: Claim): Promise<'linked' | 'renamed'> {
+  const current = await fs.lstat(claim.path).catch(() => null);
+  if (current && (current.ino !== claim.ino || (!claim.isDirectory && current.size !== 0))) {
+    throw nameTaken(claim.path);
+  }
+  if (claim.isDirectory) {
+    await fs.rename(from, claim.path);
+    return 'renamed';
+  }
+  if (current) await fs.unlink(claim.path);
+  try {
+    await fs.link(from, claim.path);
+    return 'linked';
+  } catch (error) {
+    if (!NO_HARD_LINK.has(errorCode(error))) throw error;
+  }
+  // Hard links aren't possible here: claim the name again and rename over that placeholder.
+  const again = await claimName(claim.path, false);
+  claim.ino = again.ino;
+  await fs.rename(from, claim.path);
+  return 'renamed';
 }
 
 /** Removes the placeholder, but only while it is still the empty one we created. */
@@ -81,7 +163,30 @@ async function releaseClaim(claim: Claim) {
 export const MOVE_SOURCE_PREFIX = '.moving-';
 const PARKED_NAME_SUFFIX = '.name';
 
-async function copyThenRemove(sourcePath: string, newPath: string, destinationPath: string) {
+// Paths running cross-mount moves hold: the parked source, the claimed target name and the temp
+// dir the copy is made in. Renaming, moving or deleting one of them, or a folder above one, would
+// pull it from under the move: a parked source would be left hidden, a placeholder replaced.
+const heldByMoves = new Set<string>();
+
+/** True when `p` is, contains or is inside something a running move holds. */
+export function moveHolds(p: string): boolean {
+  for (const held of heldByMoves) {
+    if (held === p || held.startsWith(p + path.sep) || p.startsWith(held + path.sep)) return true;
+  }
+  return false;
+}
+
+async function holding<T>(paths: string[], work: () => Promise<T>): Promise<T> {
+  const added = paths.filter((p) => !heldByMoves.has(p));
+  added.forEach((p) => heldByMoves.add(p));
+  try {
+    return await work();
+  } finally {
+    added.forEach((p) => heldByMoves.delete(p));
+  }
+}
+
+async function copyThenRemove(sourcePath: string, claim: Claim, destinationPath: string) {
   // Park the source under a hidden name on its own mount first. Anything written to its old
   // path during the copy (an upload, a new folder) then lands outside it, never in the tree
   // that is removed afterwards.
@@ -89,6 +194,10 @@ async function copyThenRemove(sourcePath: string, newPath: string, destinationPa
     path.dirname(sourcePath),
     `${MOVE_SOURCE_PREFIX}${randomBytes(8).toString('hex')}`,
   );
+  await holding([parked, claim.path], () => parkAndCopy(sourcePath, parked, claim, destinationPath));
+}
+
+async function parkAndCopy(sourcePath: string, parked: string, claim: Claim, destinationPath: string) {
   // Its name, for restoreParkedMoves after a restart.
   await fs.writeFile(parked + PARKED_NAME_SUFFIX, path.basename(sourcePath), { flag: 'wx' });
   try {
@@ -99,34 +208,39 @@ async function copyThenRemove(sourcePath: string, newPath: string, destinationPa
   }
 
   try {
-    await copyParked(parked, sourcePath, newPath, destinationPath);
+    await copyParked(parked, sourcePath, claim, destinationPath);
   } finally {
-    await fs.rm(parked + PARKED_NAME_SUFFIX, { force: true });
+    // While the source is still parked, its name stays for restoreParkedMoves.
+    const stillParked = await fs.lstat(parked).then(() => true, () => false);
+    if (!stillParked) await fs.rm(parked + PARKED_NAME_SUFFIX, { force: true });
   }
 }
 
 async function copyParked(
   parked: string,
   sourcePath: string,
-  newPath: string,
+  claim: Claim,
   destinationPath: string,
 ) {
+  const newPath = claim.path;
   let copied = false;
   try {
     // Copy next to the target first, so a failed copy never leaves a partial item under its name.
     const tempDir = await fs.mkdtemp(path.join(destinationPath, MOVE_TEMP_PREFIX));
     try {
       const tempPath = path.join(tempDir, 'item');
-      await withBusyTempDir(tempDir, () =>
-        fs.cp(parked, tempPath, {
-          recursive: true,
-          errorOnExist: true,
-          force: false,
-          preserveTimestamps: true,
-          verbatimSymlinks: true,
-        }),
-      );
-      await fs.rename(tempPath, newPath);
+      await holding([tempDir], async () => {
+        await withBusyTempDir(tempDir, () =>
+          fs.cp(parked, tempPath, {
+            recursive: true,
+            errorOnExist: true,
+            force: false,
+            preserveTimestamps: true,
+            verbatimSymlinks: true,
+          }),
+        );
+        await placeOverClaim(tempPath, claim);
+      });
       copied = true;
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -234,14 +348,17 @@ async function putBack(parked: string, sourcePath: string): Promise<void> {
   console.error(`Could not put back ${sourcePath}; it is kept as ${parked}`);
 }
 
-/** Puts back sources that a move had parked when the process stopped (below `root`). */
+/**
+ * Puts back sources (below `root`) that a move left parked: when the process stopped, or when
+ * putting one back failed. Sources a running move holds are left alone.
+ */
 export async function restoreParkedMoves(root: string): Promise<void> {
   const walk = async (dir: string) => {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.name.startsWith(MOVE_SOURCE_PREFIX)) {
-        if (e.name.endsWith(PARKED_NAME_SUFFIX)) continue;
+        if (e.name.endsWith(PARKED_NAME_SUFFIX) || heldByMoves.has(full)) continue;
         const note = full + PARKED_NAME_SUFFIX;
         const name = await fs.readFile(note, 'utf-8').catch(() => '');
         const valid = name && !name.includes('/') && name !== '.' && name !== '..';
@@ -254,9 +371,6 @@ export async function restoreParkedMoves(root: string): Promise<void> {
   };
   await walk(root);
 }
-
-// Hard links aren't possible here: fall back to claiming the name, then renaming over the claim.
-const NO_HARD_LINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EMLINK']);
 
 /**
  * Renames the entry `oldPath` (a symlink stays a link) to `newName` in the same directory;
@@ -284,15 +398,7 @@ export async function renameEntry(oldPath: string, newName: string): Promise<boo
       if (!NO_HARD_LINK.has(code)) return false;
       return renameOverClaim(oldPath, newPath, false);
     }
-    try {
-      // Only drop the old name while it is still the entry we linked.
-      if ((await fs.lstat(oldPath)).ino !== stats.ino) throw new Error('Replaced meanwhile');
-      await fs.unlink(oldPath);
-      return true;
-    } catch {
-      await fs.unlink(newPath).catch(() => {});
-      return false;
-    }
+    return dropOldName(oldPath, newPath, stats.ino);
   }
   return renameOverClaim(oldPath, newPath, true);
 }

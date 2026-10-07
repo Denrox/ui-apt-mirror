@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
@@ -31,7 +31,7 @@ vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => (
 vi.mock('~/utils/sync', () => ({ checkLockFile: async () => false }));
 
 // skopeo stand-in: writes an archive to the docker-archive: path, or fails.
-const skopeo = vi.hoisted(() => ({ fail: false, calls: [] as string[][] }));
+const skopeo = vi.hoisted(() => ({ fail: false, calls: [] as string[][], during: null as null | (() => void) }));
 vi.mock('child_process', async (importOriginal) => {
   const original = await importOriginal<typeof import('child_process')>();
   const fs = await import('fs');
@@ -39,6 +39,7 @@ vi.mock('child_process', async (importOriginal) => {
     ...original,
     execFile: (_cmd: string, args: string[], callback: (error: Error | null, out?: unknown) => void) => {
       skopeo.calls.push(args);
+      skopeo.during?.();
       if (skopeo.fail) return callback(new Error('Failed to retrieve image manifest'));
       const target = args[args.length - 1].replace(/^docker-archive:/, '');
       fs.writeFileSync(target, 'image');
@@ -151,6 +152,58 @@ describe('uploads', () => {
     });
     expect(res).toEqual({ success: true, message: 'File uploaded successfully' });
     expect(fs.statSync(path.join(dirs.files, '__init__.py')).size).toBe(0);
+  });
+
+  it("refuses upload ids that could name another operation's temp dir", async () => {
+    const busy = path.join(dirs.files, '.tmp-move-abc123');
+    fs.mkdirSync(busy);
+    fs.writeFileSync(path.join(busy, 'item'), 'copy in progress');
+    const abort = await post({ intent: 'abortUpload', filePath: dirs.files, fileId: 'move-abc123' });
+    expect(abort.success).toBe(false);
+    const chunk = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob(['x']),
+      chunkIndex: '0',
+      totalChunks: '2',
+      fileName: 'a.txt',
+      fileId: 'move-abc123',
+    });
+    expect(chunk).toEqual({ success: false, error: 'Invalid upload id' });
+    expect(fs.readFileSync(path.join(busy, 'item'), 'utf-8')).toBe('copy in progress');
+  });
+
+  it('never creates the folders an upload or a new folder would go into', async () => {
+    const missing = [
+      path.join(dirs.files, 'new', '.hidden'),
+      path.join(dirs.files, 'new', 'x\u202Etxt.exe'),
+      path.join(dirs.files, 'new', '.tmp-sweep'),
+    ];
+    for (const filePath of missing) {
+      const chunk = await post({
+        intent: 'uploadChunk',
+        filePath,
+        chunk: new Blob(['x']),
+        chunkIndex: '0',
+        totalChunks: '1',
+        fileName: 'a.txt',
+        fileId: 'nodir1',
+      });
+      expect(chunk).toEqual({ success: false, error: 'The folder does not exist' });
+      const plain = await post({ intent: 'uploadFile', filePath, file: new File(['x'], 'a.txt') });
+      expect(plain).toEqual({ success: false, error: 'The folder does not exist' });
+      const folder = await post({ intent: 'createFolder', currentPath: filePath, folderName: 'ok' });
+      expect(folder).toEqual({ success: false, error: 'The folder does not exist' });
+    }
+    // A file is not a folder either.
+    fs.writeFileSync(path.join(dirs.files, 'plain.txt'), 'x');
+    const intoFile = await post({
+      intent: 'uploadFile',
+      filePath: path.join(dirs.files, 'plain.txt'),
+      file: new File(['x'], 'a.txt'),
+    });
+    expect(intoFile.success).toBe(false);
+    expect(fs.existsSync(path.join(dirs.files, 'new'))).toBe(false);
   });
 
   it('refuses a name that is too long with a clear message (r2-files-15)', async () => {
@@ -275,6 +328,20 @@ describe('container image download (r2-files-6)', () => {
     expect(fs.readFileSync(tar(), 'utf-8')).toBe('user data');
   });
 
+  it('says the name is taken whatever words the image name holds', async () => {
+    skopeo.fail = false;
+    const name = path.join(dirs.files, 'manifest-tool_latest_amd64.tar');
+    // The name is taken while the image is pulled.
+    skopeo.during = () => fs.writeFileSync(name, 'user data');
+    const res = await post({ intent: 'downloadImage', imageUrl: 'manifest-tool', imageTag: 'latest', currentPath: dirs.files });
+    skopeo.during = null;
+    expect(res).toEqual({
+      success: false,
+      error: '"manifest-tool_latest_amd64.tar" already exists here; rename or delete it first',
+    });
+    expect(fs.readFileSync(name, 'utf-8')).toBe('user data');
+  });
+
   it('a failed pull leaves an existing file and no temp data', async () => {
     skopeo.fail = true;
     fs.writeFileSync(tar(), 'user data');
@@ -302,6 +369,65 @@ describe('container image download (r2-files-6)', () => {
     const res = await post({ intent: 'downloadImage', imageUrl: 'busybox:1.36', imageTag: 'latest', currentPath: dirs.files });
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/Tag field/);
+  });
+});
+
+describe('a move between public and private storage', () => {
+  // The two storages behave like separate mounts.
+  const crossDevice = async () => {
+    const fsp = (await import('fs/promises')).default;
+    const mount = (p: unknown) => (String(p).startsWith(dirs.priv) ? 'priv' : 'files');
+    const exdev = () => Object.assign(new Error('EXDEV'), { code: 'EXDEV' });
+    const realRename = fsp.rename;
+    const realLink = fsp.link;
+    vi.spyOn(fsp, 'rename').mockImplementation(async (a, b) => {
+      if (mount(a) !== mount(b)) throw exdev();
+      return realRename(a, b);
+    });
+    vi.spyOn(fsp, 'link').mockImplementation(async (a, b) => {
+      if (mount(a) !== mount(b)) throw exdev();
+      return realLink(a, b);
+    });
+    return fsp;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refuses to rename, move or delete what it holds until it is done', async () => {
+    const fsp = await crossDevice();
+    fs.mkdirSync(path.join(dirs.files, 'parent', 'child'), { recursive: true });
+    fs.writeFileSync(path.join(dirs.files, 'parent', 'child', 'big.bin'), 'data');
+    const during: Record<string, unknown> = {};
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      during.renameParent = await post({
+        intent: 'renameFile',
+        filePath: path.join(dirs.files, 'parent'),
+        newName: 'parent2',
+      });
+      during.moveParent = await post({
+        intent: 'moveFile',
+        sourcePath: path.join(dirs.files, 'parent'),
+        destinationPath: path.join(dirs.priv, 'victim'),
+      });
+      during.deleteParent = await post({ intent: 'deleteFile', filePath: path.join(dirs.files, 'parent') });
+      during.deletePlaceholder = await post({ intent: 'deleteFile', filePath: path.join(dirs.priv, 'child') });
+      return realCp(...args);
+    });
+    const moved = await post({
+      intent: 'moveFile',
+      sourcePath: path.join(dirs.files, 'parent', 'child'),
+      destinationPath: dirs.priv,
+    });
+    expect(moved).toEqual({ success: true, message: 'File moved successfully' });
+    for (const res of Object.values(during)) {
+      expect(res).toEqual({ success: false, error: expect.stringMatching(/move .* still running/) });
+    }
+    expect(fs.readFileSync(path.join(dirs.priv, 'child', 'big.bin'), 'utf-8')).toBe('data');
+    expect(fs.readdirSync(path.join(dirs.files, 'parent'))).toEqual([]);
+    // Once it is done, the folder can be renamed again.
+    const after = await post({ intent: 'renameFile', filePath: path.join(dirs.files, 'parent'), newName: 'parent2' });
+    expect(after.success).toBe(true);
   });
 });
 

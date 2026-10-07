@@ -7,9 +7,10 @@ import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveEntry, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
-import { moveFile, renameEntry, restoreParkedMoves } from '~/utils/move-path';
+import { moveFile, moveHolds, renameEntry, restoreParkedMoves } from '~/utils/move-path';
 import {
   abortUpload,
+  NameTakenError,
   nameTakenError,
   pathExists,
   removeStaleTempDirs,
@@ -20,7 +21,7 @@ import {
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
 import { searchFiles } from '~/utils/search-files';
-import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
+import { giveToDirOwner } from '~/utils/file-owner';
 import { getValidationError } from '~/utils/file-name';
 import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
 import { BodyTooLargeError, readFormData } from '~/utils/limited-form-data';
@@ -33,17 +34,29 @@ const IMAGE_TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
 const ARCHITECTURES = new Set(['amd64', 'arm64', 'arm', '386', 'ppc64le', 's390x', 'riscv64']);
 
 const OUTSIDE = 'Path is outside the file storage';
+const NO_FOLDER = 'The folder does not exist';
+const MOVE_RUNNING = 'A move of this item, or of something in it, is still running; try again after it finishes';
 
-const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+// No "-": an upload's temp dir `.tmp-<id>` can then never be the `.tmp-move-…`, `.tmp-dl-…` or
+// `.tmp-img-…` dir a move, URL download or image pull is writing, which chunk 0 or Cancel removes.
+const UPLOAD_ID_RE = /^[A-Za-z0-9_]{1,100}$/;
 
 // Uploads cut off by a restart leave temp dirs behind; uploads stuck in this process are swept.
-// A move cut off by a restart leaves its source parked under a hidden name; put it back.
-for (const dir of [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean)) {
+// A move cut off by a restart, or one that could not put its source back, leaves the source
+// parked under a hidden name; put it back, at start and from then on.
+const userDirs = [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean);
+const restoreParked = () => {
+  for (const dir of userDirs) {
+    restoreParkedMoves(dir).catch((error) => console.error('Failed to restore parked moves:', error));
+  }
+};
+for (const dir of userDirs) {
   removeStaleTempDirs(dir).catch((error) => console.error('Failed to clean upload temp dirs:', error));
-  restoreParkedMoves(dir).catch((error) => console.error('Failed to restore parked moves:', error));
 }
+restoreParked();
 setInterval(() => {
   sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
+  restoreParked();
 }, 10 * 60 * 1000);
 
 // Running URL downloads by destination path, so the dialog's Cancel can stop one.
@@ -58,9 +71,13 @@ async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise
   return null;
 }
 
+const isFolder = (p: string) => fs.stat(p).then((s) => s.isDirectory(), () => false);
+
 async function createDirectory(dirPath: string): Promise<boolean> {
   try {
-    await mkdirOwned(dirPath);
+    // Only the named folder: a missing parent is refused, never created around the name rules.
+    await fs.mkdir(dirPath);
+    giveToDirOwner(dirPath);
     return true;
   } catch (error) {
     return false;
@@ -101,8 +118,6 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
   try {
     const destPath = path.join(filePath, file.name);
 
-    await mkdirOwned(path.dirname(destPath));
-
     // Written as it is read; the body itself is capped by readFormData.
     if (typeof file?.stream === 'function') {
       await fs.writeFile(destPath, file.stream(), { flag: 'wx' });
@@ -136,6 +151,10 @@ async function handleChunkUpload(
     const filePath = resolveInside(formData.get('filePath'), storageRoots());
     if (!filePath) {
       return { success: false, error: OUTSIDE };
+    }
+    // Uploads go into an existing folder; missing ones are not created around the name rules.
+    if (!(await isFolder(filePath))) {
+      return { success: false, error: NO_FOLDER };
     }
 
     const validationError = getValidationError(fileName);
@@ -209,11 +228,10 @@ async function downloadImage(
   const fullPath = path.join(destPath, fileName);
   // Never replace or delete a file that already has this name.
   if (await pathExists(fullPath)) {
-    throw new Error(nameTakenError(fileName));
+    throw new NameTakenError(fileName);
   }
   let tempDir: string | null = null;
   try {
-    await mkdirOwned(destPath);
     // Pull to a hidden temp dir and link into place when complete.
     tempDir = await fs.mkdtemp(path.join(destPath, `${UPLOAD_TEMP_PREFIX}img-`));
     const tempPath = path.join(tempDir, fileName);
@@ -227,7 +245,7 @@ async function downloadImage(
       try {
         await fs.link(tempPath, fullPath);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(nameTakenError(fileName));
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new NameTakenError(fileName);
         throw error;
       }
       giveToDirOwner(fullPath);
@@ -255,6 +273,7 @@ async function downloadImage(
     }
     return await store();
   } catch (error) {
+    if (error instanceof NameTakenError) throw error;
     console.error('Failed to download image:', error);
 
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -276,8 +295,6 @@ async function downloadImage(
       throw new Error(
         'Download timed out. Please try again or check your network connection.',
       );
-    } else if (errorMessage.includes('already exists here')) {
-      throw error;
     }
 
     return false;
@@ -314,6 +331,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (!currentPath) {
         return { success: false, error: OUTSIDE };
       }
+      if (!(await isFolder(currentPath))) {
+        return { success: false, error: NO_FOLDER };
+      }
 
       const validationError = getValidationError(folderName);
       if (validationError) {
@@ -345,6 +365,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (blocked) {
         return { success: false, error: blocked };
       }
+      if (moveHolds(filePath)) {
+        return { success: false, error: MOVE_RUNNING };
+      }
       const success = await deleteFile(filePath);
       if (success) {
         return { success: true, message: 'File deleted successfully' };
@@ -373,6 +396,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (blocked) {
         return { success: false, error: blocked };
       }
+      if (moveHolds(filePath)) {
+        return { success: false, error: MOVE_RUNNING };
+      }
 
       const success = await renameFile(filePath, newName);
 
@@ -400,6 +426,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (blocked) {
         return { success: false, error: blocked };
       }
+      if (moveHolds(sourcePath)) {
+        return { success: false, error: MOVE_RUNNING };
+      }
 
       const success = await moveFile(sourcePath, destinationPath);
 
@@ -420,6 +449,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
       if (!file) {
         return { success: false, error: 'No file provided' };
+      }
+      if (!(await isFolder(filePath))) {
+        return { success: false, error: NO_FOLDER };
       }
       const blocked = await writeBlocked('add', filePath);
       if (blocked) {
@@ -485,6 +517,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (!url || !fileName) {
         return { success: false, error: 'URL and filename are required' };
       }
+      if (!(await isFolder(currentPath))) {
+        return { success: false, error: NO_FOLDER };
+      }
 
       const validationError = getValidationError(fileName);
       if (validationError) {
@@ -514,6 +549,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: OUTSIDE };
       }
       const architecture = (formData.get('architecture') as string) || 'amd64';
+      if (!(await isFolder(currentPath))) {
+        return { success: false, error: NO_FOLDER };
+      }
       const blocked = await writeBlocked('add', currentPath);
       if (blocked) {
         return { success: false, error: blocked };
