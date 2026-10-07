@@ -349,6 +349,11 @@ export default function Home() {
               </FormButton>
             }
             disabled={isLockFilePresent || isActionInProgress}
+            disabledReason={
+              isLockFilePresent
+                ? 'Repositories can be added once the sync is done'
+                : 'Wait for the current action to finish'
+            }
           >
             <DropdownItem onClick={handleOpenAddRepo}>
               Add repository…
