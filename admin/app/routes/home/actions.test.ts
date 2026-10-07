@@ -11,6 +11,9 @@ vi.mock('~/config/config.json', () => ({
     get mirrorListPath() {
       return `${state.dir}/mirror.list`;
     },
+    get gpgKeysIndex() {
+      return `${state.dir}/keys.json`;
+    },
     get mirrorRoot() {
       return `${state.dir}/mirror`;
     },
@@ -128,4 +131,12 @@ describe('changes while a sync runs', () => {
       expect(readList()).toBe(before);
     },
   );
+});
+
+describe('deleteGpgKey', () => {
+  it('says there is no key instead of claiming it deleted one', async () => {
+    const result = await post({ action: 'deleteGpgKey', host: 'nokey.example.com' });
+    expect(result.success).toBeUndefined();
+    expect(result.error).toMatch(/no signing key for nokey\.example\.com/);
+  });
 });

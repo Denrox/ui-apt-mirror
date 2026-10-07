@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import {
   generateKey,
   deleteKey,
+  getKey,
   signReleasesForHost,
   restoreUpstreamSignatures,
   assertValidHost,
@@ -313,6 +314,7 @@ export async function action({ request }: { request: Request }) {
     const host = formData.get('host') as string;
     try {
       assertValidHost(host);
+      if (!(await getKey(host))) return { error: `There is no signing key for ${host}` };
       // Before the key goes: Release files signed with it would fail on every client.
       let restored = true;
       try {
@@ -321,7 +323,7 @@ export async function action({ request }: { request: Request }) {
         console.error('Restoring upstream signatures failed:', restoreError);
         restored = false;
       }
-      await deleteKey(host);
+      if (!(await deleteKey(host))) return { error: `There is no signing key for ${host}` };
       return {
         success: true,
         message: restored
