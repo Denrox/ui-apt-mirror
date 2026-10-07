@@ -16,7 +16,6 @@ import {
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {
-  NPM_VERSION_RE,
   applyDocUpdate,
   auditPackageNames,
   currentRev,
@@ -25,6 +24,7 @@ import {
   isRegistryRequest,
   isValidDistTag,
   isValidName,
+  isValidVersion,
   isWebLoginPath,
   mergePublish,
   nextRev,
@@ -558,7 +558,7 @@ async function publishPackage(
 
   if (
     packageDocument.name !== packageName ||
-    Object.keys(versions).some((v) => !NPM_VERSION_RE.test(v))
+    Object.keys(versions).some((v) => !isValidVersion(v))
   ) {
     return jsonResponse({ error: 'Invalid package name or version' }, 400);
   }
