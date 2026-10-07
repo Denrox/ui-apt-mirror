@@ -1,6 +1,7 @@
 #!/bin/bash
 # Renders the nginx sites from the image's templates; data/conf/nginx/custom/<name>
-# overrides one. Run by entrypoint.sh. The paths can be changed for tests (see test.sh).
+# overrides one. Also writes the container's gateway for the search limits. Run by
+# entrypoint.sh. The paths can be changed for tests (see test.sh).
 #
 # "source render-sites.sh --lib" only defines the hash helpers (update-released-sites.sh).
 set -e
@@ -30,6 +31,9 @@ NGINX_SITES=${NGINX_SITES:-/etc/nginx/sites-available}
 # The stock site configs of the previous release; replaced by update-released-sites.sh
 RELEASED_SITES=${RELEASED_SITES:-$SELF_DIR/released-sites.sha256}
 NGINX_CUSTOM="$NGINX_HOSTCONF/custom"
+# Read by conf.d/cheatsheets-search.conf
+NGINX_SHARED_CLIENTS=${NGINX_SHARED_CLIENTS:-/etc/nginx/conf.d/shared-clients.geo}
+ROUTE_TABLE=${ROUTE_TABLE:-/proc/net/route}
 MIRROR_DOMAIN="${MIRROR_DOMAIN:-mirror.intra}"
 ESCAPED_DOMAIN=$(printf '%s' "$MIRROR_DOMAIN" | sed 's/[&/\]/\\&/g')
 
@@ -125,3 +129,26 @@ for tpl in "$NGINX_TEMPLATES"/*.conf; do
 done
 
 find "$NGINX_CUSTOM" -user 0 -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
+
+# The container's default gateways, from $ROUTE_TABLE (/proc/net/route: little-endian
+# hex). docker-proxy connects every IPv6 client and every client on the Docker host
+# from there, so nginx gives that address a search limit of its own. With none
+# found, the file lists nothing and nginx still loads it.
+default_gateways() {
+    local destination gateway
+    tail -n +2 "$ROUTE_TABLE" 2>/dev/null | while read -r _ destination gateway _; do
+        [ "$destination" = 00000000 ] || continue
+        [[ $gateway =~ ^[0-9A-Fa-f]{8}$ ]] && [ "$gateway" != 00000000 ] || continue
+        printf '%d.%d.%d.%d\n' "0x${gateway:6:2}" "0x${gateway:4:2}" "0x${gateway:2:2}" "0x${gateway:0:2}"
+    done | sort -u
+}
+
+gateways=$(default_gateways)
+{
+    echo "# The container's gateway, written by render-sites.sh at start."
+    for gateway in $gateways; do
+        echo "$gateway 1;"
+    done
+} > "$NGINX_SHARED_CLIENTS"
+gateways=${gateways//$'\n'/, }
+echo "   Search limits: shared client address ${gateways:-none}"

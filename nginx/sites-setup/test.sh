@@ -47,6 +47,7 @@ new_case() {
 # Runs render-sites.sh for the current case: $1 = domain, $2 = templates (default: next release)
 render() {
     NGINX_TEMPLATES="${2:-$NEXT}" NGINX_HOSTCONF="$HOST" NGINX_SITES="$SITES" RELEASED_SITES="$LIST" \
+        NGINX_SHARED_CLIENTS="$CASE/shared-clients.geo" ROUTE_TABLE="$CASE/route" \
         MIRROR_DOMAIN="$1" bash "$dir/render-sites.sh" > "$CASE/log" 2>&1 \
         || fail "$CASE: render-sites.sh exited $?: $(cat "$CASE/log")"
 }
@@ -199,6 +200,20 @@ for domain in mirror.intra c.test; do
         check "rename $domain -> $other: not called unedited" '! grep -q "custom/files.mirror.intra.conf was the previous release" "$CASE/log"'
     done
 done
+
+# 11. The container's default gateway is written for the search limits; with none
+#     (or no route table), the file lists no address
+new_case gateway
+printf 'Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\n' > "$CASE/route"
+printf 'eth0\t00000000\t010012AC\t0003\t0\t0\t0\t00000000\n' >> "$CASE/route"
+printf 'eth0\t000012AC\t00000000\t0001\t0\t0\t0\t0000FFFF\n' >> "$CASE/route"
+render mirror.intra
+check "gateway: written as a geo entry" '[ "$(grep -v "^#" "$CASE/shared-clients.geo")" = "172.18.0.1 1;" ]'
+check "gateway: logged" 'grep -q "shared client address 172.18.0.1$" "$CASE/log"'
+new_case no-gateway
+render mirror.intra
+check "no gateway: file lists no address" '[ -f "$CASE/shared-clients.geo" ] && ! grep -qv "^#" "$CASE/shared-clients.geo"'
+check "no gateway: logged" 'grep -q "shared client address none$" "$CASE/log"'
 
 echo "$passes passed, $fails failed"
 [ "$fails" -eq 0 ]
