@@ -6,7 +6,7 @@ import {
   loadIndex,
 } from '~/lib/cheatsheets-store';
 import { adminSearches, BUSY_RETRY_AFTER, publicSearches } from '~/lib/search-limiter';
-import { clientIp } from '~/utils/login-limiter';
+import { clientIp } from '~/utils/client-address';
 
 export interface SearchResult {
   source: string;

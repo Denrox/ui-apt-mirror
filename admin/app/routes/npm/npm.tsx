@@ -13,7 +13,8 @@ import {
   revokeNpmToken,
   validateNpmAuthToken,
 } from '~/utils/server-auth';
-import { clientIp, tooManyAttemptsMessage } from '~/utils/login-limiter';
+import { clientIp } from '~/utils/client-address';
+import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 import { BUSY_RETRY_AFTER, SearchLimiter } from '~/lib/search-limiter';
 import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {

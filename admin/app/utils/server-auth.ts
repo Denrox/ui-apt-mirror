@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
+import { clientIp } from './client-address';
 import { giveToDirOwner } from './file-owner';
 import {
   checkCredentials,
@@ -12,7 +13,7 @@ import {
   revokeTokens,
   TOKEN_MAX_AGE_MS,
 } from './htpasswd';
-import { beginLoginAttempt, clientIp, loginSucceeded } from './login-limiter';
+import { beginLoginAttempt, loginSucceeded } from './login-limiter';
 import { usernameError } from './password-rules';
 import { assertSameOrigin, isPublicHostRequest } from './request-guard';
 
