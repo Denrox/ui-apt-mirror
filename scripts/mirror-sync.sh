@@ -81,6 +81,14 @@ remove_lock() {
     exec 8>&-
 }
 
+# Re-sign Release files for every host that has a GPG key registered.
+sign_releases() {
+    [ -x /usr/local/bin/sign-releases.sh ] || return 0
+    log "Signing Release files..."
+    /usr/local/bin/sign-releases.sh 2>&1 | tee -a "$MIRROR_LOG"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: sign-releases.sh exited non-zero"
+}
+
 # Function to perform sync
 do_sync() {
     log "Starting apt-mirror2 sync..."
@@ -102,19 +110,22 @@ do_sync() {
     export PYTHONUNBUFFERED=1
     export PYTHONIOENCODING=utf-8
     
-    # Run apt-mirror2 using Python version with timeout
+    # Run apt-mirror2 with timeout. The wrapper signs each repository's Release files as
+    # apt-mirror2 publishes them, so clients that trust only our key keep working mid-sync.
     rotate_log
-    timeout 36000 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"
+    local runner=(apt-mirror)
+    if [ -f /usr/local/bin/apt-mirror-signed.py ]; then
+        runner=(python3 /usr/local/bin/apt-mirror-signed.py)
+    fi
+    timeout 36000 "${runner[@]}" "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"
     local exit_code=${PIPESTATUS[0]}
+
+    # Re-sign after every run, failed or stopped ones too: a repository published before the
+    # failure would otherwise serve upstream signatures until the next good sync.
+    sign_releases
+
     if [ "$exit_code" -eq 0 ]; then
         log "Sync completed successfully"
-
-        # Re-sign Release files for every host that has a GPG key registered.
-        if [ -x /usr/local/bin/sign-releases.sh ]; then
-            log "Signing Release files..."
-            /usr/local/bin/sign-releases.sh 2>&1 | tee -a "$MIRROR_LOG" || \
-                log "WARN: sign-releases.sh exited non-zero"
-        fi
 
         # Update last sync timestamp
         date > /var/spool/apt-mirror/last-sync.txt
