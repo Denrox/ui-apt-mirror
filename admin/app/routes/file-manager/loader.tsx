@@ -61,9 +61,16 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
   }
 }
 
+/** What the anonymous files host may browse: public files and the published mirror tree. */
+export function publicRoots(): string[] {
+  return [appConfig.filesDir, appConfig.mirrorRoot];
+}
+
 function isPathAllowed(requestedPath: string, isPublicRoute: boolean): boolean {
-  // The public host never sees private files; symlinks may not lead outside the roots.
-  return resolveInside(requestedPath, storageRoots({ includePrivate: !isPublicRoute })) !== null;
+  // The public host never sees private files, the mirror's keys and state, or the npm cache;
+  // symlinks may not lead outside the roots.
+  const roots = isPublicRoute ? publicRoots() : storageRoots();
+  return resolveInside(requestedPath, roots) !== null;
 }
 
 export async function loader({ request }: { request: Request }) {

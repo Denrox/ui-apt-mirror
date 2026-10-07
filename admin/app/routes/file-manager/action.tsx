@@ -446,8 +446,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: OUTSIDE };
       }
 
+      // Moving out of the mirror or npm cache is not deletion (it could publish the signing key),
+      // so the source's folder must allow adding too.
       const blocked =
-        (await writeBlocked('remove', sourcePath)) ||
+        (await writeBlocked('add', path.dirname(sourcePath))) ||
         (await writeBlocked('add', path.join(destinationPath, path.basename(sourcePath))));
       if (blocked) {
         return { success: false, error: blocked };

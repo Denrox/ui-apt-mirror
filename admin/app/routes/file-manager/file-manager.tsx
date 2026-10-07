@@ -120,7 +120,8 @@ export default function FileManager() {
 
   const rootPath = useMemo(() => {
     if (view === 'mirrored-packages') {
-      return appConfig.mirroredPackagesDir;
+      // The public host only shows the published mirror tree.
+      return isPublicRoute ? appConfig.mirrorRoot : appConfig.mirroredPackagesDir;
     } else if (view === 'npm-packages') {
       return appConfig.npmPackagesDir;
     } else if (view === 'private-files') {
@@ -128,7 +129,7 @@ export default function FileManager() {
     } else {
       return appConfig.filesDir;
     }
-  }, [view]);
+  }, [view, isPublicRoute]);
 
   useEffect(() => {
     if (previousViewRef.current !== view) {
@@ -565,7 +566,7 @@ export default function FileManager() {
                 ? [{ value: 'private-files', label: 'Private Files' }]
                 : []),
               { value: 'mirrored-packages', label: 'Mirrored Packages' },
-              ...(isNpmProxyEnabled
+              ...(isNpmProxyEnabled && !isPublicRoute
                 ? [{ value: 'npm-packages', label: 'Npm Packages' }]
                 : []),
             ]}

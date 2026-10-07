@@ -22,6 +22,7 @@ vi.mock('~/config/config.json', () => ({
     filesDir: dirs.files,
     privateFilesDir: dirs.priv,
     mirroredPackagesDir: dirs.mirror,
+    mirrorRoot: path.join(dirs.mirror, 'mirror'),
     npmPackagesDir: dirs.npm,
     healthReportFile: path.join(dirs.base, 'health.json'),
   },
@@ -46,6 +47,7 @@ vi.mock('child_process', async (importOriginal) => {
 });
 
 const { action } = await import('./action');
+const { loader } = await import('./loader');
 
 async function post(fields: Record<string, string | Blob>) {
   const body = new FormData();
@@ -222,5 +224,45 @@ describe('container image download (r2-files-6)', () => {
     fs.rmSync(tar());
     expect((await pull()).success).toBe(false);
     expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.') || n.endsWith('.tar'))).toEqual([]);
+  });
+});
+
+describe('managed storage and the public host (r2-files-17)', () => {
+  beforeEach(() => {
+    fs.mkdirSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d'), { recursive: true });
+    fs.writeFileSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key'), 'secret');
+    fs.mkdirSync(path.join(dirs.mirror, 'mirror', 'dists'), { recursive: true });
+    fs.mkdirSync(path.join(dirs.npm, 'public'), { recursive: true });
+  });
+
+  const browse = (p: string, host = 'files.mirror.intra') =>
+    loader({ request: new Request(`http://${host}/file-manager?path=${encodeURIComponent(p)}`) });
+
+  it('the files host lists public files and the published mirror tree only', async () => {
+    expect((await browse(dirs.files)).error).toBeUndefined();
+    const mirror = await browse(path.join(dirs.mirror, 'mirror'));
+    expect(mirror.error).toBeUndefined();
+    expect(mirror.files.map((f: { name: string }) => f.name)).toEqual(['dists']);
+    for (const p of [path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d'), dirs.mirror, dirs.npm, dirs.priv]) {
+      const res = await browse(p);
+      expect(res.error).toMatch(/Access denied/);
+      expect(res.files).toEqual([]);
+    }
+  });
+
+  it('the admin host still lists every root', async () => {
+    const res = await browse(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d'), 'admin.mirror.intra');
+    expect(res.error).toBeUndefined();
+    expect(res.files.map((f: { name: string }) => f.name)).toEqual(['KEY.key']);
+  });
+
+  it('nothing can be moved out of the mirror or npm, but it can be deleted', async () => {
+    const key = path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key');
+    const res = await post({ intent: 'moveFile', sourcePath: key, destinationPath: dirs.files });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/managed by the mirror/);
+    expect(fs.existsSync(key)).toBe(true);
+    expect((await post({ intent: 'moveFile', sourcePath: path.join(dirs.npm, 'public'), destinationPath: dirs.files })).success).toBe(false);
+    expect((await post({ intent: 'deleteFile', filePath: key })).success).toBe(true);
   });
 });
