@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import FormButton from '~/components/shared/form/form-button';
@@ -264,6 +264,7 @@ export default function FileManager() {
   const handleRenameSuccess = () => {
     setItemToRename(null);
     revalidator.revalidate();
+    refreshSearchRef.current();
   };
 
   const handleRenameCancel = () => {
@@ -327,24 +328,46 @@ export default function FileManager() {
     [revalidator],
   );
 
+  // The running search, so it can be run again after a change to one of its results.
+  const lastSearchRef = useRef<{ query: string; rootPath: string } | null>(null);
+  const runSearch = useCallback(
+    (query: string, rootPath: string) => {
+      lastSearchRef.current = { query, rootPath };
+      const formData = new FormData();
+      formData.append('intent', 'searchFiles');
+      formData.append('searchQuery', query);
+      formData.append('rootPath', rootPath);
+      searchFetcher.submit(formData, { method: 'post' });
+    },
+    [searchFetcher],
+  );
+
   const handleSearch = useCallback(() => {
     if (searchQuery.trim().length < 3) return;
 
     setIsSearching(true);
     setSearchResults(null);
-    const formData = new FormData();
-    formData.append('intent', 'searchFiles');
-    formData.append('searchQuery', searchQuery.trim());
-    formData.append('rootPath', currentPath);
-
-    searchFetcher.submit(formData, { method: 'post' });
-  }, [searchQuery, currentPath, searchFetcher]);
+    runSearch(searchQuery.trim(), currentPath);
+  }, [searchQuery, currentPath, runSearch]);
 
   const handleClearSearch = useCallback(() => {
     setIsSearching(false);
     setSearchQuery('');
     setSearchResults(null);
+    lastSearchRef.current = null;
   }, []);
+
+  // Results are a snapshot: after a delete, rename or move from them, search again.
+  const refreshSearch = useCallback(() => {
+    const last = lastSearchRef.current;
+    if (isSearching && last) runSearch(last.query, last.rootPath);
+  }, [isSearching, runSearch]);
+  const refreshSearchRef = useRef(refreshSearch);
+  refreshSearchRef.current = refreshSearch;
+
+  useEffect(() => {
+    if (actionData?.success) refreshSearchRef.current();
+  }, [actionData]);
 
   useEffect(() => {
     if (searchFetcher.data && searchFetcher.state === 'idle') {
