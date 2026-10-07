@@ -23,6 +23,7 @@ import {
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
 import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
+import { getValidationError } from '~/utils/file-name';
 
 const execFileAsync = promisify(execFile);
 
@@ -80,29 +81,6 @@ async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise
     const reason = writeBlockedReason(target, op, syncRunning);
     if (reason) return reason;
   }
-  return null;
-}
-
-function isValidFileName(name: string): boolean {
-  const forbiddenPatterns = [/^\./, /\//];
-
-  return !forbiddenPatterns.some((pattern) => pattern.test(name));
-}
-
-export function getValidationError(name: string): string | null {
-  if (!name.trim()) {
-    return 'Name cannot be empty';
-  }
-
-  if (!isValidFileName(name)) {
-    return "Name cannot contain './', '../', or other path traversal characters";
-  }
-
-  const invalidChars = /[<>:"|?*\x00-\x1f]/;
-  if (invalidChars.test(name)) {
-    return 'Name contains invalid characters';
-  }
-
   return null;
 }
 
