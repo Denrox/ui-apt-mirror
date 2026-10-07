@@ -48,7 +48,7 @@ RUN cd /var/admin && npm install && npm run build
 # Nginx site templates, rendered by entrypoint.sh
 COPY nginx/sites/ /etc/nginx/templates/
 COPY nginx/conf.d/ /etc/nginx/conf.d/
-COPY nginx/sites-setup/ /etc/nginx/sites-setup/
+COPY nginx/sites-setup/render-sites.sh nginx/sites-setup/released-sites.sha256 /etc/nginx/sites-setup/
 
 # Copy scripts
 COPY scripts/ /usr/local/bin/
