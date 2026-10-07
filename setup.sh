@@ -694,18 +694,21 @@ show_status() {
         print_warning "docker-compose.override.yml, then run ./start.sh."
     fi
 
+    # The container migrates old nginx configs and writes the .stock copies while
+    # starting; list the overrides once it is done
+    local i
+    for i in $(seq 1 60); do
+        docker logs --since "${CONTAINER_STARTED_AT:-0}" "$CONTAINER_NAME" 2>&1 \
+            | grep -q "Starting admin server" && break
+        [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)" = true ] || break
+        sleep 1
+    done
     local custom
     custom=$(ls data/conf/nginx/custom/*.conf 2>/dev/null || true)
     if [ -n "$custom" ]; then
         echo ""
         print_warning "Custom nginx configs in use (they replace the stock ones):"
         echo "$custom" | sed 's/^/  /'
-        # The container writes the .stock copies while starting
-        local i
-        for i in $(seq 1 30); do
-            docker logs "$CONTAINER_NAME" 2>&1 | grep -q "Starting admin server" && break
-            sleep 1
-        done
         local changed="" conf
         for conf in $custom; do
             [ -f "$conf.stock" ] && changed+="  $conf"$'\n'
@@ -873,6 +876,7 @@ main() {
 
     # Start container using start.sh
     print_status "Starting container..."
+    CONTAINER_STARTED_AT=$(date +%s)
     ./start.sh
 
     # Show status
