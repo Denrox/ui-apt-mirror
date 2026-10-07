@@ -195,10 +195,15 @@ export class MirrorConfig {
     const trustedOption = debs.some((d) =>
       d.options.some((o) => /^trusted=yes$/i.test(o)),
     );
+    // deb822 `Trusted: yes`, or a one-line `deb [trusted=yes] ...` snippet (the stock Docker sections).
     const trustedUsage = section.children.some(
       (c) =>
         c.kind === 'usage' &&
-        c.lines.some((l) => /^#?\s*Trusted:\s*yes\b/i.test(l)),
+        c.lines.some(
+          (l) =>
+            /^#?\s*Trusted:\s*yes\b/i.test(l) ||
+            /^#?\s*deb(?:-src)?\s+\[[^\]]*\btrusted=yes\b[^\]]*\]/i.test(l),
+        ),
     );
 
     const firstComment = section.children.find(

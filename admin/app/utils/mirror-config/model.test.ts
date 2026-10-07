@@ -553,3 +553,30 @@ describe('base URLs with a port (r3-repos-2)', () => {
   });
 });
 
+describe('one-line trusted snippets (r3-repos-5)', () => {
+  const DOCKER = `# ---start---Docker Debian 13---
+## Docker CE for Debian 13
+deb https://download.docker.com/linux/debian trixie stable
+# Usage start
+#deb [trusted=yes] http://mirror.intra/download.docker.com/linux/debian trixie stable
+# Usage end
+# ---end---Docker Debian 13---
+`;
+
+  it('reads trusted from a one-line [trusted=yes] Usage line', () => {
+    const cfg = MirrorConfig.parse(DOCKER);
+    expect(cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)?.trusted).toBe(true);
+  });
+
+  it('keeps Trusted: yes when the section is saved unchanged', () => {
+    const cfg = MirrorConfig.parse(DOCKER);
+    const editable = cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)!;
+    cfg.editSection('Docker Debian 13', editable, 'mirror.intra');
+    expect(cfg.sectionUsageLines(cfg.getSection('Docker Debian 13')!)).toContain('Trusted: yes');
+  });
+
+  it('does not treat other options as trusted', () => {
+    const cfg = MirrorConfig.parse(DOCKER.replace('[trusted=yes]', '[arch=amd64]'));
+    expect(cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)?.trusted).toBe(false);
+  });
+});
