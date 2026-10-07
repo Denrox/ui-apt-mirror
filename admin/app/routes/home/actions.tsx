@@ -188,7 +188,11 @@ export async function action({ request }: { request: Request }) {
 
         // Toggle only the deb and filter directives in the section; comments (the
         // description) and the client-facing Usage snippet are left untouched.
-        config.setSectionEnabled(sectionTitle, enable, formRevision(formData));
+        const section = config.getSection(sectionTitle, formRevision(formData))!;
+        config.setEnabled(section, enable);
+        // Enabling can put an unfiltered and a filtered repository on one upstream.
+        const conflict = config.filterConflict(section);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {
@@ -221,6 +225,9 @@ export async function action({ request }: { request: Request }) {
         if (validationError) return { error: validationError };
 
         config.addSection(input, mirrorDomain());
+        const added = config.sections().filter((s) => s.title === input.title.trim()).pop();
+        const conflict = added && config.filterConflict(added);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {
@@ -270,6 +277,8 @@ export async function action({ request }: { request: Request }) {
         config.editSection(originalTitle, input, mirrorDomain(), formRevision(formData));
         // Editing never enables a disabled repository (the next sync would download it).
         if (!wasEnabled) config.setEnabled(section, false);
+        const conflict = config.filterConflict(section);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {

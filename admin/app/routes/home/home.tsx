@@ -66,7 +66,7 @@ export default function Home() {
     useState(false);
   // The real width is set after hydration, so the server HTML still matches.
   const [windowWidth, setWindowWidth] = useState(1024);
-  const { repositoryConfigs, commentedSections, isLockFilePresent, latestLog } =
+  const { repositoryConfigs, commentedSections, isLockFilePresent, latestLog, upstreams } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
@@ -699,6 +699,7 @@ export default function Home() {
         onSubmit={handleRepoSubmit}
         isSubmitting={isActionInProgress}
         initialValues={repoInitialValues}
+        upstreams={upstreams}
         title={repoModalMode === 'edit' ? 'Edit Repository' : 'Add Repository'}
         submitLabel={
           repoModalMode === 'edit' ? 'Save Changes' : 'Add Repository'

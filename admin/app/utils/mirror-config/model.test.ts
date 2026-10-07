@@ -580,3 +580,34 @@ deb https://download.docker.com/linux/debian trixie stable
     expect(cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)?.trusted).toBe(false);
   });
 });
+
+describe('upstreams shared by several sections (r3-repos-3)', () => {
+  const LIST = `# ---start---Hello---
+deb http://deb.debian.org/debian trixie main
+include_binary_packages http://deb.debian.org/debian hello
+# ---end---Hello---
+# ---start---Updates---
+deb [arch=amd64] http://DEB.debian.org/debian/ trixie-updates main
+# ---end---Updates---
+# ---start---Off---
+#deb http://deb.debian.org/debian bookworm main
+# ---end---Off---
+# ---start---Ubuntu---
+deb http://archive.ubuntu.com/ubuntu noble main
+# ---end---Ubuntu---
+`;
+
+  it('lists the other enabled sections on the same upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Updates')!)).toEqual([{ title: 'Hello', filtered: true }]);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Ubuntu')!)).toEqual([]);
+  });
+
+  it('reports a filtered and an unfiltered section on one upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.filterConflict(cfg.getSection('Updates')!)).toMatch(/"Updates" has no package filter/);
+    expect(cfg.filterConflict(cfg.getSection('Hello')!)).toMatch(/"Updates" would only get the packages "Hello" selects/);
+    expect(cfg.filterConflict(cfg.getSection('Off')!)).toBeNull();
+    expect(cfg.filterConflict(cfg.getSection('Ubuntu')!)).toBeNull();
+  });
+});
