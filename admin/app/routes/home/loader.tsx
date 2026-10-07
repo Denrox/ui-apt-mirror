@@ -154,10 +154,17 @@ async function parseRepositoryConfigs(): Promise<{
 async function readLatestLog(): Promise<{
   name: string;
   content: string;
+  firstLine: number;
 } | null> {
   try {
-    const { content } = await readTail(path.join(appConfig.mirrorLogsDir, SYNC_LOG), 64 * 1024);
-    return { name: SYNC_LOG, content: content.split('\n').slice(-400).join('\n') };
+    const tail = await readTail(path.join(appConfig.mirrorLogsDir, SYNC_LOG), 64 * 1024);
+    const lines = tail.content.split('\n');
+    const shown = lines.slice(-400);
+    return {
+      name: SYNC_LOG,
+      content: shown.join('\n'),
+      firstLine: tail.firstLine + lines.length - shown.length,
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Error reading the sync log:', error);

@@ -626,6 +626,7 @@ export default function Home() {
           </div>
           <LogPanel
             content={latestLog.content}
+            firstLine={latestLog.firstLine}
             title={latestLog.name}
             bodyClassName="max-h-[320px] min-h-[200px]"
           />

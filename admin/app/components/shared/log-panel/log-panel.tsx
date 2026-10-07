@@ -10,6 +10,8 @@ export type { LogLevel, LogLevelFilter };
 
 interface LogPanelProps {
   readonly content: string;
+  /** Line number of the first line of `content` in the whole file. */
+  readonly firstLine?: number;
   /** Shown in the terminal title bar (e.g. the file name). */
   readonly title?: string;
   /** Case-insensitive substring filter. */
@@ -37,6 +39,7 @@ const MAX_LINES = 1500;
  */
 export default function LogPanel({
   content,
+  firstLine = 1,
   title,
   search = '',
   level = 'ALL',
@@ -44,14 +47,14 @@ export default function LogPanel({
   className,
 }: LogPanelProps) {
   const { lines, truncated, total } = useMemo(() => {
-    const filtered = filterLogLines(content, search, level);
+    const filtered = filterLogLines(content, search, level, firstLine);
     const truncated = filtered.length > MAX_LINES;
     return {
       lines: truncated ? filtered.slice(-MAX_LINES) : filtered,
       truncated,
       total: filtered.length,
     };
-  }, [content, search, level]);
+  }, [content, search, level, firstLine]);
 
   // Follow the tail unless the user scrolled up.
   const bodyRef = useRef<HTMLDivElement>(null);

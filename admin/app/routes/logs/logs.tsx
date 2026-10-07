@@ -108,6 +108,7 @@ export default function LogsPage() {
 
           <LogPanel
             content={selected?.content ?? ''}
+            firstLine={selected?.firstLine}
             title={selectedLog ?? undefined}
             search={search}
             level={level}

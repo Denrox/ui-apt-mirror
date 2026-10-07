@@ -31,4 +31,10 @@ describe('filterLogLines', () => {
     expect(filterLogLines(log, '', 'WARN').map((l) => l.n)).toEqual([3]);
     expect(filterLogLines(log, '', 'ALL')).toHaveLength(5);
   });
+
+  it('numbers the lines of a tail from its first line in the file', () => {
+    expect(filterLogLines(log, 'fail', 'ALL', 396815)).toEqual([
+      { text: 'ERROR failed', level: 'ERROR', n: 396818 },
+    ]);
+  });
 });

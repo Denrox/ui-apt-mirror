@@ -19,9 +19,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   let content = '';
   let size = 0;
   let truncated = false;
+  let firstLine = 1;
   if (selected) {
     try {
-      ({ content, size, truncated } = await readTail(selected.path, LOG_TAIL_BYTES));
+      ({ content, size, truncated, firstLine } = await readTail(selected.path, LOG_TAIL_BYTES));
     } catch (error) {
       console.error(`Error reading log file ${selected.name}:`, error);
       content = `Error reading log file ${selected.name}: ${error}`;
@@ -30,7 +31,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return {
     logs: logs.map((log) => log.name),
-    selected: selected ? { name: selected.name, content, size, truncated } : null,
+    selected: selected ? { name: selected.name, content, size, truncated, firstLine } : null,
     tailBytes: LOG_TAIL_BYTES,
   };
 }
