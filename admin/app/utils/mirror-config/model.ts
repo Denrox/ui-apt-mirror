@@ -13,7 +13,7 @@ import {
   type SectionNode,
   type UsageNode,
 } from './types';
-import { canonicalBaseUrl, filtersCombine, mirrorDirOf, mirrorDirsOverlap, normalizeUrl, type PackageFilters } from './upstream';
+import { canonicalBaseUrl, filtersCombine, filtersMissSources, mirrorDirOf, mirrorDirsOverlap, normalizeUrl, type PackageFilters } from './upstream';
 
 export { canonicalBaseUrl, mirrorDirOf, mirrorDirsOverlap, normalizeUrl };
 
@@ -172,6 +172,25 @@ export class MirrorConfig {
   }
 
   /**
+   * Why source packages would not be filtered: a section on this upstream mirrors deb-src
+   * while the upstream's filter lists binary packages (or tags), which apt-mirror2 does not
+   * apply to source packages, so every source package of the upstream would be downloaded.
+   */
+  sourceFilterConflict(section: SectionNode): string | null {
+    if (!this.isSectionEnabled(section)) return null;
+    const group = [section, ...this.neighbourSections(section)];
+    if (!group.some((s) => filtersMissSources(this.activeFilters(s)))) return null;
+    const withSources = group.find((s) => debChildren(s).some((d) => d.enabled && d.debType === 'deb-src'));
+    if (!withSources) return null;
+    return (
+      `"${withSources.title}" mirrors source packages (deb-src), but its upstream is filtered by binary ` +
+      `package names, which apt-mirror2 does not apply to source packages: every source package of the ` +
+      `upstream would be downloaded. Untick "Also mirror source packages", or filter by source package ` +
+      `names instead.`
+    );
+  }
+
+  /**
    * Why an enabled section and another enabled one would delete each other's files: their
    * base URLs differ (e.g. `http://` and `https://`), so apt-mirror2 syncs them as two
    * repositories, but it stores both in the same (or a nested) mirror folder and each one's
@@ -205,8 +224,8 @@ export class MirrorConfig {
    * Why an enabled section cannot be mirrored as configured: it shares its mirror folder with
    * another enabled section under a different base URL, or it shares its upstream with an
    * enabled section that is filtered while it is not (or the other way round), so one
-   * repository's filter would silently restrict the other, or their filters do not add up.
-   * Null when there is no such clash.
+   * repository's filter would silently restrict the other, or their filters do not add up, or
+   * source packages would escape the filter. Null when there is no such clash.
    */
   upstreamConflict(section: SectionNode): string | null {
     if (!this.isSectionEnabled(section)) return null;
@@ -214,7 +233,7 @@ export class MirrorConfig {
     if (dirConflict) return dirConflict;
     const filtered = this.isSectionFiltered(section);
     const clash = this.upstreamNeighbours(section).find((n) => n.filtered !== filtered);
-    if (!clash) return this.filterCombineConflict(section);
+    if (!clash) return this.filterCombineConflict(section) ?? this.sourceFilterConflict(section);
     const [unfiltered, withFilter] = filtered ? [clash.title, section.title] : [section.title, clash.title];
     return (
       `"${unfiltered}" has no package filter but shares its upstream with "${withFilter}", which has one. ` +

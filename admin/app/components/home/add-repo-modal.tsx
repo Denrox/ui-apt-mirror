@@ -7,6 +7,7 @@ import FormCheckbox from '~/components/shared/form/form-checkbox';
 import {
   canonicalBaseUrl,
   filtersCombine,
+  filtersMissSources,
   mirrorDirOf,
   mirrorDirsOverlap,
   type PackageFilters,
@@ -108,6 +109,12 @@ export function sharedFilterWarning(
   return filtered
     ? `${names} uses the same upstream without a package filter. apt-mirror2 filters per base URL, so this filter would restrict ${names} too. Disable it first, or give it the same filter.`
     : `${names} uses the same upstream with a package filter. apt-mirror2 filters per base URL, so this repository would only get the packages ${names} selects. Add the same filter here, or disable ${names} first.`;
+}
+
+/** Why "Also mirror source packages" does not go with the filters (the server refuses it). */
+export function sourceFilterWarning(values: NewRepoValues): string | null {
+  if (!values.includeSrc || !filtersMissSources(formFilters(values))) return null;
+  return 'apt-mirror2 applies "Include/Exclude binary packages" to binary packages only, so every source package of the upstream would be downloaded. Untick this, or filter by source package names instead.';
 }
 
 const EMPTY: NewRepoValues = {
@@ -234,6 +241,7 @@ export default function AddRepoModal({
   };
 
   const filterWarning = sharedFilterWarning(values, upstreams, initialValues?.title);
+  const sourceWarning = sourceFilterWarning(values);
 
   const isValid =
     values.title.trim() !== '' &&
@@ -306,6 +314,11 @@ export default function AddRepoModal({
           onChange={(v) => set('includeSrc', v)}
           disabled={isSubmitting}
         />
+        {sourceWarning && (
+          <p role="alert" className="-mt-[8px] text-[12px] leading-relaxed text-error">
+            {sourceWarning}
+          </p>
+        )}
 
         <FormCheckbox
           id="add-repo-trusted"

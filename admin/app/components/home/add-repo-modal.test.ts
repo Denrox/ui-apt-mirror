@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sharedFilterWarning, type NewRepoValues } from './add-repo-modal';
+import { sharedFilterWarning, sourceFilterWarning, type NewRepoValues } from './add-repo-modal';
 
 const values = (over: Partial<NewRepoValues> = {}): NewRepoValues => ({
   title: 'Updates',
@@ -69,5 +69,18 @@ describe('sharedFilterWarning for two filtered repositories', () => {
   });
   it('is quiet when only the include list differs', () => {
     expect(sharedFilterWarning(values({ includeBinaryPackages: 'sl' }), filteredUpstreams)).toBeNull();
+  });
+});
+
+describe('sourceFilterWarning', () => {
+  it('warns about source packages with a binary package filter', () => {
+    expect(sourceFilterWarning(values({ includeSrc: true, includeBinaryPackages: 'hello' }))).toMatch(
+      /every source package of the upstream/,
+    );
+    expect(sourceFilterWarning(values({ includeSrc: true, excludeBinaryPackages: 'hello' }))).not.toBeNull();
+  });
+  it('is quiet without deb-src or with a source name filter', () => {
+    expect(sourceFilterWarning(values({ includeBinaryPackages: 'hello' }))).toBeNull();
+    expect(sourceFilterWarning(values({ includeSrc: true, includeSourceName: 'hello' }))).toBeNull();
   });
 });

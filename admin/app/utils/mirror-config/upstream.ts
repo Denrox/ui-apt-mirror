@@ -67,3 +67,19 @@ export function filtersCombine(filters: PackageFilters[]): boolean {
     filters.every((f) => valueSet(f, differing[0]) !== '')
   );
 }
+
+/**
+ * Filter keys apt-mirror2 applies to binary packages only: it checks source packages by source
+ * name and section alone, so with only these set every source package is downloaded.
+ */
+export const BINARY_ONLY_FILTER_KEYS: readonly FilterKey[] = [
+  'include_binary_packages',
+  'exclude_binary_packages',
+  'include_tags',
+  'exclude_tags',
+];
+
+/** Whether package filters restrict binaries in a way source packages (deb-src) escape. */
+export function filtersMissSources(filters: PackageFilters): boolean {
+  return BINARY_ONLY_FILTER_KEYS.some((key) => (filters[key] ?? []).some((v) => v.trim()));
+}

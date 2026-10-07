@@ -285,6 +285,30 @@ describe('base URLs that share a mirror folder', () => {
   });
 });
 
+describe('source packages with a package filter', () => {
+  const addFields = (over: Record<string, string> = {}) => ({
+    action: 'addRepository',
+    title: 'Synth',
+    baseUrl: 'http://example.org/synth',
+    suites: 'r4synth',
+    components: 'main',
+    includeSrc: 'true',
+    ...over,
+  });
+
+  it('refuses deb-src with an include binary packages filter', async () => {
+    writeList();
+    const result = await post(addFields({ includeBinaryPackages: 'hello' }));
+    expect(result.error).toMatch(/mirrors source packages \(deb-src\)/);
+    expect(readList()).not.toContain('Synth');
+  });
+
+  it('accepts deb-src with a source package filter', async () => {
+    writeList();
+    expect((await post(addFields({ includeSourceName: 'srca' }))).success).toBe(true);
+  });
+});
+
 describe('disabling a repository with deleteData', () => {
   const OTHER = (enabled: boolean) => [
     '# ---start---Other---',

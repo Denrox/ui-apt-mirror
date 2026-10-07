@@ -213,7 +213,12 @@ async function parseRepositoryConfigs(): Promise<{
         content: [
           ...usage,
           ...filterNote(config.isSectionFiltered(section), config.upstreamNeighbours(section)),
-          ...commentLines(config.mirrorDirConflict(section) ?? config.filterCombineConflict(section) ?? ''),
+          ...commentLines(
+            config.mirrorDirConflict(section) ??
+              config.filterCombineConflict(section) ??
+              config.sourceFilterConflict(section) ??
+              '',
+          ),
         ],
         editable: config.sectionToInput(section),
       });

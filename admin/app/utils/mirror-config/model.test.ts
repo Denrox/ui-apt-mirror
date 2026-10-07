@@ -697,3 +697,43 @@ ${second}
     expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toBeNull();
   });
 });
+
+describe('source packages of a filtered repository', () => {
+  const LIST = (filter: string, src = true) => `# ---start---Synth---
+deb http://example.org/synth r4synth main
+${src ? 'deb-src http://example.org/synth r4synth main' : ''}
+${filter}
+# ---end---Synth---
+`;
+
+  it('refuses deb-src with a binary package filter, which apt-mirror2 does not apply to sources', () => {
+    const cfg = MirrorConfig.parse(LIST('include_binary_packages http://example.org/synth hello'));
+    expect(cfg.upstreamConflict(cfg.getSection('Synth')!)).toMatch(
+      /"Synth" mirrors source packages \(deb-src\).*every source package of the upstream would be downloaded/,
+    );
+  });
+
+  it('accepts deb-src with a source name or section filter, and a binary filter without deb-src', () => {
+    for (const cfg of [
+      MirrorConfig.parse(LIST('include_source_name http://example.org/synth srca')),
+      MirrorConfig.parse(LIST('include_sections http://example.org/synth games')),
+      MirrorConfig.parse(LIST('include_binary_packages http://example.org/synth hello', false)),
+      MirrorConfig.parse(LIST('')),
+    ]) {
+      expect(cfg.upstreamConflict(cfg.getSection('Synth')!)).toBeNull();
+    }
+  });
+
+  it('refuses deb-src next to a repository with a binary filter on the same upstream', () => {
+    const cfg = MirrorConfig.parse(
+      LIST('include_binary_packages http://example.org/synth hello', false) +
+        `# ---start---Src---
+deb http://example.org/synth r4other main
+deb-src http://example.org/synth r4other main
+include_binary_packages http://example.org/synth sl
+# ---end---Src---
+`,
+    );
+    expect(cfg.upstreamConflict(cfg.getSection('Synth')!)).toMatch(/"Src" mirrors source packages/);
+  });
+});
