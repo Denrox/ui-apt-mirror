@@ -263,14 +263,18 @@ describe('npm registry route', () => {
     const res = await call(request('/-/user/org.couchdb.user:alice', { method: 'PUT', body: big }));
     expect(res.status).toBe(413);
     // Without a Content-Length (chunked), reading stops at the limit too.
+    // The rest is left unread, not cancelled, so that the client still gets the answer.
+    const cancel = vi.fn();
     const chunked = new ReadableStream({
       start(controller) {
         for (let i = 0; i < 100; i++) controller.enqueue(new TextEncoder().encode('a'.repeat(1024)));
         controller.close();
       },
+      cancel,
     });
     const req = request('/-/user/org.couchdb.user:alice', { method: 'PUT', body: chunked, duplex: 'half' } as RequestInit);
     expect((await call(req)).status).toBe(413);
+    expect(cancel).not.toHaveBeenCalled();
     expect(serverAuth.attemptLogin).not.toHaveBeenCalled();
     // A normal login body is still read.
     await call(request('/-/user/org.couchdb.user:alice', { method: 'PUT', body: '{"name":"alice","password":"x"}' }));

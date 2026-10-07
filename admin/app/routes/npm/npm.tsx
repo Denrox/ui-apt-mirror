@@ -762,10 +762,14 @@ async function changeDistTag(
 // A login is a name and a password; npm sends a few more fields, nothing near this.
 const MAX_LOGIN_BODY_BYTES = 64 * 1024;
 
-/** The request body as text, or null once it is longer than maxBytes (nothing more is read). */
-async function readBodyText(request: Request, maxBytes: number): Promise<string | null> {
+/**
+ * The request body, or null once it is longer than maxBytes (nothing more is read). The rest of a
+ * refused body is left unread rather than cancelled: cancelling resets the connection, so the
+ * client would never see the answer.
+ */
+async function readBody(request: Request, maxBytes: number): Promise<Buffer | null> {
   if (Number(request.headers.get('content-length') ?? 0) > maxBytes) return null;
-  if (!request.body) return '';
+  if (!request.body) return Buffer.alloc(0);
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -774,12 +778,16 @@ async function readBodyText(request: Request, maxBytes: number): Promise<string 
     if (done) break;
     size += value.byteLength;
     if (size > maxBytes) {
-      await reader.cancel().catch(() => {});
+      reader.releaseLock();
       return null;
     }
     chunks.push(value);
   }
-  return Buffer.concat(chunks).toString('utf-8');
+  return Buffer.concat(chunks, size);
+}
+
+async function readBodyText(request: Request, maxBytes: number): Promise<string | null> {
+  return (await readBody(request, maxBytes))?.toString('utf-8') ?? null;
 }
 
 /**
