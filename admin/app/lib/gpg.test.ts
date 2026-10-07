@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createdFingerprint, signedCount, unrestoredCount } from './gpg';
+import { assertValidHost, createdFingerprint, isSignableHost, signedCount, unrestoredCount } from './gpg';
 
 describe('signedCount', () => {
   it('reads the count sign-releases.sh reports', () => {
@@ -30,5 +30,20 @@ describe('unrestoredCount', () => {
   });
   it('is 0 when every Release file was restored', () => {
     expect(unrestoredCount("[x] Restored upstream signatures of 2 Release file(s) for host 'a.org'.\n")).toBe(0);
+  });
+});
+
+describe('isSignableHost and assertValidHost', () => {
+  it.each(['deb.debian.org', 'aptly', 'localhost', '192.168.0.10', 'my-repo'])('accepts %s', (host) => {
+    expect(isSignableHost(host)).toBe(true);
+    expect(() => assertValidHost(host)).not.toThrow();
+  });
+  it.each(['', '-aptly', 'apt_ly', 'a..b', 'host:8080', '../etc', 'a b'])('refuses %j', (host) => {
+    expect(isSignableHost(host)).toBe(false);
+    expect(() => assertValidHost(host)).toThrow(/Invalid host/);
+  });
+  it('says why an IPv6 address host cannot be signed', () => {
+    expect(isSignableHost('[fd00::10]')).toBe(false);
+    expect(() => assertValidHost('[fd00::10]')).toThrow(/not supported for IPv6 address hosts/);
   });
 });

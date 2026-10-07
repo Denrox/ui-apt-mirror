@@ -462,13 +462,17 @@ export default function Home() {
                                       Delete signing key
                                     </DropdownItem>
                                   </>
-                                ) : (
+                                ) : h.signable ? (
                                   <DropdownItem
                                     onClick={() => handleGenerateGpgKey(h.host)}
                                     disabled={isActionInProgress}
                                   >
                                     Generate signing key
                                   </DropdownItem>
+                                ) : (
+                                  <p className="px-4 pb-2 text-xs text-on-surface-variant">
+                                    Hosts given as an IPv6 address can't be signed. Use a host name in the base URL to sign it.
+                                  </p>
                                 )}
                               </div>
                             ))}

@@ -4,7 +4,7 @@ import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { hostAddress, withMirrorHost } from '~/utils/hosts';
-import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
+import { isSignableHost, listKeys, type GpgKeyRecord } from '~/lib/gpg';
 import { MirrorConfig, canonicalBaseUrl, type PackageFilters, type RepositoryInput } from '~/utils/mirror-config';
 import { readTail } from '~/utils/read-tail';
 import { SYNC_LOG } from '~/utils/log-files';
@@ -12,6 +12,8 @@ import { SYNC_LOG } from '~/utils/log-files';
 export interface RepositoryHost {
   host: string;
   gpgKey: GpgKeyRecord | null;
+  /** False for hosts that cannot have a signing key (IPv6 literals). */
+  signable: boolean;
 }
 
 export interface RepositoryConfig {
@@ -199,7 +201,7 @@ async function parseRepositoryConfigs(): Promise<{
 
       const hosts: RepositoryHost[] = config
         .sectionHosts(section)
-        .map((host) => ({ host, gpgKey: keysIndex[host] ?? null }));
+        .map((host) => ({ host, gpgKey: keysIndex[host] ?? null, signable: isSignableHost(host) }));
       const signed = hosts.filter((h) => h.gpgKey);
 
       const usage = rewriteSignedByHint(
