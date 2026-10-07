@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Health check script for apt-mirror2 container
-# This script monitors the health of nginx and apt-mirror2 services
+# This script monitors the health of nginx, the admin app and apt-mirror2
 
 HEALTH_LOG="${HEALTH_LOG:-/var/log/health-check.log}"
 NGINX_PID_FILE="/var/run/nginx.pid"
@@ -34,6 +34,18 @@ check_nginx() {
         echo "nginx:no_pid_file:"
         return 1
     fi
+}
+
+# Function to check the admin app, which serves every host but the APT mirror
+check_admin() {
+    local code
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:3000/ 2>/dev/null)
+    if [ -n "$code" ] && [ "$code" != "000" ]; then
+        echo "admin:running:$code"
+        return 0
+    fi
+    echo "admin:not_responding:"
+    return 1
 }
 
 # Function to check apt-mirror2 status
@@ -102,6 +114,13 @@ do_health_check() {
     local nginx_status=$(check_nginx)
     details+=("$nginx_status")
     if [[ "$nginx_status" != nginx:running:* ]]; then
+        status="unhealthy"
+    fi
+
+    # Check the admin app
+    local admin_status=$(check_admin)
+    details+=("$admin_status")
+    if [[ "$admin_status" != admin:running:* ]]; then
         status="unhealthy"
     fi
 
