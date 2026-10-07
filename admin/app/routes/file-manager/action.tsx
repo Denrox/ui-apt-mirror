@@ -24,6 +24,7 @@ import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 import { getValidationError } from '~/utils/file-name';
 import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
 import { BodyTooLargeError, readFormData } from '~/utils/limited-form-data';
+import { parseImageUrl } from '~/utils/image-ref';
 
 const execFileAsync = promisify(execFile);
 
@@ -207,6 +208,12 @@ async function downloadImage(
   if (!ARCHITECTURES.has(architecture)) {
     throw new Error('Invalid architecture');
   }
+  const registryInfo = parseImageUrl(imageUrl);
+  if (!registryInfo) {
+    throw new Error(
+      'Invalid image name. Use a name such as busybox, project/image or quay.io/project/image, and put the tag in the Tag field',
+    );
+  }
   const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
   const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
   const fullPath = path.join(destPath, fileName);
@@ -220,13 +227,6 @@ async function downloadImage(
     // Pull to a hidden temp dir and link into place when complete.
     tempDir = await fs.mkdtemp(path.join(destPath, `${UPLOAD_TEMP_PREFIX}img-`));
     const tempPath = path.join(tempDir, fileName);
-
-    const registryInfo = parseImageUrl(imageUrl);
-    if (!registryInfo) {
-      throw new Error(
-        'Invalid image URL format. Please use format: project/image or gcr.io/project/image',
-      );
-    }
 
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
     const skopeoCopy = async (image: string) => {
@@ -294,49 +294,6 @@ async function downloadImage(
   } finally {
     if (tempDir) await fs.rm(tempDir, { recursive: true, force: true });
   }
-}
-
-interface RegistryInfo {
-  registry: string;
-  repository: string;
-}
-
-function parseImageUrl(imageUrl: string): RegistryInfo | null {
-  if (imageUrl.startsWith('gcr.io/')) {
-    return {
-      registry: 'gcr.io',
-      repository: imageUrl.substring('gcr.io/'.length),
-    };
-  }
-
-  if (imageUrl.includes('.gcr.io/')) {
-    const parts = imageUrl.split('/');
-    if (parts.length >= 2) {
-      return {
-        registry: parts[0],
-        repository: parts.slice(1).join('/'),
-      };
-    }
-  }
-
-  if (imageUrl.startsWith('docker.io/')) {
-    return {
-      registry: 'docker.io',
-      repository: imageUrl.substring('docker.io/'.length),
-    };
-  }
-
-  if (!imageUrl.includes('/')) {
-    return {
-      registry: 'docker.io',
-      repository: `library/${imageUrl}`,
-    };
-  }
-
-  return {
-    registry: 'docker.io',
-    repository: imageUrl,
-  };
 }
 
 export async function action({ request }: Route.ActionArgs): Promise<{

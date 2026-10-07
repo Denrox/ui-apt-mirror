@@ -31,13 +31,14 @@ vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => (
 vi.mock('~/utils/sync', () => ({ checkLockFile: async () => false }));
 
 // skopeo stand-in: writes an archive to the docker-archive: path, or fails.
-const skopeo = vi.hoisted(() => ({ fail: false }));
+const skopeo = vi.hoisted(() => ({ fail: false, calls: [] as string[][] }));
 vi.mock('child_process', async (importOriginal) => {
   const original = await importOriginal<typeof import('child_process')>();
   const fs = await import('fs');
   return {
     ...original,
     execFile: (_cmd: string, args: string[], callback: (error: Error | null, out?: unknown) => void) => {
+      skopeo.calls.push(args);
       if (skopeo.fail) return callback(new Error('Failed to retrieve image manifest'));
       const target = args[args.length - 1].replace(/^docker-archive:/, '');
       fs.writeFileSync(target, 'image');
@@ -282,6 +283,25 @@ describe('container image download (r2-files-6)', () => {
     fs.rmSync(tar());
     expect((await pull()).success).toBe(false);
     expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.') || n.endsWith('.tar'))).toEqual([]);
+  });
+
+  it('pulls from the registry named in the image (r3-files-10)', async () => {
+    skopeo.fail = false;
+    skopeo.calls.length = 0;
+    const res = await post({
+      intent: 'downloadImage',
+      imageUrl: 'quay.io/prometheus/busybox',
+      imageTag: 'latest',
+      currentPath: dirs.files,
+    });
+    expect(res.success).toBe(true);
+    expect(skopeo.calls[0]).toContain('docker://quay.io/prometheus/busybox:latest');
+  });
+
+  it('refuses a tag in the image name with a clear message (r3-files-10)', async () => {
+    const res = await post({ intent: 'downloadImage', imageUrl: 'busybox:1.36', imageTag: 'latest', currentPath: dirs.files });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/Tag field/);
   });
 });
 
