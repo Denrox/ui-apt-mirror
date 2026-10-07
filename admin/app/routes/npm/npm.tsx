@@ -2,8 +2,6 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from 'react-router';
 import { promises as fs } from 'fs';
 import path from 'path';
 import https from 'https';
-import http from 'http';
-import { URL } from 'url';
 import zlib from 'zlib';
 import { isWithin } from '~/utils/safe-path';
 import { hostAddress } from '~/utils/hosts';
@@ -40,6 +38,7 @@ import {
   type DocResult,
   type NpmPath,
   upstreamHeaders,
+  upstreamUrl,
   withoutAuditPackages,
   type PackageDoc,
 } from '~/utils/npm-registry';
@@ -95,11 +94,15 @@ type Upstream = { data: Buffer; headers: Record<string, string>; status: number 
 
 async function fetchFromNpm(
   packagePath: string,
+  search = '',
   originalHeaders: Record<string, string> = {},
 ): Promise<Upstream> {
   return new Promise((resolve, reject) => {
-    const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
-    const client = npmUrl.protocol === 'https:' ? https : http;
+    const npmUrl = upstreamUrl(NPM_REGISTRY_URL, packagePath, search);
+    if (!npmUrl) {
+      reject(new Error('Not a path on the npm registry'));
+      return;
+    }
 
     const forwardedHeaders = upstreamHeaders(originalHeaders, ['if-none-match', 'if-modified-since', 'range'], {
       Accept: '*/*',
@@ -108,13 +111,13 @@ async function fetchFromNpm(
 
     const options = {
       hostname: npmUrl.hostname,
-      port: npmUrl.port || (npmUrl.protocol === 'https:' ? 443 : 80),
+      port: 443,
       path: npmUrl.pathname + npmUrl.search,
       method: 'GET',
       headers: forwardedHeaders,
     };
 
-    const req = client.request(options, (res) => {
+    const req = https.request(options, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (chunk) => {
         chunks.push(chunk);
@@ -301,6 +304,10 @@ function notFound(): Response {
   });
 }
 
+function invalidPath(): Response {
+  return jsonResponse({ error: 'Bad request', reason: 'Not a valid registry path' }, 400);
+}
+
 function webLoginUnsupported(): Response {
   return jsonResponse(
     { error: 'Web login is not supported by this registry; use npm login --auth-type=legacy' },
@@ -434,7 +441,7 @@ async function loadPublicPackage(
   if (cached?.headers.etag) forwarded['if-none-match'] = cached.headers.etag;
 
   try {
-    const fetched = await fetchFromNpm(packagePath, forwarded);
+    const fetched = await fetchFromNpm(packagePath, '', forwarded);
     // Only successful responses are cached; a 404 or an error is passed on as is.
     if (fetched.status === 200) await saveToCache(cachePath, fetched.data, fetched.headers);
     else if (cached && fetched.status >= 500) throw new Error(`Upstream returned ${fetched.status}`);
@@ -500,6 +507,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return notFound();
   }
   if (isWebLoginPath(packagePath)) return webLoginUnsupported();
+  if (!upstreamUrl(NPM_REGISTRY_URL, packagePath, url.search)) return invalidPath();
 
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {
@@ -542,7 +550,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
       const cachePath = await publicCacheFile(route);
       ({ data, headers, status } = cachePath
         ? await loadPublicPackage(packagePath, cachePath, originalHeaders)
-        : await fetchFromNpm(packagePath + url.search));
+        : await fetchFromNpm(packagePath, url.search));
       headers['x-cache'] ??= 'BYPASS';
     }
 
@@ -892,6 +900,17 @@ export async function action({ request }: ActionFunctionArgs) {
   const target = pathPackage(packagePath);
   if (target && (await isPrivatePackage(target.name))) return notFound();
 
+  // Only audits are sent upstream. Other writes to npmjs' API (token create, profile, hooks, …)
+  // carry this registry's passwords and tokens, and npmjs would not accept them anyway.
+  if (request.method !== 'POST' || !isAuditPath(packagePath)) {
+    return jsonResponse(
+      { error: 'Method Not Allowed', reason: 'This registry does not support this request' },
+      405,
+    );
+  }
+  const npmUrl = upstreamUrl(NPM_REGISTRY_URL, packagePath, url.search);
+  if (!npmUrl) return invalidPath();
+
   const originalHeaders: Record<string, string> = {};
   for (const [key, value] of request.headers.entries()) {
     originalHeaders[key.toLowerCase()] = value;
@@ -905,38 +924,32 @@ export async function action({ request }: ActionFunctionArgs) {
       : new Response(message, { status, headers: { 'Content-Type': 'text/plain' } });
 
   try {
-    const npmUrl = new URL(packagePath, NPM_REGISTRY_URL);
-    const client = npmUrl.protocol === 'https:' ? https : http;
-    let body =
-      request.method !== 'GET' && request.method !== 'HEAD'
-        ? Buffer.from(await request.arrayBuffer())
-        : null;
-    if (body && isAuditPath(packagePath)) {
-      body = await publicAuditBody(body, originalHeaders['content-encoding'], isBulkAudit);
-      if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
-      delete originalHeaders['content-encoding'];
-      originalHeaders['content-type'] = 'application/json';
-    }
+    const body = await publicAuditBody(
+      Buffer.from(await request.arrayBuffer()),
+      originalHeaders['content-encoding'],
+      isBulkAudit,
+    );
+    if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
+    delete originalHeaders['content-encoding'];
+    originalHeaders['content-type'] = 'application/json';
 
     const forwardedHeaders = upstreamHeaders(
       originalHeaders,
       ['if-none-match', 'if-modified-since', 'range', 'content-encoding'],
       { 'Content-Type': originalHeaders['content-type'] || 'application/json' },
     );
-    if (body) {
-      forwardedHeaders['content-length'] = body.length.toString();
-    }
+    forwardedHeaders['content-length'] = body.length.toString();
 
     const options = {
       hostname: npmUrl.hostname,
-      port: npmUrl.port || (npmUrl.protocol === 'https:' ? 443 : 80),
+      port: 443,
       path: npmUrl.pathname + npmUrl.search,
       method: request.method,
       headers: forwardedHeaders,
     };
 
     return new Promise((resolve) => {
-      const req = client.request(options, (res) => {
+      const req = https.request(options, (res) => {
         const chunks: Buffer[] = [];
 
         res.on('data', (chunk) => {
@@ -1005,7 +1018,7 @@ export async function action({ request }: ActionFunctionArgs) {
         resolve(upstreamFailed(408, 'Request timeout'));
       });
 
-      req.end(body ?? undefined);
+      req.end(body);
     });
   } catch (error) {
     console.error('NPM proxy action error:', error);

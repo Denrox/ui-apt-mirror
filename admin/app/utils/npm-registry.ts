@@ -314,6 +314,28 @@ export function pathPackage(raw: string): { name: string; rest: string[] } | nul
   return splitName(segments);
 }
 
+/**
+ * The upstream URL for a registry path (without the /npm prefix) and query, or null if the path
+ * could leave the registry: it is always a path on `registry`'s origin, never an absolute URL
+ * (`http:/host/`, `//host/`), and has no dot segments or backslashes that could climb out of the
+ * package the path was checked for.
+ */
+export function upstreamUrl(registry: string, packagePath: string, search = ''): URL | null {
+  const raw = packagePath.replace(/^\/+/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (/\\/.test(decoded) || decoded.split('/').some((s) => s === '.' || s === '..')) return null;
+  const base = new URL(registry);
+  const url = new URL(base.origin);
+  url.pathname = `/${raw}`;
+  url.search = search;
+  return url.origin === base.origin && url.pathname === `/${raw}` ? url : null;
+}
+
 /** A version of a private packument by version or dist-tag (/<name>/<spec>), or null. */
 export function privateVersion(doc: PackageDoc, spec: string): Record<string, any> | null {
   const version = Object.hasOwn(doc['dist-tags'] ?? {}, spec) ? doc['dist-tags'][spec] : spec;
