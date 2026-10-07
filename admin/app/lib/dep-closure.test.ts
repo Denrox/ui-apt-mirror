@@ -126,9 +126,9 @@ describe('resource limits', () => {
 
   it('reads a long line in small chunks in linear time', async () => {
     const { PackagesParser } = await import('./dep-closure');
-    const names = Array.from({ length: 60_000 }, (_, i) => `lib${i}`);
+    const names = Array.from({ length: 20_000 }, (_, i) => `lib${i}`);
     const bytes = Buffer.from(`Package: big\nDepends: ${names.join(', ')}\n\nPackage: lib0\n`);
-    expect(bytes.length).toBeGreaterThan(512 * 1024);
+    expect(bytes.length).toBeGreaterThan(128 * 1024);
     const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
     const parser = new PackagesParser(graph, false);
     const started = Date.now();
@@ -140,21 +140,35 @@ describe('resource limits', () => {
     expect(graph.pkgs.has('lib0')).toBe(true);
   });
 
-  it('refuses a line or field longer than the limit', async () => {
-    const { IndexLimitError, MAX_LINE_BYTES, PackagesParser } = await import('./dep-closure');
+  it('refuses a line, field or name longer than the limit', async () => {
+    const { IndexLimitError, MAX_FIELD_LENGTH, MAX_LINE_BYTES, MAX_NAME_LENGTH, PackagesParser } = await import(
+      './dep-closure'
+    );
     const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
-    const long = 'a'.repeat(MAX_LINE_BYTES);
-    const parser = new PackagesParser(graph, false);
-    parser.push(Buffer.from('Package: x\nDepends: '));
-    expect(() => {
+    const pushed = (head: string, long: string) => () => {
+      const parser = new PackagesParser(graph, false);
+      parser.push(Buffer.from(head));
       for (let i = 0; i < long.length; i += 64 * 1024) parser.push(Buffer.from(long.slice(i, i + 64 * 1024)));
-    }).toThrow(IndexLimitError);
+      parser.end();
+    };
+    // A line of a field that is skipped is not kept, but still not read past its limit.
+    expect(pushed('Package: x\nDescription: ', 'a'.repeat(MAX_LINE_BYTES))).toThrow(IndexLimitError);
+    const names = (count: number) => 'n, '.repeat(count);
+    expect(pushed('Package: x\nDepends: ', names(MAX_FIELD_LENGTH / 3 + 1))).toThrow(IndexLimitError);
     // The same length folded over continuation lines.
-    const folded = `Package: y\nDepends: a\n${` ${'b'.repeat(1023)}\n`.repeat(MAX_LINE_BYTES / 1024)}`;
+    const folded = `Package: y\nDepends: a\n${` ${'b, '.repeat(341)}\n`.repeat(MAX_FIELD_LENGTH / 1024 + 1)}`;
     expect(() => parsePackages(folded, graph, false)).toThrow(IndexLimitError);
-    // Up to the limit is fine.
-    parsePackages(`Package: z\nDepends: ${'c'.repeat(MAX_LINE_BYTES - 20)}\n`, graph, false);
-    expect(graph.pkgs.get('z')!.deps).toHaveLength(1);
+    // Up to the limits is fine.
+    const count = Math.floor((MAX_FIELD_LENGTH - 1) / 3);
+    parsePackages(`Package: z\nDepends: ${names(count)}x\nDescription: ${'d'.repeat(MAX_LINE_BYTES - 20)}\n`, graph, false);
+    expect(graph.pkgs.get('z')!.deps).toHaveLength(count + 1);
+
+    const name = 'a'.repeat(MAX_NAME_LENGTH);
+    parsePackages(`Package: ${name}\nDepends: ${name}\nProvides: ${name}\n`, graph, false);
+    expect(graph.pkgs.get(name)).toEqual({ deps: [name] });
+    for (const index of [`Package: ${name}b\n`, `Package: z\nDepends: x, ${name}b\n`, `Package: z\nProvides: ${name}b\n`]) {
+      expect(() => parsePackages(index, graph, false)).toThrow(`longer than ${MAX_NAME_LENGTH} characters`);
+    }
   });
 
   it('keeps only the dependency fields', () => {
@@ -177,21 +191,27 @@ describe('resource limits', () => {
     expect(closureOptionsError(opts(stock, ['amd64', 'i386', 'arm64', 'armhf', 'riscv64']))).toMatch(/at most 16/);
   });
 
-  it('bounds the entries of the graph, counting a package of several indices once', async () => {
+  it('bounds the bytes the graph holds, counting a package of several indices and a name once', async () => {
     const { PackagesParser, ResolveTooLargeError } = await import('./dep-closure');
     const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
-    const budget = { entries: 0, max: 12 };
-    const index = 'Package: a\nDepends: b, c | d\nProvides: v\n\nPackage: b\nProvides: v\n';
-    // a + 3 names, b, v and its 2 providers.
+    const budget = { bytes: 0, max: 2000, names: new Map<string, string>() };
+    const index = 'Package: a\nDepends: b, c | d\nProvides: v\n\nPackage: b\nDepends: c, d\nProvides: v\n';
+    let held = 0;
     for (let i = 0; i < 3; i++) {
       const parser = new PackagesParser(graph, false, budget);
       parser.push(Buffer.from(index));
       parser.end();
-      expect(budget.entries).toBe(8);
+      if (i === 0) held = budget.bytes;
+      expect(budget.bytes).toBe(held);
     }
+    expect(held).toBeGreaterThan(0);
+    expect([...budget.names.keys()].sort()).toEqual(['a', 'b', 'c', 'd', 'v']);
+
+    // Few entries, but long names.
+    const long = (i: number) => `${'x'.repeat(150)}${i}`;
     const parser = new PackagesParser(graph, false, budget);
     expect(() => {
-      parser.push(Buffer.from('Package: e\nDepends: f, g, h, i\n'));
+      parser.push(Buffer.from(`Package: ${long(0)}\nDepends: ${long(1)}, ${long(2)}\n`));
       parser.end();
     }).toThrow(ResolveTooLargeError);
   });
