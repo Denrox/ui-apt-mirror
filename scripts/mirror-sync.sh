@@ -102,10 +102,15 @@ do_sync() {
     fi
     
     # Held for the whole sync, so two runs can never overlap however they were started.
-    exec 8>"$FLOCK_FILE"
-    if ! flock -n 8; then
-        log "Sync already running"
-        return 1
+    # start-mirror.sh takes it before it answers and hands it over on fd 8.
+    if [ "${MIRROR_SYNC_FLOCK_HELD:-}" = 1 ] && { true >&8; } 2>/dev/null; then
+        unset MIRROR_SYNC_FLOCK_HELD
+    else
+        exec 8>"$FLOCK_FILE"
+        if ! flock -n 8; then
+            log "Sync already running"
+            return 1
+        fi
     fi
     rm -f "$STOP_FILE"
     create_lock
