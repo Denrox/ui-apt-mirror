@@ -1,7 +1,10 @@
-import { useEffect, useId, useRef, type KeyboardEvent, type PropsWithChildren } from 'react';
+import { useEffect, useId, useRef, type PropsWithChildren } from 'react';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Open dialogs, innermost last: only that one answers Esc and Tab.
+const openDialogs: HTMLElement[] = [];
 
 interface ModalProps {
   readonly isOpen: boolean;
@@ -51,6 +54,9 @@ export default function Modal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!isOpen) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -58,28 +64,55 @@ export default function Modal({
     return () => previous?.focus?.();
   }, [isOpen]);
 
-  // Esc closes only the innermost dialog; Tab stays inside it.
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onClose();
-      return;
-    }
-    if (e.key !== 'Tab' || !dialogRef.current) return;
-    const items = dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE);
-    const first = items[0];
-    const last = items[items.length - 1];
+  // Content swapped under the focused element (a followed link, Back) drops
+  // focus to <body>; bring it back into the dialog after every render.
+  useEffect(() => {
+    const dialog = dialogRef.current;
     const active = document.activeElement;
-    if (!first) {
-      e.preventDefault();
-    } else if (e.shiftKey && (active === first || active === dialogRef.current)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
+    if (!isOpen || !dialog || openDialogs[openDialogs.length - 1] !== dialog) return;
+    // Browsers move focus off a removed element lazily, so check isConnected too.
+    if (!active || active === document.body || !active.isConnected) dialog.focus();
+  });
+
+  // Esc closes only the innermost dialog; Tab stays inside it. Listened for on
+  // the document, so they still work when focus has fallen out of the dialog.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!isOpen || !dialog) return;
+    openDialogs.push(dialog);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (openDialogs[openDialogs.length - 1] !== dialog || e.defaultPrevented) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = dialog.querySelectorAll<HTMLElement>(FOCUSABLE);
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!first) {
+        e.preventDefault();
+        dialog.focus();
+      } else if (!dialog.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && (active === first || active === dialog)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      const i = openDialogs.indexOf(dialog);
+      if (i !== -1) openDialogs.splice(i, 1);
+    };
+  }, [isOpen]);
 
   if (!isOpen) {
     return null;
@@ -97,7 +130,6 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
-        onKeyDown={handleKeyDown}
         className={`relative focus:outline-none bg-surface-container border border-outline-variant rounded-xl shadow-2xl ${getMaxWidthClass(maxWidth)} w-full mx-4 max-h-[90vh] overflow-y-auto`}
       >
         {/* Header */}
