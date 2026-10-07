@@ -29,18 +29,12 @@ export function passwordError(password: string): string | null {
   return null;
 }
 
-/**
- * Why `username` is not a valid account name, or null. `anyLength` accepts
- * names over the limit, so accounts made before it existed can be deleted.
- */
-export function usernameError(
-  username: string,
-  { anyLength = false }: { anyLength?: boolean } = {},
-): string | null {
+/** Why `username` is not a valid account name, or null. */
+export function usernameError(username: string): string | null {
   if (!USERNAME_PATTERN.test(username)) {
     return 'Username can only contain letters, numbers, hyphens, and underscores';
   }
-  if (!anyLength && username.length > MAX_USERNAME_LENGTH) {
+  if (username.length > MAX_USERNAME_LENGTH) {
     return `Username must be at most ${MAX_USERNAME_LENGTH} characters long`;
   }
   return null;
