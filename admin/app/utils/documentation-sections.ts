@@ -37,3 +37,21 @@ export function findDocumentationSection(
 export function npmLoginCommand(npmHost: string): string {
   return `npm login --registry=http://${npmHost} --auth-type=legacy`;
 }
+
+/** The commands that point each package manager at the registry, one per line. */
+export function npmClientSetup(npmHost: string): { client: string; commands: string[] }[] {
+  const registry = `http://${npmHost}`;
+  return [
+    { client: 'npm', commands: [`npm config set registry ${registry}`] },
+    { client: 'pnpm', commands: [`pnpm config set registry ${registry}`] },
+    { client: 'Yarn 1', commands: [`yarn config set registry ${registry}`] },
+    {
+      // Yarn 2+ refuses plain http registries unless the host is whitelisted.
+      client: 'Yarn 2+',
+      commands: [
+        `yarn config set npmRegistryServer ${registry}`,
+        `yarn config set unsafeHttpWhitelist --json '["${npmHost}"]'`,
+      ],
+    },
+  ];
+}
