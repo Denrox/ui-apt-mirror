@@ -5,7 +5,7 @@ import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { hostAddress, withMirrorHost } from '~/utils/hosts';
 import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
-import { MirrorConfig, canonicalBaseUrl, type RepositoryInput } from '~/utils/mirror-config';
+import { MirrorConfig, canonicalBaseUrl, type PackageFilters, type RepositoryInput } from '~/utils/mirror-config';
 import { readTail } from '~/utils/read-tail';
 import { SYNC_LOG } from '~/utils/log-files';
 
@@ -29,6 +29,7 @@ export interface RepositoryUpstream {
   url: string;
   title: string;
   filtered: boolean;
+  filters: PackageFilters;
 }
 
 export interface CommentedSection {
@@ -65,7 +66,10 @@ export function filterNote(
   }
   const restricted = neighbours.filter((n) => !n.filtered).map((n) => n.title);
   if (filteredBy.length) {
-    lines.push(`# The filters of ${quoteTitles(filteredBy)} (same upstream) are combined with this one.`);
+    lines.push(
+      `# The filters of ${quoteTitles(filteredBy)} (same upstream) are combined with this one: a package is`,
+      '# mirrored when one of them selects it.',
+    );
   }
   if (restricted.length) {
     lines.push(`# This filter also restricts ${quoteTitles(restricted)} (same upstream, no filter of its own).`);
@@ -185,7 +189,12 @@ async function parseRepositoryConfigs(): Promise<{
       for (const url of new Set(
         section.children.flatMap((c) => (c.kind === 'deb' && c.enabled ? [canonicalBaseUrl(c.uri)] : [])),
       )) {
-        upstreams.push({ url, title: section.title, filtered: config.isSectionFiltered(section) });
+        upstreams.push({
+          url,
+          title: section.title,
+          filtered: config.isSectionFiltered(section),
+          filters: config.activeFilters(section),
+        });
       }
 
       const hosts: RepositoryHost[] = config
@@ -204,7 +213,7 @@ async function parseRepositoryConfigs(): Promise<{
         content: [
           ...usage,
           ...filterNote(config.isSectionFiltered(section), config.upstreamNeighbours(section)),
-          ...commentLines(config.mirrorDirConflict(section) ?? ''),
+          ...commentLines(config.mirrorDirConflict(section) ?? config.filterCombineConflict(section) ?? ''),
         ],
         editable: config.sectionToInput(section),
       });

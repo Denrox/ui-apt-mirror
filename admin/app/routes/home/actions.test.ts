@@ -225,6 +225,13 @@ describe('package filters shared through one upstream (r3-repos-3)', () => {
     expect((await post(addFields({ includeBinaryPackages: 'sl' }))).success).toBe(true);
   });
 
+  it('refuses a second filtered repository whose filter is of another kind', async () => {
+    writeList(FILTERED(true));
+    const result = await post(addFields({ includeSourceName: 'hello' }));
+    expect(result.error).toMatch(/filters of "Updates" and "Hello" \(same upstream\) do not add up/);
+    expect(readList()).not.toContain('Updates');
+  });
+
   it('refuses to enable a repository into such a clash', async () => {
     writeList(SIMPLE(true), FILTERED(false));
     const result = await post({ action: 'restoreRepository', sectionTitle: 'Hello', revision: revisionOf('Hello') });

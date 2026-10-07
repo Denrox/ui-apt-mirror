@@ -57,3 +57,17 @@ describe('sharedFilterWarning for base URLs that share a mirror folder', () => {
     expect(sharedFilterWarning(values({ baseUrl: 'HTTP://deb.debian.org:80/debian/', includeBinaryPackages: 'x' }), upstreams)).toBeNull();
   });
 });
+
+describe('sharedFilterWarning for two filtered repositories', () => {
+  const filteredUpstreams = [
+    { url: 'http://deb.debian.org/debian', title: 'Hello', filtered: true, filters: { include_binary_packages: ['hello'] } },
+  ];
+  it('warns when the filters are of different kinds', () => {
+    expect(sharedFilterWarning(values({ includeSourceName: 'hello' }), filteredUpstreams)).toMatch(
+      /"Hello" uses the same upstream with other kinds of package filters/,
+    );
+  });
+  it('is quiet when only the include list differs', () => {
+    expect(sharedFilterWarning(values({ includeBinaryPackages: 'sl' }), filteredUpstreams)).toBeNull();
+  });
+});

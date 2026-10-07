@@ -13,7 +13,7 @@ import {
   type SectionNode,
   type UsageNode,
 } from './types';
-import { canonicalBaseUrl, mirrorDirOf, mirrorDirsOverlap, normalizeUrl } from './upstream';
+import { canonicalBaseUrl, filtersCombine, mirrorDirOf, mirrorDirsOverlap, normalizeUrl, type PackageFilters } from './upstream';
 
 export { canonicalBaseUrl, mirrorDirOf, mirrorDirsOverlap, normalizeUrl };
 
@@ -120,16 +120,55 @@ export class MirrorConfig {
    * the spelling of their base URLs.
    */
   upstreamNeighbours(section: SectionNode): { title: string; filtered: boolean }[] {
+    return this.neighbourSections(section).map((other) => ({
+      title: other.title,
+      filtered: this.isSectionFiltered(other),
+    }));
+  }
+
+  private neighbourSections(section: SectionNode): SectionNode[] {
     const dirs = mirrorDirsOf(section);
     if (!dirs.length) return [];
-    return this.sections()
-      .filter(
-        (other) =>
-          other !== section &&
-          this.isSectionEnabled(other) &&
-          mirrorDirsOf(other).some((d) => dirs.some((own) => mirrorDirsOverlap(own, d))),
-      )
-      .map((other) => ({ title: other.title, filtered: this.isSectionFiltered(other) }));
+    return this.sections().filter(
+      (other) =>
+        other !== section &&
+        this.isSectionEnabled(other) &&
+        mirrorDirsOf(other).some((d) => dirs.some((own) => mirrorDirsOverlap(own, d))),
+    );
+  }
+
+  /** The package filters a section applies while it is enabled. */
+  activeFilters(section: SectionNode): PackageFilters {
+    const filters: PackageFilters = {};
+    for (const child of section.children) {
+      if (child.kind === 'filter' && child.enabled && child.values.length) {
+        filters[child.key] = [...(filters[child.key] ?? []), ...child.values];
+      }
+    }
+    return filters;
+  }
+
+  /**
+   * Why the filters of an enabled, filtered section and those of the other filtered sections
+   * on its upstream would not add up: apt-mirror2 merges them into one filter that a package
+   * must match in every key, so one repository's filter would delete another's packages.
+   * Null when they combine (see {@link filtersCombine}).
+   */
+  filterCombineConflict(section: SectionNode): string | null {
+    if (!this.isSectionEnabled(section) || !this.isSectionFiltered(section)) return null;
+    const others = this.neighbourSections(section).filter((o) => this.isSectionFiltered(o));
+    if (!others.length) return null;
+    const own = this.activeFilters(section);
+    if (filtersCombine([own, ...others.map((o) => this.activeFilters(o))])) return null;
+    const clash = others.filter((o) => !filtersCombine([own, this.activeFilters(o)]));
+    const names = (clash.length ? clash : others).map((o) => `"${o.title}"`).join(', ');
+    return (
+      `The package filters of "${section.title}" and ${names} (same upstream) do not add up: apt-mirror2 ` +
+      `merges the filters of one upstream into one and mirrors only the packages that match all of its lines, ` +
+      `so one repository's filter would delete packages the other one selects. Repositories on one upstream ` +
+      `must use the same kinds of filters and may differ in only one include list (for example each lists ` +
+      `only its own "Include binary packages"). Change the filters, or merge them into one repository.`
+    );
   }
 
   /**
@@ -166,7 +205,8 @@ export class MirrorConfig {
    * Why an enabled section cannot be mirrored as configured: it shares its mirror folder with
    * another enabled section under a different base URL, or it shares its upstream with an
    * enabled section that is filtered while it is not (or the other way round), so one
-   * repository's filter would silently restrict the other. Null when there is no such clash.
+   * repository's filter would silently restrict the other, or their filters do not add up.
+   * Null when there is no such clash.
    */
   upstreamConflict(section: SectionNode): string | null {
     if (!this.isSectionEnabled(section)) return null;
@@ -174,7 +214,7 @@ export class MirrorConfig {
     if (dirConflict) return dirConflict;
     const filtered = this.isSectionFiltered(section);
     const clash = this.upstreamNeighbours(section).find((n) => n.filtered !== filtered);
-    if (!clash) return null;
+    if (!clash) return this.filterCombineConflict(section);
     const [unfiltered, withFilter] = filtered ? [clash.title, section.title] : [section.title, clash.title];
     return (
       `"${unfiltered}" has no package filter but shares its upstream with "${withFilter}", which has one. ` +

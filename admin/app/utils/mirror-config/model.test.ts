@@ -658,3 +658,42 @@ deb http://deb.debian.org/debian-security trixie-security main
     expect(cfg.upstreamNeighbours(cfg.getSection('Updates')!)).toEqual([{ title: 'Trixie', filtered: false }]);
   });
 });
+
+describe('several filtered repositories on one upstream', () => {
+  const LIST = (second: string) => `# ---start---Hello---
+deb http://deb.debian.org/debian trixie main
+include_binary_packages http://deb.debian.org/debian hello sl libc6
+# ---end---Hello---
+# ---start---Second---
+deb http://deb.debian.org/debian trixie-updates main
+${second}
+# ---end---Second---
+`;
+
+  it('accepts two include lists of the same kind', () => {
+    const cfg = MirrorConfig.parse(LIST('include_binary_packages http://deb.debian.org/debian curl'));
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toBeNull();
+    expect(cfg.upstreamConflict(cfg.getSection('Hello')!)).toBeNull();
+  });
+
+  it('refuses filters of different kinds, which apt-mirror2 would AND together', () => {
+    const cfg = MirrorConfig.parse(LIST('include_source_name http://deb.debian.org/debian hello'));
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toMatch(
+      /filters of "Second" and "Hello" \(same upstream\) do not add up/,
+    );
+    expect(cfg.filterCombineConflict(cfg.getSection('Hello')!)).toMatch(/"Hello" and "Second"/);
+  });
+
+  it('refuses an exclude list that would apply to the other repository', () => {
+    const cfg = MirrorConfig.parse(
+      LIST('include_binary_packages http://deb.debian.org/debian curl\nexclude_binary_packages http://deb.debian.org/debian sl'),
+    );
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toMatch(/do not add up/);
+  });
+
+  it('ignores a disabled neighbour', () => {
+    const cfg = MirrorConfig.parse(LIST('include_source_name http://deb.debian.org/debian hello'));
+    cfg.setSectionEnabled('Hello', false);
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toBeNull();
+  });
+});

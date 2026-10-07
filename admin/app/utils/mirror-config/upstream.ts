@@ -2,6 +2,9 @@
  * Helpers on upstream base URLs that the server and the repository form share (no Node
  * imports, so the form can use them too).
  */
+import { FILTER_KEYS, type FilterKey } from './types';
+
+export type PackageFilters = Partial<Record<FilterKey, string[]>>;
 
 /** Strip trailing slashes so URLs compare and render consistently. */
 export function normalizeUrl(url: string): string {
@@ -43,4 +46,24 @@ export function mirrorDirOf(uri: string): string | null {
  */
 export function mirrorDirsOverlap(a: string, b: string): boolean {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+/**
+ * Whether the package filters of several repositories on one upstream add up to "a package is
+ * mirrored when one of them selects it". apt-mirror2 merges every filter line of a base URL
+ * into one filter (the values of one key are united) and mirrors a package only when it
+ * matches every key. That is the union of the repositories' filters only when they use the
+ * same keys and differ in at most one include list; otherwise one repository's filter deletes
+ * packages another one selects (or an exclude list of one applies to all).
+ */
+export function filtersCombine(filters: PackageFilters[]): boolean {
+  const valueSet = (f: PackageFilters, key: FilterKey) =>
+    [...new Set((f[key] ?? []).map((v) => v.trim()).filter(Boolean))].sort().join(' ');
+  const differing = FILTER_KEYS.filter((key) => new Set(filters.map((f) => valueSet(f, key))).size > 1);
+  if (differing.length === 0) return true;
+  return (
+    differing.length === 1 &&
+    differing[0].startsWith('include_') &&
+    filters.every((f) => valueSet(f, differing[0]) !== '')
+  );
 }

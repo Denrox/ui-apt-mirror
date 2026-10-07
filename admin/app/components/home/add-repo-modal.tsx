@@ -4,7 +4,13 @@ import FormButton from '~/components/shared/form/form-button';
 import FormField from '~/components/shared/form/form-field';
 import FormInput from '~/components/shared/form/form-input';
 import FormCheckbox from '~/components/shared/form/form-checkbox';
-import { canonicalBaseUrl, mirrorDirOf, mirrorDirsOverlap } from '~/utils/mirror-config/upstream';
+import {
+  canonicalBaseUrl,
+  filtersCombine,
+  mirrorDirOf,
+  mirrorDirsOverlap,
+  type PackageFilters,
+} from '~/utils/mirror-config/upstream';
 
 export interface NewRepoValues {
   title: string;
@@ -22,6 +28,14 @@ export interface NewRepoValues {
   includeSections: string;
 }
 
+/** An enabled repository's upstream and package filters. */
+interface Upstream {
+  url: string;
+  title: string;
+  filtered: boolean;
+  filters?: PackageFilters;
+}
+
 interface AddRepoModalProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
@@ -34,7 +48,7 @@ interface AddRepoModalProps {
   /** Submit button label; defaults to "Add Repository"/"Adding...". */
   readonly submitLabel?: string;
   /** Upstreams of the enabled repositories, to warn about package filters they would share. */
-  readonly upstreams?: readonly { url: string; title: string; filtered: boolean }[];
+  readonly upstreams?: readonly Upstream[];
 }
 
 /** Package filters as the server counts them (architectures are not a filter). */
@@ -46,15 +60,26 @@ const hasPackageFilter = (v: NewRepoValues): boolean =>
       v.includeSections.trim(),
   );
 
+/** The package filters the form sends, by apt-mirror2 key. */
+function formFilters(v: NewRepoValues): PackageFilters {
+  const list = (s: string) => s.split(/[\s,]+/).filter(Boolean);
+  return {
+    include_source_name: list(v.includeSourceName),
+    include_binary_packages: list(v.includeBinaryPackages),
+    exclude_binary_packages: list(v.excludeBinaryPackages),
+    include_sections: list(v.includeSections),
+  };
+}
+
 /**
  * A warning about a combination the server refuses: this repository and an enabled one stored
  * in the same mirror folder under different base URLs (e.g. http:// and https://), or on the
  * same upstream with one filtered and the other not (apt-mirror2 keeps one package filter per
- * upstream).
+ * upstream), or both are filtered but their filters do not add up.
  */
 export function sharedFilterWarning(
   values: NewRepoValues,
-  upstreams: readonly { url: string; title: string; filtered: boolean }[],
+  upstreams: readonly Upstream[],
   ownTitle?: string,
 ): string | null {
   if (!values.baseUrl.trim()) return null;
@@ -72,7 +97,13 @@ export function sharedFilterWarning(
   }
   const filtered = hasPackageFilter(values);
   const others = sameDir.filter((u) => u.filtered !== filtered);
-  if (!others.length) return null;
+  if (!others.length) {
+    const own = formFilters(values);
+    const clashing = filtered ? sameDir.filter((u) => u.filters && !filtersCombine([own, u.filters])) : [];
+    if (!clashing.length) return null;
+    const names = [...new Set(clashing.map((o) => `"${o.title}"`))].join(', ');
+    return `${names} uses the same upstream with other kinds of package filters. apt-mirror2 merges the filters of one upstream and mirrors only packages that match all of them, so one filter would delete the other's packages. Use the same kinds of filters, differing in one include list only.`;
+  }
   const names = [...new Set(others.map((o) => `"${o.title}"`))].join(', ');
   return filtered
     ? `${names} uses the same upstream without a package filter. apt-mirror2 filters per base URL, so this filter would restrict ${names} too. Disable it first, or give it the same filter.`
@@ -305,7 +336,8 @@ export default function AddRepoModal({
                 list every package you need. Leave blank to mirror everything.
                 Filters apply to every repository with the same base URL (apt-mirror2
                 keeps one filter per upstream), so all repositories on one upstream
-                must be filtered or none. Clients still see the full upstream package list.
+                must be filtered or none, with the same kinds of filters (they may
+                differ in one include list). Clients still see the full upstream package list.
               </p>
 
               <FormField label="Architectures">
