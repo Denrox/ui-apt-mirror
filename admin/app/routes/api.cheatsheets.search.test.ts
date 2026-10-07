@@ -4,14 +4,17 @@ import os from 'os';
 import path from 'path';
 import appConfig from '~/config/config.json';
 import { publicSearches } from '~/lib/search-limiter';
+import { resetSharedGateways } from '~/utils/client-address';
 import { loader } from './api.cheatsheets.search';
 
 let dir: string;
 const originalDir = appConfig.cheatsheetsDir;
 const url = 'http://cheatsheets.mirror.intra/api/cheatsheets/search?q=help';
+const GATEWAY = '172.18.0.1';
 const from = (ip: string, signal?: AbortSignal) => new Request(url, { headers: { 'X-Real-IP': ip }, signal });
 
 beforeEach(() => {
+  resetSharedGateways([GATEWAY]);
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cheatsheets-search-'));
   appConfig.cheatsheetsDir = dir;
   const source = {
@@ -27,6 +30,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSharedGateways();
   appConfig.cheatsheetsDir = originalDir;
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -89,6 +93,31 @@ describe('GET /api/cheatsheets/search', () => {
     other.abort();
     controllers[1].abort();
     await Promise.all([queued[1], fromOther, queuedAgain]);
+    held.forEach((release) => release!());
+    expect(publicSearches.active).toBe(0);
+    expect(publicSearches.queued).toBe(0);
+  });
+
+  it('gives the Docker gateway, which many clients share, half the places', async () => {
+    const held = [];
+    for (let i = 0; i < publicSearches.maxRunning; i++) held.push(await publicSearches.acquire(undefined, '10.0.0.1'));
+    const controllers = Array.from({ length: 4 }, () => new AbortController());
+    const queued = controllers.map((c) => loader({ request: from(GATEWAY, c.signal) }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(publicSearches.queued).toBe(4);
+
+    const fifth = await loader({ request: from(GATEWAY) });
+    expect(fifth.status).toBe(503);
+
+    // Clients with addresses of their own still find room.
+    const other = new AbortController();
+    const fromOther = loader({ request: from('192.168.0.2', other.signal) });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(publicSearches.queued).toBe(5);
+
+    other.abort();
+    controllers.forEach((c) => c.abort());
+    await Promise.all([...queued, fromOther]);
     held.forEach((release) => release!());
     expect(publicSearches.active).toBe(0);
     expect(publicSearches.queued).toBe(0);

@@ -63,4 +63,20 @@ describe('SearchLimiter', () => {
     (await d)!();
     expect(limiter.active).toBe(0);
   });
+
+  it('can give some clients more places than others', async () => {
+    const limiter = new SearchLimiter(1, 5, (client) => (client === 'shared' ? 3 : 1));
+    const a = await limiter.acquire(undefined, 'shared');
+    const b = limiter.acquire(undefined, 'shared');
+    const c = limiter.acquire(undefined, 'shared');
+    expect(await limiter.acquire(undefined, 'shared')).toBeNull();
+    const d = limiter.acquire(undefined, 'x');
+    expect(await limiter.acquire(undefined, 'x')).toBeNull();
+    expect(limiter.queued).toBe(3);
+    a!();
+    (await b)!();
+    (await c)!();
+    (await d)!();
+    expect(limiter.active).toBe(0);
+  });
 });

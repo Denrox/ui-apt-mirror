@@ -1,3 +1,5 @@
+import { isSharedAddress } from '~/utils/client-address';
+
 /**
  * Bounds how many searches run at once. Each search yields to other requests
  * every few milliseconds, but with many in flight every other request (logins,
@@ -6,7 +8,8 @@
  * `acquire` resolves to a release function once a slot is free, or to null
  * when `maxQueued` callers are already waiting, or when `client` already has
  * `maxPerClient` searches running or waiting (the caller answers "busy"), so
- * one client can't take the whole queue. A caller whose signal aborts while
+ * one client can't take the whole queue. `maxPerClient` may depend on the
+ * client. A caller whose signal aborts while
  * waiting leaves the queue at once.
  */
 export class SearchLimiter {
@@ -17,7 +20,7 @@ export class SearchLimiter {
   constructor(
     readonly maxRunning: number,
     readonly maxQueued: number,
-    readonly maxPerClient = Infinity,
+    private readonly maxPerClient: number | ((client: string) => number) = Infinity,
   ) {}
 
   get active(): number {
@@ -30,7 +33,8 @@ export class SearchLimiter {
 
   acquire(signal?: AbortSignal, client = ''): Promise<(() => void) | null> {
     if (signal?.aborted) return Promise.reject(signal.reason);
-    if ((this.perClient.get(client) ?? 0) >= this.maxPerClient) return Promise.resolve(null);
+    const places = typeof this.maxPerClient === 'number' ? this.maxPerClient : this.maxPerClient(client);
+    if ((this.perClient.get(client) ?? 0) >= places) return Promise.resolve(null);
     if (this.running < this.maxRunning) {
       this.running++;
       this.count(client, 1);
@@ -78,8 +82,11 @@ export class SearchLimiter {
 
 // Public (cheatsheets host) and signed-in searches are counted apart, so a
 // burst on the public host can't lock the admin out of searching. A public
-// client gets at most two places, so others still find room in the queue.
-export const publicSearches = new SearchLimiter(2, 6, 2);
+// client gets at most two places, so others still find room in the queue. An
+// address many clients share (the Docker gateway, for every IPv6 client and
+// every client on the Docker host) gets half the places: enough for a few
+// people searching at once, and still leaving room for everyone else.
+export const publicSearches = new SearchLimiter(2, 6, (client) => (isSharedAddress(client) ? 4 : 2));
 export const adminSearches = new SearchLimiter(2, 6);
 
 /** Seconds a client told "busy" should wait before trying again. */
