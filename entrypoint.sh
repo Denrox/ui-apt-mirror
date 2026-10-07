@@ -47,66 +47,7 @@ if [ "$(readlink /var/spool/apt-mirror/mirror/mirror 2>/dev/null)" = /var/spool/
 fi
 
 # Render nginx sites from the image's templates; data/conf/nginx/custom/<name> overrides one.
-NGINX_HOSTCONF=/etc/nginx/hostconf
-NGINX_CUSTOM="$NGINX_HOSTCONF/custom"
-MIRROR_DOMAIN="${MIRROR_DOMAIN:-mirror.intra}"
-ESCAPED_DOMAIN=$(printf '%s' "$MIRROR_DOMAIN" | sed 's/[&/\]/\\&/g')
-
-render_site() {
-    sed "s/mirror\.intra/${ESCAPED_DOMAIN}/g" "$1"
-}
-
-mkdir -p "$NGINX_CUSTOM"
-
-# One-time migration: edited legacy site configs become custom overrides.
-LEGACY_SITES="$NGINX_HOSTCONF/sites-available"
-if [ -d "$LEGACY_SITES" ]; then
-    for legacy in "$LEGACY_SITES"/*.conf; do
-        [ -f "$legacy" ] || continue
-        name=$(basename "$legacy")
-        tpl="/etc/nginx/templates/$name"
-        if [ -f "$tpl" ] && render_site "$tpl" | cmp -s - "$legacy"; then
-            continue
-        fi
-        if [ ! -e "$NGINX_CUSTOM/$name" ]; then
-            cp "$legacy" "$NGINX_CUSTOM/$name"
-            echo "⚠️  Kept your modified nginx config as custom/$name (delete it to use the stock one)"
-        fi
-    done
-    mv "$LEGACY_SITES" "$NGINX_HOSTCONF/sites-available.migrated-$(date +%Y%m%d%H%M%S)"
-fi
-
-# Overrides hide later stock fixes; keep the new stock copy until the user deletes it.
-check_override() {
-    local tpl=$1 name=$2
-    local hash_file="$NGINX_CUSTOM/.$name.stock-sha256"
-    local stock_copy="$NGINX_CUSTOM/$name.stock"
-    local current recorded
-    current=$(sha256sum "$tpl" | cut -d' ' -f1)
-    recorded=$(cat "$hash_file" 2>/dev/null || true)
-    if [ "$current" != "$recorded" ]; then
-        render_site "$tpl" > "$stock_copy"
-        echo "$current" > "$hash_file"
-    fi
-    if [ -f "$stock_copy" ]; then
-        echo "⚠️  custom/$name may be missing fixes made to the stock $name since it was written."
-        echo "   Compare it with custom/$name.stock, merge what you need, then delete $name.stock."
-    fi
-}
-
-echo "🧩 Rendering nginx sites for $MIRROR_DOMAIN..."
-for tpl in /etc/nginx/templates/*.conf; do
-    name=$(basename "$tpl")
-    if [ -f "$NGINX_CUSTOM/$name" ]; then
-        cp "$NGINX_CUSTOM/$name" "/etc/nginx/sites-available/$name"
-        echo "   $name: custom"
-        check_override "$tpl" "$name"
-    else
-        render_site "$tpl" > "/etc/nginx/sites-available/$name"
-    fi
-done
-
-find "$NGINX_CUSTOM" -user 0 -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
+bash /etc/nginx/sites-setup/render-sites.sh
 
 if [ -f /etc/nginx/sites-available/mirror.intra.conf ]; then
     echo "🔗 Enabling nginx sites..."
