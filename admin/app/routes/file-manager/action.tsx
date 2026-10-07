@@ -1,10 +1,6 @@
 import type { Route } from './+types/file-manager';
 import path from 'path';
 import fs from 'fs/promises';
-import fsSync from 'fs';
-import https from 'https';
-import http from 'http';
-import { URL } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
@@ -24,6 +20,7 @@ import {
 import { scanTrees } from '~/utils/health-scan';
 import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 import { getValidationError } from '~/utils/file-name';
+import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
 
 const execFileAsync = promisify(execFile);
 
@@ -43,37 +40,8 @@ setInterval(() => {
   sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
 }, 10 * 60 * 1000);
 
-const activeDownloads = new Map<string, { request: any; fileStream: any }>();
-
-setInterval(() => {
-  for (const [destPath, download] of activeDownloads.entries()) {
-    if (download.request.destroyed || download.fileStream?.destroyed) {
-      activeDownloads.delete(destPath);
-    }
-  }
-}, 30000);
-
-async function cancelAndCleanupDownload(destPath: string): Promise<void> {
-  try {
-    const activeDownload = activeDownloads.get(destPath);
-    // Without a running download, destPath is an existing file that is not ours to remove.
-    if (!activeDownload) return;
-
-    activeDownload.request.destroy();
-
-    if (activeDownload.fileStream) {
-      activeDownload.fileStream.destroy();
-    }
-
-    activeDownloads.delete(destPath);
-
-    try {
-      await fs.unlink(destPath);
-    } catch (unlinkError) {}
-  } catch (error) {
-    console.error('Failed to cancel and cleanup download:', error);
-  }
-}
+// Running URL downloads by destination path, so the dialog's Cancel can stop one.
+const activeDownloads = new Map<string, Download>();
 
 async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise<string | null> {
   const syncRunning = await checkLockFile();
@@ -123,52 +91,14 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
   }
 }
 
-async function downloadFile(url: string, destPath: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    let fileStream: fsSync.WriteStream | undefined;
-
-    try {
-      const urlObj = new URL(url);
-      const protocol = urlObj.protocol === 'https:' ? https : http;
-
-      const request = protocol.get(url, (response) => {
-        if (response.statusCode !== 200) {
-          resolve(false);
-          return;
-        }
-
-        fileStream = fsSync.createWriteStream(destPath, { flags: 'wx' });
-        response.pipe(fileStream);
-
-        fileStream.on('finish', () => {
-          fileStream?.close();
-          activeDownloads.delete(destPath);
-          giveToDirOwner(destPath);
-          resolve(true);
-        });
-
-        fileStream.on('error', () => {
-          activeDownloads.delete(destPath);
-          resolve(false);
-        });
-      });
-
-      request.on('error', () => {
-        activeDownloads.delete(destPath);
-        resolve(false);
-      });
-
-      request.setTimeout(30000, () => {
-        request.destroy();
-        activeDownloads.delete(destPath);
-        resolve(false);
-      });
-
-      activeDownloads.set(destPath, { request, fileStream });
-    } catch (error) {
-      resolve(false);
-    }
-  });
+async function downloadFile(url: string, destPath: string): Promise<DownloadResult> {
+  const download = startDownload(url, destPath);
+  activeDownloads.set(destPath, download);
+  try {
+    return await download.done;
+  } finally {
+    if (activeDownloads.get(destPath) === download) activeDownloads.delete(destPath);
+  }
 }
 
 async function uploadFile(filePath: string, file: any): Promise<boolean> {
@@ -623,7 +553,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
           return { success: false, error: blocked };
         }
 
-        await cancelAndCleanupDownload(fullPath);
+        // Only a running download is cancelled; its partial data is never under the final
+        // name, so an existing file there is not touched.
+        activeDownloads.get(fullPath)?.cancel();
 
         return { success: true, message: 'Download cleanup completed' };
       } catch (error) {
@@ -666,12 +598,12 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (await pathExists(destPath)) {
         return { success: false, error: nameTakenError(fileName) };
       }
-      const success = await downloadFile(url, destPath);
+      const result = await downloadFile(url, destPath);
 
-      if (success) {
+      if (result.ok) {
         return { success: true, message: 'File downloaded successfully' };
       } else {
-        return { success: false, error: 'Failed to download file' };
+        return { success: false, error: `Failed to download file: ${result.error}` };
       }
     } else if (intent === 'downloadImage') {
       const imageUrl = formData.get('imageUrl') as string;

@@ -148,3 +148,31 @@ describe('uploads', () => {
     expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.'))).toEqual([]);
   });
 });
+
+describe('URL download (r2-files-4)', () => {
+  it('cancelling ends the pending request and leaves nothing behind', async () => {
+    const http = await import('http');
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200);
+      res.write('x'.repeat(1000));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as import('net').AddressInfo;
+    try {
+      const pending = post({
+        intent: 'downloadFile',
+        url: `http://127.0.0.1:${port}/slow`,
+        fileName: 'slow.bin',
+        currentPath: dirs.files,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const cancel = await post({ intent: 'cleanupDownload', filePath: dirs.files, fileName: 'slow.bin' });
+      expect(cancel.success).toBe(true);
+      expect(await pending).toEqual({ success: false, error: 'Failed to download file: Download cancelled' });
+      expect(fs.readdirSync(dirs.files).filter((n) => n.includes('slow') || n.startsWith('.tmp-'))).toEqual([]);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+});
