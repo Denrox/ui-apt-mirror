@@ -154,6 +154,39 @@ describe('uploads', () => {
     expect(fs.statSync(path.join(dirs.files, '__init__.py')).size).toBe(0);
   });
 
+  it('never creates the folders an upload or a new folder would go into', async () => {
+    const missing = [
+      path.join(dirs.files, 'new', '.hidden'),
+      path.join(dirs.files, 'new', 'x\u202Etxt.exe'),
+      path.join(dirs.files, 'new', '.tmp-sweep'),
+    ];
+    for (const filePath of missing) {
+      const chunk = await post({
+        intent: 'uploadChunk',
+        filePath,
+        chunk: new Blob(['x']),
+        chunkIndex: '0',
+        totalChunks: '1',
+        fileName: 'a.txt',
+        fileId: 'nodir1',
+      });
+      expect(chunk).toEqual({ success: false, error: 'The folder does not exist' });
+      const plain = await post({ intent: 'uploadFile', filePath, file: new File(['x'], 'a.txt') });
+      expect(plain).toEqual({ success: false, error: 'The folder does not exist' });
+      const folder = await post({ intent: 'createFolder', currentPath: filePath, folderName: 'ok' });
+      expect(folder).toEqual({ success: false, error: 'The folder does not exist' });
+    }
+    // A file is not a folder either.
+    fs.writeFileSync(path.join(dirs.files, 'plain.txt'), 'x');
+    const intoFile = await post({
+      intent: 'uploadFile',
+      filePath: path.join(dirs.files, 'plain.txt'),
+      file: new File(['x'], 'a.txt'),
+    });
+    expect(intoFile.success).toBe(false);
+    expect(fs.existsSync(path.join(dirs.files, 'new'))).toBe(false);
+  });
+
   it('refuses a name that is too long with a clear message (r2-files-15)', async () => {
     const res = await post({
       intent: 'uploadChunk',

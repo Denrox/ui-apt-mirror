@@ -109,7 +109,8 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
     if (await pathExists(destPath)) throw new NameTakenError(fileName);
     const tempDir = uploadTempDir(dir, fileId);
     await fs.rm(tempDir, { recursive: true, force: true });
-    await fs.mkdir(tempDir, { recursive: true });
+    // Not recursive: an upload never creates the folder it goes into.
+    await fs.mkdir(tempDir);
     upload = {
       tempDir,
       // Fixed short name: `<fileName>.temp` exceeded NAME_MAX for valid 251-255 byte names.

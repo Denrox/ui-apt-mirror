@@ -21,7 +21,7 @@ import {
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
 import { searchFiles } from '~/utils/search-files';
-import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
+import { giveToDirOwner } from '~/utils/file-owner';
 import { getValidationError } from '~/utils/file-name';
 import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
 import { BodyTooLargeError, readFormData } from '~/utils/limited-form-data';
@@ -34,6 +34,7 @@ const IMAGE_TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
 const ARCHITECTURES = new Set(['amd64', 'arm64', 'arm', '386', 'ppc64le', 's390x', 'riscv64']);
 
 const OUTSIDE = 'Path is outside the file storage';
+const NO_FOLDER = 'The folder does not exist';
 
 const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
 
@@ -59,9 +60,13 @@ async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise
   return null;
 }
 
+const isFolder = (p: string) => fs.stat(p).then((s) => s.isDirectory(), () => false);
+
 async function createDirectory(dirPath: string): Promise<boolean> {
   try {
-    await mkdirOwned(dirPath);
+    // Only the named folder: a missing parent is refused, never created around the name rules.
+    await fs.mkdir(dirPath);
+    giveToDirOwner(dirPath);
     return true;
   } catch (error) {
     return false;
@@ -102,8 +107,6 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
   try {
     const destPath = path.join(filePath, file.name);
 
-    await mkdirOwned(path.dirname(destPath));
-
     // Written as it is read; the body itself is capped by readFormData.
     if (typeof file?.stream === 'function') {
       await fs.writeFile(destPath, file.stream(), { flag: 'wx' });
@@ -137,6 +140,10 @@ async function handleChunkUpload(
     const filePath = resolveInside(formData.get('filePath'), storageRoots());
     if (!filePath) {
       return { success: false, error: OUTSIDE };
+    }
+    // Uploads go into an existing folder; missing ones are not created around the name rules.
+    if (!(await isFolder(filePath))) {
+      return { success: false, error: NO_FOLDER };
     }
 
     const validationError = getValidationError(fileName);
@@ -214,7 +221,6 @@ async function downloadImage(
   }
   let tempDir: string | null = null;
   try {
-    await mkdirOwned(destPath);
     // Pull to a hidden temp dir and link into place when complete.
     tempDir = await fs.mkdtemp(path.join(destPath, `${UPLOAD_TEMP_PREFIX}img-`));
     const tempPath = path.join(tempDir, fileName);
@@ -313,6 +319,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       const currentPath = resolveInside(formData.get('currentPath'), roots);
       if (!currentPath) {
         return { success: false, error: OUTSIDE };
+      }
+      if (!(await isFolder(currentPath))) {
+        return { success: false, error: NO_FOLDER };
       }
 
       const validationError = getValidationError(folderName);
@@ -421,6 +430,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (!file) {
         return { success: false, error: 'No file provided' };
       }
+      if (!(await isFolder(filePath))) {
+        return { success: false, error: NO_FOLDER };
+      }
       const blocked = await writeBlocked('add', filePath);
       if (blocked) {
         return { success: false, error: blocked };
@@ -485,6 +497,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (!url || !fileName) {
         return { success: false, error: 'URL and filename are required' };
       }
+      if (!(await isFolder(currentPath))) {
+        return { success: false, error: NO_FOLDER };
+      }
 
       const validationError = getValidationError(fileName);
       if (validationError) {
@@ -514,6 +529,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: OUTSIDE };
       }
       const architecture = (formData.get('architecture') as string) || 'amd64';
+      if (!(await isFolder(currentPath))) {
+        return { success: false, error: NO_FOLDER };
+      }
       const blocked = await writeBlocked('add', currentPath);
       if (blocked) {
         return { success: false, error: blocked };
