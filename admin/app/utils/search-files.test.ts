@@ -27,16 +27,30 @@ beforeAll(() => {
 
 afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 
-const names = (results: { path: string }[]) => results.map((r) => path.relative(files, r.path)).sort();
+const names = ({ results }: { results: { path: string }[] }) => results.map((r) => path.relative(files, r.path)).sort();
 
 describe('searchFiles (r2-files-7)', () => {
   it('does not follow symlinks out of the roots', async () => {
     // link-docs leads to a folder already searched, so it is not walked twice.
     expect(names(await searchFiles(files, 'match', [files]))).toEqual(['docs/match-a.txt']);
-    expect(await searchFiles(files, 'passwd', [files])).toEqual([]);
+    expect((await searchFiles(files, 'passwd', [files])).results).toEqual([]);
   });
 
   it('follows links into another allowed root', async () => {
     expect(names(await searchFiles(files, 'match', [files, priv]))).toContain('link-priv/match-priv.txt');
+  });
+});
+
+describe('searchFiles limits (r2-files-8)', () => {
+  it('returns at most `limit` matches and says so', async () => {
+    const many = path.join(files, 'many');
+    fs.mkdirSync(many);
+    for (let i = 0; i < 30; i++) fs.writeFileSync(path.join(many, `item-${i}.txt`), '');
+    const capped = await searchFiles(many, 'item-', [files], 10);
+    expect(capped.results).toHaveLength(10);
+    expect(capped.truncated).toBe(true);
+    const exact = await searchFiles(many, 'item-', [files], 30);
+    expect(exact.results).toHaveLength(30);
+    expect(exact.truncated).toBe(false);
   });
 });

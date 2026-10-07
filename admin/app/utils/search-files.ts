@@ -10,12 +10,21 @@ export interface SearchResult {
   isDirectory: boolean;
 }
 
+/** Most matches a search returns; a broad term in a large tree matched tens of thousands. */
+export const MAX_SEARCH_RESULTS = 500;
+
 /**
  * Finds entries below `rootPath` whose name contains `query` (case-insensitive). Symlinks are
  * followed only while they stay inside `roots`; links leading out of them are not listed.
  */
-export async function searchFiles(rootPath: string, query: string, roots: string[]): Promise<SearchResult[]> {
+export async function searchFiles(
+  rootPath: string,
+  query: string,
+  roots: string[],
+  limit = MAX_SEARCH_RESULTS,
+): Promise<{ results: SearchResult[]; truncated: boolean }> {
   const results: SearchResult[] = [];
+  let truncated = false;
   const lowerQuery = query.toLowerCase();
   const realRoots = await realRootsOf(roots);
   // Real paths already walked, so symlink cycles can't recurse forever
@@ -33,6 +42,7 @@ export async function searchFiles(rootPath: string, query: string, roots: string
     }
 
     for (const itemName of items) {
+      if (truncated) return;
       // Skip hidden files except .tmp- directories
       const isTemp = itemName.startsWith('.tmp-');
       if (itemName.startsWith('.') && !isTemp) continue;
@@ -42,6 +52,10 @@ export async function searchFiles(rootPath: string, query: string, roots: string
         if (!found) continue;
         const { stats } = found;
         if (itemName.toLowerCase().includes(lowerQuery)) {
+          if (results.length >= limit) {
+            truncated = true;
+            return;
+          }
           results.push({
             name: itemName,
             path: itemPath,
@@ -58,5 +72,5 @@ export async function searchFiles(rootPath: string, query: string, roots: string
   }
 
   await searchDirectory(rootPath);
-  return results;
+  return { results, truncated };
 }

@@ -353,6 +353,7 @@ export async function action({ request }: Route.ActionArgs): Promise<{
   error?: string;
   output?: string;
   results?: any[];
+  truncated?: boolean;
 }> {
   await requireAuthMiddleware(request);
   const roots = storageRoots();
@@ -734,8 +735,8 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
 
       try {
-        const results = await searchFiles(rootPath, searchQuery.trim(), roots);
-        return { success: true, results };
+        const { results, truncated } = await searchFiles(rootPath, searchQuery.trim(), roots);
+        return { success: true, results, truncated };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);

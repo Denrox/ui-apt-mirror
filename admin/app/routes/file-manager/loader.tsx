@@ -5,6 +5,16 @@ import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
+/** Entries per page: a whole large folder (npm cache, mirror pool) made the page unusable. */
+export const PAGE_SIZE = 200;
+
+/** One page of `items`; a page past the end shows the last one. */
+export function pageOf<T>(items: T[], requested: number, pageSize = PAGE_SIZE) {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const page = Number.isInteger(requested) ? Math.min(Math.max(requested, 1), pageCount) : 1;
+  return { items: items.slice((page - 1) * pageSize, page * pageSize), page, pageCount, total: items.length };
+}
+
 interface FileItem {
   name: string;
   path: string;
@@ -141,7 +151,7 @@ export async function loader({ request }: { request: Request }) {
     };
   }
 
-  const [files, isLockFilePresent, healthReport] = await Promise.all([
+  const [allFiles, isLockFilePresent, healthReport] = await Promise.all([
     getFileList(currentPath).catch((error) => {
       console.error('Failed to get file list:', error);
       return [];
@@ -156,8 +166,16 @@ export async function loader({ request }: { request: Request }) {
       }),
   ]);
 
+  const { items: files, page, pageCount, total } = pageOf(
+    allFiles,
+    Number(searchParams.get('page') ?? '1'),
+  );
+
   return {
     files,
+    page,
+    pageCount,
+    totalFiles: total,
     currentPath: currentPath,
     isLockFilePresent,
     healthReport,

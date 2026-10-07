@@ -93,6 +93,9 @@ export default function FileManager() {
   const isLockFilePresent = data?.isLockFilePresent || false;
   const healthReport = data?.healthReport;
   const loaderError = data?.error;
+  const page = data?.page ?? 1;
+  const pageCount = data?.pageCount ?? 1;
+  const totalFiles = data?.totalFiles ?? files.length;
   const isPublicRoute = data?.__domain === 'files';
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -141,6 +144,7 @@ export default function FileManager() {
   const [isSearching, setIsSearching] = useState(false);
   // null until the running search answers
   const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [searchTruncated, setSearchTruncated] = useState(false);
 
   useEffect(() => {
     setSearchQuery('');
@@ -346,6 +350,7 @@ export default function FileManager() {
     if (searchFetcher.data && searchFetcher.state === 'idle') {
       if (searchFetcher.data.success && searchFetcher.data.results) {
         setSearchResults(searchFetcher.data.results);
+        setSearchTruncated(Boolean(searchFetcher.data.truncated));
       } else if (searchFetcher.data.error) {
         toast.error(searchFetcher.data.error);
         setIsSearching(false);
@@ -723,6 +728,12 @@ export default function FileManager() {
               </>
             )}
           </div>
+          {isSearching && searchResults && searchTruncated && (
+            <FileManagerWarning
+              type="info"
+              message={`Showing the first ${searchResults.length} matches; refine the search to see the rest`}
+            />
+          )}
           <div className="border border-outline-variant rounded-lg overflow-hidden">
             {shouldShowSyncPlaceholder ? (
               <div className="p-8 text-center">
@@ -922,6 +933,32 @@ export default function FileManager() {
               </TableWrapper>
             )}
           </div>
+          {!isSearching && !shouldShowSyncPlaceholder && pageCount > 1 && (
+            <nav
+              className="flex items-center justify-center gap-3 text-sm text-on-surface-variant"
+              aria-label="Pages"
+            >
+              <FormButton
+                type="secondary"
+                size="small"
+                disabled={page <= 1 || isLoading}
+                onClick={() => setSearchParams({ path: currentPath, page: String(page - 1) })}
+              >
+                ‹ Previous
+              </FormButton>
+              <span>
+                Page {page} of {pageCount} ({totalFiles} items)
+              </span>
+              <FormButton
+                type="secondary"
+                size="small"
+                disabled={page >= pageCount || isLoading}
+                onClick={() => setSearchParams({ path: currentPath, page: String(page + 1) })}
+              >
+                Next ›
+              </FormButton>
+            </nav>
+          )}
         </div>
       </ContentBlock>
 
