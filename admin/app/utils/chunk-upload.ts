@@ -116,7 +116,20 @@ async function lastTouched(dir: string): Promise<number> {
   return latest;
 }
 
+// Temp dirs other work (a cross-mount move) is writing to right now; never stale.
+const busyTempDirs = new Set<string>();
+
+export async function withBusyTempDir<T>(dir: string, work: () => Promise<T>): Promise<T> {
+  busyTempDirs.add(dir);
+  try {
+    return await work();
+  } finally {
+    busyTempDirs.delete(dir);
+  }
+}
+
 export async function isStaleTempDir(dir: string, maxAgeMs = STALE_UPLOAD_MS, now = Date.now()) {
+  if (busyTempDirs.has(dir)) return false;
   try {
     return now - (await lastTouched(dir)) > maxAgeMs;
   } catch {
