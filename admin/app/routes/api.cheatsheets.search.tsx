@@ -6,6 +6,7 @@ import {
   loadIndex,
 } from '~/lib/cheatsheets-store';
 import { adminSearches, BUSY_RETRY_AFTER, publicSearches } from '~/lib/search-limiter';
+import { clientIp } from '~/utils/login-limiter';
 
 export interface SearchResult {
   source: string;
@@ -32,7 +33,7 @@ export async function loader({ request }: { request: Request }) {
   const { signal } = request;
   let release: (() => void) | null;
   try {
-    release = await (isPublic ? publicSearches : adminSearches).acquire(signal);
+    release = await (isPublic ? publicSearches.acquire(signal, clientIp(request)) : adminSearches.acquire(signal));
   } catch {
     return gone();
   }
