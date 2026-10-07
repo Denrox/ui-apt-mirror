@@ -1,4 +1,7 @@
-export async function action() {
+import { assertSameOrigin } from '~/utils/request-guard';
+
+export async function action({ request }: { request: Request }) {
+  assertSameOrigin(request);
   const { createLogoutCookie } = await import('~/utils/server-auth');
 
   const cookie = createLogoutCookie();

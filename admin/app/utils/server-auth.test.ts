@@ -17,6 +17,7 @@ import {
   attemptLogin,
   createAuthToken,
   createNpmAuthToken,
+  requireAuth,
   revokeUserTokens,
   validateAuthToken,
   validateNpmAuthToken,
@@ -99,5 +100,34 @@ describe('attemptLogin', () => {
         ).retryAfter,
       ).toBeUndefined();
     }
+  });
+});
+
+describe('requireAuth', () => {
+  const withCookie = async (init: RequestInit & { url?: string }) => {
+    writePrivateFile(htpasswdPath, 'admin:x\n');
+    const token = await createAuthToken('admin');
+    const headers = new Headers(init.headers);
+    headers.set('Cookie', `auth_token=${token}`);
+    return new Request(init.url ?? 'http://admin.mirror.intra/users', { ...init, headers });
+  };
+
+  it('refuses a post from a page on another mirror host with the admin cookie', async () => {
+    const request = await withCookie({
+      method: 'POST',
+      headers: { Origin: 'http://files.mirror.intra', 'Sec-Fetch-Site': 'same-site' },
+      body: new URLSearchParams({ intent: 'addUser' }),
+    });
+    await expect(requireAuth(request)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('accepts same-origin posts and plain gets', async () => {
+    const post = await withCookie({
+      method: 'POST',
+      headers: { Origin: 'http://admin.mirror.intra', 'Sec-Fetch-Site': 'same-origin' },
+    });
+    expect((await requireAuth(post))?.username).toBe('admin');
+    const get = await withCookie({ headers: { 'Sec-Fetch-Site': 'same-site' } });
+    expect((await requireAuth(get))?.username).toBe('admin');
   });
 });
