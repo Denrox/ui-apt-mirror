@@ -33,6 +33,7 @@ import CheatsheetModal, {
 import SourcesPanel from '~/components/cheatsheets/sources-panel';
 import type { SearchResult } from '~/routes/api.cheatsheets.search';
 import { onlySheetChanged, parseSheetParam, plural, sheetSearch, SHEET_PARAM } from '~/lib/cheatsheets';
+import { useHydrated } from '~/utils/use-hydrated';
 
 export { loader, action };
 
@@ -82,7 +83,10 @@ export default function Cheatsheets() {
   const [urlParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const sheetState = (location.state ?? {}) as SheetState;
+  // The browser keeps history state across a reload, but the server never
+  // sees it: read it only once hydrated, or the popup renders differently (#418).
+  const hydrated = useHydrated();
+  const sheetState = ((hydrated && location.state) || {}) as SheetState;
   const depth = sheetState.depth ?? 0;
   const sheet = parseSheetParam(urlParams.get(SHEET_PARAM));
   const openPage: CheatsheetRef | null = !sheet
@@ -433,7 +437,9 @@ export default function Cheatsheets() {
           page={openPage}
           onClose={closePage}
           onOpenLinked={showPage}
-          onBack={depth > 1 ? () => navigate(-1) : undefined}
+          // The entry before is a popup page too: depth 1 is the first page from
+          // the results, but from a shared link it is the page after that link.
+          onBack={depth > (sheetState.fromLink ? 0 : 1) ? () => navigate(-1) : undefined}
         />
       )}
     </PageLayoutFull>
