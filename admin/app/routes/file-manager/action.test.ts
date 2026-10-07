@@ -31,7 +31,7 @@ vi.mock('~/utils/sync', () => ({ checkLockFile: async () => false }));
 
 const { action } = await import('./action');
 
-async function post(fields: Record<string, string>) {
+async function post(fields: Record<string, string | Blob>) {
   const body = new FormData();
   for (const [key, value] of Object.entries(fields)) body.append(key, value);
   const request = new Request('http://admin.mirror.intra/file-manager', { method: 'POST', body });
@@ -115,5 +115,36 @@ describe('symlinks are operated on as links (r2-files-1, r2-files-16)', () => {
     }
     expect(fs.existsSync(dirs.files)).toBe(true);
     expect(fs.existsSync(dirs.outside)).toBe(true);
+  });
+});
+
+describe('uploads', () => {
+  it('stores an empty file sent as one empty chunk (r2-files-13)', async () => {
+    const res = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([]),
+      chunkIndex: '0',
+      totalChunks: '1',
+      fileName: '__init__.py',
+      fileId: 'empty1',
+    });
+    expect(res).toEqual({ success: true, message: 'File uploaded successfully' });
+    expect(fs.statSync(path.join(dirs.files, '__init__.py')).size).toBe(0);
+  });
+
+  it('refuses a name that is too long with a clear message (r2-files-15)', async () => {
+    const res = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob(['x']),
+      chunkIndex: '0',
+      totalChunks: '1',
+      fileName: '日'.repeat(100),
+      fileId: 'long1',
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/too long/);
+    expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.'))).toEqual([]);
   });
 });
