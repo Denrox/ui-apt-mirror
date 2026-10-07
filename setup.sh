@@ -63,7 +63,7 @@ require_cmd() {
             *" curl "*)          print_error "  curl:    sudo apt-get install -y curl" ;;
         esac
         case " ${missing[*]} " in
-            *" tar "*|*" gunzip "*) print_error "  tar/gunzip: sudo apt-get install -y tar gzip" ;;
+            *" gunzip "*)        print_error "  gunzip:  sudo apt-get install -y gzip" ;;
         esac
         exit 1
     fi
@@ -191,9 +191,6 @@ MSG
     exit 1
 }
 
-# Settings live in .env (read by docker compose). setup.sh changes only its own keys
-# there (write_env_file); the admin's other lines are kept.
-
 # Read KEY from a KEY=VALUE file without sourcing it
 env_get() {
     grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2-
@@ -227,7 +224,7 @@ use_current_config() {
     MIRROR_DOMAIN="${CUR_DOMAIN:-mirror.intra}"
     SYNC_FREQUENCY="${CUR_SYNC:-14400}"
     HOST_TIMEZONE="${CUR_TZ:-$host_timezone}"
-    # Fresh installs offer the proxy enabled
+    # On unless .env turns it off
     if [ "$CUR_NPM" = "false" ]; then ENABLE_NPM_PROXY="n"; else ENABLE_NPM_PROXY="y"; fi
 }
 
@@ -765,7 +762,7 @@ show_usage() {
     echo "Prerequisites:"
     echo "  - Docker installed and running (with Compose v2 plugin)"
     echo "  - Built images in dist/ directory (run ./build.sh first)"
-    echo "  - openssl, curl, tar, gzip, procps (free), awk, sed"
+    echo "  - openssl, curl, gzip, procps (free), awk, sed"
 }
 
 # Main execution
@@ -816,7 +813,7 @@ main() {
     print_status "Starting ui-apt-mirror deployment..."
 
     # Verify required commands are installed
-    require_cmd docker openssl free awk sed tar gunzip curl
+    require_cmd docker openssl free awk sed gunzip curl
     require_docker_compose
 
     # Detect architecture
