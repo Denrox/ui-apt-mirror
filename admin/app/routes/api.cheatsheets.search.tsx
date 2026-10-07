@@ -1,5 +1,5 @@
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { parsePaging, searchEntries, type IndexEntry } from '~/lib/cheatsheets';
+import { parsePaging, searchEntriesAsync, type IndexEntry } from '~/lib/cheatsheets';
 import {
   isPublicCheatsheetsRequest,
   listSources,
@@ -36,7 +36,7 @@ export async function loader({ request }: { request: Request }) {
     let entries: IndexEntry[] = await loadIndex(s.id);
     if (category) entries = entries.filter((e) => e.categories.includes(category));
     const hits = q
-      ? searchEntries(entries, q)
+      ? await searchEntriesAsync(entries, q, request.signal)
       : category
         ? entries.map((entry) => ({ entry, score: 0, snippet: entry.text.slice(0, 180) }))
         : [];

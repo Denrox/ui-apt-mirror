@@ -15,6 +15,9 @@ import {
   plural,
   resolvePageLink,
   searchEntries,
+  searchEntriesAsync,
+  searchTerms,
+  MAX_SEARCH_TERMS,
   SEARCH_PAGE_SIZE,
   sourceIdFor,
   type IndexEntry,
@@ -206,6 +209,50 @@ describe('searchEntries', () => {
   it('returns nothing for blank or unmatched queries', () => {
     expect(searchEntries(entries, '   ')).toEqual([]);
     expect(searchEntries(entries, 'chest fracture')).toEqual([]);
+  });
+
+  it('bounds the words a query can cost', () => {
+    expect(searchTerms('a e i o s t a e i o s t')).toEqual(['a', 'e', 'i', 'o', 's', 't']);
+    expect(searchTerms('e e e e zzzzzzqq')).toEqual(['zzzzzzqq']);
+    expect(searchTerms('chest a pain chest')).toEqual(['chest', 'pain']);
+    expect(searchTerms('火 傷')).toEqual(['火', '傷']);
+    const many = Array.from({ length: 50 }, (_, i) => `w${i}`).join(' ');
+    expect(searchTerms(many)).toHaveLength(MAX_SEARCH_TERMS);
+    // Repeating a word changes nothing.
+    const titles = (q: string) => searchEntries(entries, q).map((h) => h.entry.title);
+    expect(titles('chest chest chest pain pain')).toEqual(titles('chest pain'));
+    expect(searchEntries(entries, 'chest a pain').map((h) => h.entry.title)).toEqual(['Chest Pain', 'Heart Attack']);
+  });
+
+  it('keeps a 100-word query on a large index fast', () => {
+    const words = 'the quick brown fox jumps over a lazy dog and then sits in the sun for an hour '.repeat(120);
+    const big = Array.from({ length: 3000 }, (_, i) => entry(`Page ${i}`, words));
+    const q = Array.from({ length: 100 }, (_, i) => 'aeiost'[i % 6]).join(' ');
+    searchEntries(big.slice(0, 10), q);
+    const t = performance.now();
+    searchEntries(big, q);
+    searchEntries(big, `${'e '.repeat(99)}zzzzzzqq`);
+    // Before the bound this took several seconds.
+    expect(performance.now() - t).toBeLessThan(1500);
+  });
+
+  it('searches asynchronously with the same results and lets other work run', async () => {
+    const big = Array.from({ length: 4000 }, (_, i) =>
+      entry(`Page ${i}`, `${'Apply pressure and wait for help to arrive. '.repeat(40)} chest pain ${i}`),
+    );
+    let ticks = 0;
+    const timer = setInterval(() => ticks++, 1);
+    const hits = await searchEntriesAsync([...big, ...entries], 'chest pain');
+    clearInterval(timer);
+    expect(hits).toEqual(searchEntries([...big, ...entries], 'chest pain'));
+    expect(ticks).toBeGreaterThan(0);
+  });
+
+  it('stops an async search once the request is aborted', async () => {
+    const big = Array.from({ length: 20000 }, (_, i) => entry(`Page ${i}`, 'the help '.repeat(400)));
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 5);
+    await expect(searchEntriesAsync(big, 'the help', controller.signal)).rejects.toThrow();
   });
 });
 
