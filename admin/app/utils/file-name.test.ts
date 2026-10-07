@@ -31,4 +31,33 @@ describe('getValidationError', () => {
       expect(getValidationError(`r2-files-${char}txt.exe`)).toMatch(/invisible/);
     },
   );
+
+  it.each([
+    ['NEL', '\u0085'],
+    ['CSI', '\u009B'],
+    ['line separator', '\u2028'],
+    ['paragraph separator', '\u2029'],
+    ['soft hyphen', '\u00AD'],
+    ['Mongolian vowel separator', '\u180E'],
+    ['Hangul filler', '\u3164'],
+    ['Hangul choseong filler', '\u115F'],
+    ['halfwidth Hangul filler', '\uFFA0'],
+    ['tag character', '\u{E0041}'],
+    ['division slash', '\u2215'],
+    ['fullwidth slash', '\uFF0F'],
+  ])('rejects a name with a %s (r3-files-7)', (_kind, char) => {
+    expect(getValidationError(`r3-files-a${char}b`)).not.toBeNull();
+  });
+
+  it.each([' r3-files-lead', 'r3-files-trail ', 'r3-files-nbsp\u00A0', '\u3000r3-files-ideo'])(
+    'rejects leading or trailing whitespace in %j (r3-files-7)',
+    (name) => {
+      expect(getValidationError(name)).toMatch(/start or end with a space/);
+    },
+  );
+
+  it('still accepts inner spaces, accents and CJK', () => {
+    expect(getValidationError('my report (final).pdf')).toBeNull();
+    expect(getValidationError('Café ünï 日本.txt')).toBeNull();
+  });
 });
