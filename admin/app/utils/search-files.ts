@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { realRootsOf, statInsideRoots } from './health-scan';
+import { UPLOAD_TEMP_PREFIX } from './chunk-upload';
 
 export interface SearchResult {
   name: string;
@@ -44,7 +45,7 @@ export async function searchFiles(
     for (const itemName of items) {
       if (truncated) return;
       // Skip hidden files except .tmp- directories
-      const isTemp = itemName.startsWith('.tmp-');
+      const isTemp = itemName.startsWith(UPLOAD_TEMP_PREFIX);
       if (itemName.startsWith('.') && !isTemp) continue;
       const itemPath = path.join(dirPath, itemName);
       try {

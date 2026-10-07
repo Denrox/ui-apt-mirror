@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { UPLOAD_TEMP_PREFIX, withBusyTempDir } from './chunk-upload';
+import { MAX_NAME_BYTES } from './file-name';
 
 /** Prefix of the scratch dir a cross-mount copy is made in; stale ones are swept like upload temp dirs. */
 export const MOVE_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}move-`;
@@ -191,8 +192,6 @@ export async function removeCopied(source: string, copy: string): Promise<boolea
   await fs.unlink(source);
   return true;
 }
-
-const MAX_NAME_BYTES = 255;
 
 function withSuffix(name: string, suffix: string): string {
   let base = name;
