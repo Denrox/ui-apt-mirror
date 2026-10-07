@@ -10,6 +10,7 @@ import {
   isTokenRevoked,
   revokeToken,
   revokeTokens,
+  TOKEN_MAX_AGE_MS,
 } from './htpasswd';
 import { beginLoginAttempt, clientIp, loginSucceeded } from './login-limiter';
 import { assertSameOrigin, isPublicHostRequest } from './request-guard';
@@ -78,7 +79,7 @@ export async function attemptLogin(
   return { ok };
 }
 
-const NPM_TOKEN_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1000;
+const NPM_TOKEN_MAX_AGE_MS = TOKEN_MAX_AGE_MS;
 
 /** Revokes every web session and npm token issued to the user so far. */
 export function revokeUserTokens(username: string): void {
@@ -154,7 +155,7 @@ export async function revokeSession(request: Request): Promise<void> {
   const user = await validateAuthToken(token);
   const id = user && tokenId(user);
   if (!user || !id) return;
-  revokeToken(appConfig.htpasswdPath, id, user.exp);
+  revokeToken(appConfig.htpasswdPath, id, user.exp, user.username);
 }
 
 export function createAuthCookie(token: string): string {
