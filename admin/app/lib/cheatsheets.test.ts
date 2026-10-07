@@ -5,6 +5,7 @@ import {
   parseSheetParam,
   sheetSearch,
   defaultSourceName,
+  extractHeadings,
   extractTitle,
   githubWebUrl,
   isSafeRelativeMdPath,
@@ -114,6 +115,14 @@ describe('markdown helpers', () => {
   });
 });
 
+describe('extractHeadings', () => {
+  it('lists section headings as plain text, not the title or code comments', () => {
+    const md = '# Chapter 4\n\n## Equipment\n### [Tourniquets](t.md) ##\n```sh\n## not a heading\n```\n#### *Wound* packing\nText';
+    expect(extractHeadings(md)).toBe('Equipment\nTourniquets\nWound packing');
+    expect(extractHeadings('# Only a title\ntext')).toBe('');
+  });
+});
+
 describe('categories', () => {
   const explicit = parseCategoriesJson({
     Bleeding: ['External Bleeding.md', 'Nosebleed.md'],
@@ -204,6 +213,26 @@ describe('searchEntries', () => {
     expect(titles.indexOf('Allergen')).toBe(2);
     const scores = searchEntries(list, 'tourniquet').map((h) => h.score);
     expect(new Set(scores).size).toBe(3);
+  });
+
+  it('ranks a page with the word in a section heading above one that only lists it', () => {
+    // The Army manual: Appendix A lists tourniquets in kit tables, Chapter 4 explains them.
+    const filler = 'Apply pressure to the wound and check the casualty for other injuries. '.repeat(60);
+    const list: IndexEntry[] = [
+      entry('Appendix A: First Aid Kits', 'Tourniquet 2 Tourniquet Pouch 2 Combat Application Tourniquet 1 Tourniquet 2'),
+      {
+        ...entry('Chapter 4: Massive Bleeding Control', `${filler} Apply the tourniquet. ${filler} tourniquet tourniquet`),
+        headings: 'Equipment\nTourniquets\nApplication of Tourniquets',
+      },
+    ];
+    expect(searchEntries(list, 'tourniquet').map((h) => h.entry.title)).toEqual([
+      'Chapter 4: Massive Bleeding Control',
+      'Appendix A: First Aid Kits',
+    ]);
+    // Without the headings the short list page wins, as before.
+    expect(searchEntries(list.map((e) => ({ ...e, headings: undefined })), 'tourniquet')[0].entry.title).toBe(
+      'Appendix A: First Aid Kits',
+    );
   });
 
   it('returns nothing for blank or unmatched queries', () => {

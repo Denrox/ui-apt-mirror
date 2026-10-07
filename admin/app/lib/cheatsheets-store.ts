@@ -12,6 +12,7 @@ import appConfig from '~/config/config.json';
 import {
   categoriesFor,
   defaultSourceName,
+  extractHeadings,
   extractTitle,
   githubWebUrl,
   isSafeRelativeMdPath,
@@ -339,6 +340,7 @@ async function downloadSource(id: string) {
         title: extractTitle(markdown, rel),
         categories: categoriesFor(rel, explicit),
         text: markdownToText(markdown).slice(0, MAX_INDEXED_TEXT),
+        headings: extractHeadings(markdown),
       });
     }
     await fs.writeFile(path.join(staged, 'index.json'), JSON.stringify(index));
@@ -365,7 +367,8 @@ async function downloadSource(id: string) {
   }
 }
 
-const indexCache = new Map<string, { mtimeMs: number; entries: IndexEntry[] }>();
+// Promises, so parallel first searches read and prepare an index only once.
+const indexCache = new Map<string, { mtimeMs: number; entries: Promise<IndexEntry[]> }>();
 
 export async function loadIndex(id: string): Promise<IndexEntry[]> {
   const p = indexPath(id);
@@ -373,12 +376,30 @@ export async function loadIndex(id: string): Promise<IndexEntry[]> {
   if (!st) return [];
   const cached = indexCache.get(id);
   if (cached && cached.mtimeMs === st.mtimeMs) return cached.entries;
-  try {
-    const entries = JSON.parse(await fs.readFile(p, 'utf-8')) as IndexEntry[];
-    indexCache.set(id, { mtimeMs: st.mtimeMs, entries });
-    return entries;
-  } catch {
-    return [];
+  const entries = (async () => {
+    try {
+      const list = JSON.parse(await fs.readFile(p, 'utf-8')) as IndexEntry[];
+      await addMissingHeadings(id, list);
+      return list;
+    } catch {
+      return [];
+    }
+  })();
+  indexCache.set(id, { mtimeMs: st.mtimeMs, entries });
+  return entries;
+}
+
+// Indexes written before headings were indexed get them from the stored
+// pages, in memory only; the next Update writes them to index.json.
+async function addMissingHeadings(id: string, entries: IndexEntry[]) {
+  const missing = entries.filter((e) => e.headings === undefined);
+  for (let i = 0; i < missing.length; i += 32) {
+    await Promise.all(
+      missing.slice(i, i + 32).map(async (e) => {
+        const markdown = await readPage(id, e.path).catch(() => null);
+        e.headings = markdown ? extractHeadings(markdown) : '';
+      }),
+    );
   }
 }
 

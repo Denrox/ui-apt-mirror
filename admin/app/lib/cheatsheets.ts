@@ -129,6 +129,23 @@ export interface IndexEntry {
   title: string;
   categories: string[];
   text: string;
+  /** Section headings below the title, one per line; missing in indexes from before it was added. */
+  headings?: string;
+}
+
+const MAX_HEADINGS_TEXT = 2_000;
+
+/** The ##…###### headings outside code blocks, as plain text, one per line. */
+export function extractHeadings(markdown: string): string {
+  const out: string[] = [];
+  let fenced = false;
+  for (const line of markdown.split('\n')) {
+    if (/^[ \t]*(```|~~~)/.test(line)) fenced = !fenced;
+    if (fenced) continue;
+    const m = /^#{2,6}[ \t]+(.+?)[ \t#]*$/.exec(line);
+    if (m) out.push(markdownToText(m[1]));
+  }
+  return out.filter(Boolean).join('\n').slice(0, MAX_HEADINGS_TEXT);
 }
 
 export const GENERAL_CATEGORY = 'General';
@@ -206,16 +223,22 @@ function snippetAt(text: string, folded: string, terms: { t: string; re: RegExp 
   return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
 }
 
-const folds = new WeakMap<IndexEntry, { title: string; titleWords: string[]; text: string }>();
+const folds = new WeakMap<
+  IndexEntry,
+  { title: string; titleWords: string[]; headings: string; text: string }
+>();
 function folded(entry: IndexEntry) {
   let f = folds.get(entry);
   if (!f) {
     const title = foldText(entry.title);
     const titleWords = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-    folds.set(entry, (f = { title, titleWords, text: foldText(entry.text) }));
+    const headings = foldText(entry.headings ?? '');
+    folds.set(entry, (f = { title, titleWords, headings, text: foldText(entry.text) }));
   }
   return f;
 }
+
+const HEADING_SCORE = 5;
 
 interface Search {
   phrase: string;
@@ -234,11 +257,13 @@ function prepareSearch(entries: IndexEntry[], query: string): Search | null {
   return { phrase, terms, phraseRe, snippetTerms: [{ t: phrase, re: phraseRe }, ...terms], avgLength };
 }
 
-// All words must match; title matches rank above body matches. Body matches
-// are weighed like BM25: repeats count less and less, long pages count less.
+// All words must match; title matches rank above heading matches, which rank
+// above body matches. Body matches are weighed like BM25: repeats count less
+// and less, long pages count less. A section heading marks a page that is
+// about the word, not one that only lists it (a kit list's table rows).
 function scoreEntry(entry: IndexEntry, search: Search): SearchHit | null {
   const { phrase, terms, phraseRe, avgLength } = search;
-  const { title, titleWords, text } = folded(entry);
+  const { title, titleWords, headings, text } = folded(entry);
   // Cheap substring checks first, so most pages are rejected without a regex.
   for (const { t } of terms) {
     if (!title.includes(t) && !text.includes(t)) return null;
@@ -251,6 +276,7 @@ function scoreEntry(entry: IndexEntry, search: Search): SearchHit | null {
     if (!inTitle && !n) return null;
     if (titleWords.includes(t)) score += 30;
     else if (inTitle) score += 15;
+    else if (headings.includes(t) && headings.search(re) !== -1) score += HEADING_SCORE;
     score += (5 * n * 2.2) / (n + 1.2 * lengthNorm);
   }
   if (title === phrase) score += 100;
