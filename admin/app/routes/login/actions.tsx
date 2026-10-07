@@ -3,10 +3,16 @@ import {
   attemptLogin,
   createAuthToken,
   createAuthCookie,
+  createDeviceCookie,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
+import { assertAdminHost, assertSameOrigin } from '~/utils/request-guard';
 
 export async function action({ request }: { request: Request }): Promise<any> {
+  // No admin sessions on the public hosts, which also serve user uploads.
+  assertAdminHost(request);
+  // Another host on the site must not sign the browser in as someone else.
+  assertSameOrigin(request);
   const formData = await request.formData();
 
   const username = formData.get('username') as string;
@@ -32,12 +38,8 @@ export async function action({ request }: { request: Request }): Promise<any> {
   }
 
   const token = await createAuthToken(username);
-  const cookie = createAuthCookie(token);
-  return new Response(null, {
-    status: 302,
-    headers: {
-      'Set-Cookie': cookie,
-      Location: '/',
-    },
-  });
+  const headers = new Headers({ Location: '/' });
+  headers.append('Set-Cookie', createAuthCookie(token));
+  headers.append('Set-Cookie', await createDeviceCookie(username));
+  return new Response(null, { status: 302, headers });
 }

@@ -100,3 +100,24 @@ describe('parse', () => {
     expect(sections[0].endRaw).toBeUndefined();
   });
 });
+
+describe('parse never fails on unusual characters', () => {
+  // Lines are split on \n only; U+2028/U+2029/U+0085 stay inside a line and `.` does not match
+  // them without the `s` flag, so no such line may make parsing throw.
+  it.each([' ', ' ', '\u0085'])('parses a file with %j in a description and title', (sep) => {
+    const input = [
+      `# ---start---Odd${sep}title---`,
+      `## x${sep}deb http://evil/ trixie main`,
+      `#  x${sep}y`,
+      `deb http://deb.debian.org/debian trixie main${sep}`,
+      `include_binary_packages http://deb.debian.org/debian hello${sep}`,
+      `# ---end---Odd${sep}title---`,
+    ].join('\n');
+    const nodes = parse(input);
+    const sections = nodes.filter((n): n is SectionNode => n.kind === 'section');
+    expect(sections).toHaveLength(1);
+    expect(sections[0].title).toBe(`Odd${sep}title`);
+    expect(sections[0].endRaw).toBeDefined();
+    expect(sections[0].children.map((c) => c.kind)).toEqual(['comment', 'comment', 'deb', 'filter']);
+  });
+});

@@ -28,15 +28,20 @@ export function splitLogLines(content: string): string[] {
   return content.replace(/\r?\n$/, '').split(/\r?\n/);
 }
 
-/** Lines matching the level (unlabelled lines count as INFO) and the case-insensitive search. */
+/**
+ * Lines matching the level (unlabelled lines count as INFO) and the
+ * case-insensitive search. `firstLine` numbers them when `content` is the
+ * tail of a longer file.
+ */
 export function filterLogLines(
   content: string,
   search: string,
   level: LogLevelFilter,
+  firstLine = 1,
 ): LogLine[] {
   const needle = search.trim().toLowerCase();
   return splitLogLines(content)
-    .map((text, i) => ({ text, level: detectLevel(text), n: i + 1 }))
+    .map((text, i) => ({ text, level: detectLevel(text), n: firstLine + i }))
     .filter((l) => level === 'ALL' || (l.level ?? 'INFO') === level)
     .filter((l) => !needle || l.text.toLowerCase().includes(needle));
 }

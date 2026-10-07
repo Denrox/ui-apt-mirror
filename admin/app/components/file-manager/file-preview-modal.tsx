@@ -22,8 +22,8 @@ interface FilePreviewModalProps {
     size?: number;
     isDirectory?: boolean;
   }[];
-  readonly basePath?: string;
-  readonly filesHost?: string;
+  /** Browser URL of a file, or null when no host serves it. */
+  readonly urlOf?: (path: string) => string | null;
 }
 
 export default function FilePreviewModal({
@@ -34,8 +34,7 @@ export default function FilePreviewModal({
   previewType,
   onSelectPreviewFile,
   allFiles = [],
-  basePath = '',
-  filesHost = '',
+  urlOf,
 }: FilePreviewModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string>('');
@@ -44,7 +43,7 @@ export default function FilePreviewModal({
   const isText = useMemo(() => previewType === 'text', [previewType]);
 
   const sameTypeFiles = useMemo(() => {
-    if (!allFiles || !filesHost || !basePath)
+    if (!allFiles || !urlOf)
       return [] as { name: string; url: string; size?: number }[];
     const matchesType = (name: string) => {
       const lower = name.toLowerCase();
@@ -55,13 +54,13 @@ export default function FilePreviewModal({
       return false;
     };
     return allFiles
-      .filter((f: any) => !f.isDirectory && matchesType(f.name))
+      .filter((f: any) => !f.isDirectory && matchesType(f.name) && urlOf(f.path))
       .map((f: any) => ({
         name: f.name,
-        url: `${filesHost}/downloads${f.path.replace(basePath, '')}`,
+        url: urlOf(f.path) as string,
         size: f.size,
       }));
-  }, [allFiles, filesHost, basePath, previewType]);
+  }, [allFiles, urlOf, previewType]);
 
   useEffect(() => {
     let isCancelled = false;

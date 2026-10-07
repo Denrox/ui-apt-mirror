@@ -4,14 +4,16 @@ import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { hostAddress, withMirrorHost } from '~/utils/hosts';
-import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
-import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
+import { isSignableHost, listKeys, type GpgKeyRecord } from '~/lib/gpg';
+import { MirrorConfig, canonicalBaseUrl, type PackageFilters, type RepositoryInput } from '~/utils/mirror-config';
 import { readTail } from '~/utils/read-tail';
 import { SYNC_LOG } from '~/utils/log-files';
 
 export interface RepositoryHost {
   host: string;
   gpgKey: GpgKeyRecord | null;
+  /** False for hosts that cannot have a signing key (IPv6 literals). */
+  signable: boolean;
 }
 
 export interface RepositoryConfig {
@@ -24,6 +26,14 @@ export interface RepositoryConfig {
   editable: RepositoryInput | null;
 }
 
+/** An enabled repository's upstream, for the form's warning about shared package filters. */
+interface RepositoryUpstream {
+  url: string;
+  title: string;
+  filtered: boolean;
+  filters: PackageFilters;
+}
+
 export interface CommentedSection {
   title: string;
   revision: string;
@@ -34,6 +44,56 @@ const FILTERED_NOTE = [
   '# Filtered mirror: only the selected packages are downloaded, but the index lists all',
   '# upstream packages. Others (including Recommends) return 404; use --no-install-recommends.',
 ];
+
+const quoteTitles = (titles: string[]) => titles.map((t) => `"${t}"`).join(', ');
+
+/**
+ * The filtered-mirror note for a card. apt-mirror2 keeps one filter per upstream (base URL),
+ * so the filters of other enabled repositories on the same upstream restrict this one too.
+ */
+export function filterNote(
+  filtered: boolean,
+  neighbours: { title: string; filtered: boolean }[],
+): string[] {
+  const filteredBy = neighbours.filter((n) => n.filtered).map((n) => n.title);
+  if (!filtered && !filteredBy.length) return [];
+  const lines = [...FILTERED_NOTE];
+  if (!filtered) {
+    lines.push(
+      `# This repository has no filter of its own, but the filter of ${quoteTitles(filteredBy)} (same`,
+      '# upstream) applies to it: apt-mirror2 filters per base URL. Add the same filter here, or',
+      '# disable one of them.',
+    );
+    return lines;
+  }
+  const restricted = neighbours.filter((n) => !n.filtered).map((n) => n.title);
+  if (filteredBy.length) {
+    lines.push(
+      `# The filters of ${quoteTitles(filteredBy)} (same upstream) are combined with this one: a package is`,
+      '# mirrored when one of them selects it.',
+    );
+  }
+  if (restricted.length) {
+    lines.push(`# This filter also restricts ${quoteTitles(restricted)} (same upstream, no filter of its own).`);
+  }
+  return lines;
+}
+
+/** A message as `# ` comment lines of at most about 95 characters, for a card's snippet. */
+export function commentLines(text: string): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line && line.length + word.length + 1 > 93) {
+      lines.push(`# ${line}`);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(`# ${line}`);
+  return lines;
+}
 
 function rewriteSignedByHint(
   content: string[],
@@ -75,7 +135,8 @@ function rewriteSignedByHint(
     let upstreamHost: string | null = null;
     try {
       const parsed = new URL(url);
-      const firstSegment = parsed.pathname.split('/').filter(Boolean)[0];
+      // The mirror folder of an upstream with a port is `host:port`; the key belongs to the host.
+      const firstSegment = parsed.pathname.split('/').filter(Boolean)[0]?.replace(/:\d+$/, '');
       if (firstSegment && signedHosts.some((h) => h.host === firstSegment)) {
         upstreamHost = firstSegment;
       } else if (signedHosts.some((h) => h.host === parsed.hostname)) {
@@ -102,6 +163,7 @@ function rewriteSignedByHint(
 async function parseRepositoryConfigs(): Promise<{
   active: RepositoryConfig[];
   commented: CommentedSection[];
+  upstreams: RepositoryUpstream[];
 }> {
   try {
     const mirrorListPath = appConfig.mirrorListPath;
@@ -113,6 +175,7 @@ async function parseRepositoryConfigs(): Promise<{
     const config = MirrorConfig.parse(content);
     const activeConfigs: RepositoryConfig[] = [];
     const commentedSections: CommentedSection[] = [];
+    const upstreams: RepositoryUpstream[] = [];
 
     for (const section of config.sections()) {
       // A section with no active deb directive is shown as a disabled entry the
@@ -125,9 +188,20 @@ async function parseRepositoryConfigs(): Promise<{
         continue;
       }
 
+      for (const url of new Set(
+        section.children.flatMap((c) => (c.kind === 'deb' && c.enabled ? [canonicalBaseUrl(c.uri)] : [])),
+      )) {
+        upstreams.push({
+          url,
+          title: section.title,
+          filtered: config.isSectionFiltered(section),
+          filters: config.activeFilters(section),
+        });
+      }
+
       const hosts: RepositoryHost[] = config
         .sectionHosts(section)
-        .map((host) => ({ host, gpgKey: keysIndex[host] ?? null }));
+        .map((host) => ({ host, gpgKey: keysIndex[host] ?? null, signable: isSignableHost(host) }));
       const signed = hosts.filter((h) => h.gpgKey);
 
       const usage = rewriteSignedByHint(
@@ -138,15 +212,24 @@ async function parseRepositoryConfigs(): Promise<{
         title: section.title,
         revision: config.sectionRevision(section),
         hosts,
-        content: config.isSectionFiltered(section) ? [...usage, ...FILTERED_NOTE] : usage,
+        content: [
+          ...usage,
+          ...filterNote(config.isSectionFiltered(section), config.upstreamNeighbours(section)),
+          ...commentLines(
+            config.mirrorDirConflict(section) ??
+              config.filterCombineConflict(section) ??
+              config.sourceFilterConflict(section) ??
+              '',
+          ),
+        ],
         editable: config.sectionToInput(section),
       });
     }
 
-    return { active: activeConfigs, commented: commentedSections };
+    return { active: activeConfigs, commented: commentedSections, upstreams };
   } catch (error) {
     console.error('Error parsing mirror.list:', error);
-    return { active: [], commented: [] };
+    return { active: [], commented: [], upstreams: [] };
   }
 }
 
@@ -154,10 +237,17 @@ async function parseRepositoryConfigs(): Promise<{
 async function readLatestLog(): Promise<{
   name: string;
   content: string;
+  firstLine: number;
 } | null> {
   try {
-    const { content } = await readTail(path.join(appConfig.mirrorLogsDir, SYNC_LOG), 64 * 1024);
-    return { name: SYNC_LOG, content: content.split('\n').slice(-400).join('\n') };
+    const tail = await readTail(path.join(appConfig.mirrorLogsDir, SYNC_LOG), 64 * 1024);
+    const lines = tail.content.split('\n');
+    const shown = lines.slice(-400);
+    return {
+      name: SYNC_LOG,
+      content: shown.join('\n'),
+      firstLine: tail.firstLine + lines.length - shown.length,
+    };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error('Error reading the sync log:', error);
@@ -169,7 +259,7 @@ async function readLatestLog(): Promise<{
 export async function loader({ request }: { request: Request }) {
   await requireAuthMiddleware(request);
 
-  const [{ active, commented }, isLockFilePresent, latestLog] =
+  const [{ active, commented, upstreams }, isLockFilePresent, latestLog] =
     await Promise.all([
       parseRepositoryConfigs(),
       checkLockFile(),
@@ -178,6 +268,7 @@ export async function loader({ request }: { request: Request }) {
   return {
     repositoryConfigs: active,
     commentedSections: commented,
+    upstreams,
     isLockFilePresent,
     latestLog,
   };

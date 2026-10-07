@@ -70,3 +70,34 @@ describe('scanTrees', () => {
     expect(scan.totalDirectories).toBe(2);
   });
 });
+
+describe('scanTrees with symlinks', () => {
+  it('never descends into or cleans up through links that leave the roots', async () => {
+    const root = path.join(dir, 'files');
+    const outside = path.join(dir, 'outside');
+    write('files/ok.deb', 100);
+    write('outside/broken.deb', 0);
+    const outsideTemp = path.join(outside, '.tmp-outside');
+    fs.mkdirSync(outsideTemp);
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    fs.utimesSync(outsideTemp, old, old);
+    fs.symlinkSync(outside, path.join(root, 'link-out'));
+    fs.symlinkSync(outsideTemp, path.join(root, '.tmp-link'));
+    fs.symlinkSync(path.join(root, 'gone'), path.join(root, 'dangling'));
+
+    const scan = await scanTrees([root]);
+    expect(fs.existsSync(outsideTemp)).toBe(true);
+    expect(scan.cleanedTmpDirs).toEqual([]);
+    expect(scan.invalidFiles).toEqual([]);
+    expect(scan.totalFiles).toBe(1);
+    expect(scan.scanErrors).toEqual([]);
+  });
+
+  it('still follows links that stay inside the roots', async () => {
+    const root = path.join(dir, 'files');
+    write('files/sub/pkg.deb', 0);
+    fs.symlinkSync(path.join(root, 'sub'), path.join(root, 'sub-link'));
+    const scan = await scanTrees([root]);
+    expect(scan.invalidFiles.map((f) => path.relative(root, f.path))).toEqual(['sub/pkg.deb']);
+  });
+});

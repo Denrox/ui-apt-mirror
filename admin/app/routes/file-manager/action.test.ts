@@ -1,0 +1,488 @@
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+
+const dirs = vi.hoisted(() => {
+  const fs = require('fs') as typeof import('fs');
+  const os = require('os') as typeof import('os');
+  const path = require('path') as typeof import('path');
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fm-action-')));
+  return {
+    base,
+    files: path.join(base, 'files'),
+    priv: path.join(base, 'files-private'),
+    mirror: path.join(base, 'apt-mirror'),
+    npm: path.join(base, 'npm'),
+    outside: path.join(base, 'outside'),
+  };
+});
+
+vi.mock('~/config/config.json', () => ({
+  default: {
+    filesDir: dirs.files,
+    privateFilesDir: dirs.priv,
+    mirroredPackagesDir: dirs.mirror,
+    mirrorRoot: path.join(dirs.mirror, 'mirror'),
+    npmPackagesDir: dirs.npm,
+    healthReportFile: path.join(dirs.base, 'health.json'),
+  },
+}));
+vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => ({}) }));
+vi.mock('~/utils/sync', () => ({ checkLockFile: async () => false }));
+
+// skopeo stand-in: writes an archive to the docker-archive: path, or fails.
+const skopeo = vi.hoisted(() => ({ fail: false, calls: [] as string[][], during: null as null | (() => void) }));
+vi.mock('child_process', async (importOriginal) => {
+  const original = await importOriginal<typeof import('child_process')>();
+  const fs = await import('fs');
+  return {
+    ...original,
+    execFile: (_cmd: string, args: string[], callback: (error: Error | null, out?: unknown) => void) => {
+      skopeo.calls.push(args);
+      skopeo.during?.();
+      if (skopeo.fail) return callback(new Error('Failed to retrieve image manifest'));
+      const target = args[args.length - 1].replace(/^docker-archive:/, '');
+      fs.writeFileSync(target, 'image');
+      callback(null, { stdout: '', stderr: '' });
+    },
+  };
+});
+
+const { action } = await import('./action');
+const { loader } = await import('./loader');
+const { MAX_FORM_BYTES } = await import('~/utils/limited-form-data');
+
+async function post(fields: Record<string, string | Blob>) {
+  const body = new FormData();
+  for (const [key, value] of Object.entries(fields)) body.append(key, value);
+  const request = new Request('http://admin.mirror.intra/file-manager', { method: 'POST', body });
+  return action({ request } as any);
+}
+
+beforeEach(() => {
+  for (const dir of Object.values(dirs)) {
+    if (dir !== dirs.base) fs.rmSync(dir, { recursive: true, force: true });
+  }
+  for (const dir of [dirs.files, dirs.priv, dirs.mirror, dirs.npm, dirs.outside]) fs.mkdirSync(dir);
+  fs.mkdirSync(path.join(dirs.priv, 'victim', 'inner'), { recursive: true });
+  fs.writeFileSync(path.join(dirs.priv, 'victim', 'inner', 'data.txt'), 'data');
+  fs.writeFileSync(path.join(dirs.priv, 'victim', 't.txt'), 't');
+  fs.symlinkSync(path.join(dirs.priv, 'victim'), path.join(dirs.files, 'link-dir'));
+  fs.symlinkSync(path.join(dirs.priv, 'victim', 't.txt'), path.join(dirs.files, 'link-file.txt'));
+  fs.symlinkSync('/etc', path.join(dirs.files, 'link-etc'));
+  fs.symlinkSync(path.join(dirs.files, 'gone'), path.join(dirs.files, 'dangling'));
+});
+
+afterAll(() => fs.rmSync(dirs.base, { recursive: true, force: true }));
+
+const victimIntact = () => {
+  expect(fs.readFileSync(path.join(dirs.priv, 'victim', 'inner', 'data.txt'), 'utf-8')).toBe('data');
+  expect(fs.readFileSync(path.join(dirs.priv, 'victim', 't.txt'), 'utf-8')).toBe('t');
+};
+
+describe('symlinks are operated on as links', () => {
+  it('deleting a link removes the link and leaves the target alone', async () => {
+    for (const name of ['link-file.txt', 'link-dir']) {
+      const res = await post({ intent: 'deleteFile', filePath: path.join(dirs.files, name) });
+      expect(res.success).toBe(true);
+      expect(fs.existsSync(path.join(dirs.files, name))).toBe(false);
+    }
+    victimIntact();
+  });
+
+  it('a link that points outside the roots can still be deleted', async () => {
+    for (const name of ['link-etc', 'dangling']) {
+      const res = await post({ intent: 'deleteFile', filePath: path.join(dirs.files, name) });
+      expect(res.success).toBe(true);
+      expect(() => fs.lstatSync(path.join(dirs.files, name))).toThrow();
+    }
+    expect(fs.existsSync('/etc/passwd')).toBe(true);
+  });
+
+  it('renaming a link renames the link', async () => {
+    const res = await post({
+      intent: 'renameFile',
+      filePath: path.join(dirs.files, 'link-file.txt'),
+      newName: 'renamed.txt',
+    });
+    expect(res.success).toBe(true);
+    expect(fs.readlinkSync(path.join(dirs.files, 'renamed.txt'))).toBe(path.join(dirs.priv, 'victim', 't.txt'));
+    victimIntact();
+  });
+
+  it('moving a link moves the link, not the private directory', async () => {
+    fs.mkdirSync(path.join(dirs.files, 'dst'));
+    const res = await post({
+      intent: 'moveFile',
+      sourcePath: path.join(dirs.files, 'link-dir'),
+      destinationPath: path.join(dirs.files, 'dst'),
+    });
+    expect(res.success).toBe(true);
+    expect(fs.lstatSync(path.join(dirs.files, 'dst', 'link-dir')).isSymbolicLink()).toBe(true);
+    victimIntact();
+  });
+
+  it('renaming onto a dangling link is refused', async () => {
+    fs.writeFileSync(path.join(dirs.files, 'a.txt'), 'a');
+    const res = await post({ intent: 'renameFile', filePath: path.join(dirs.files, 'a.txt'), newName: 'dangling' });
+    expect(res.success).toBe(false);
+    expect(fs.lstatSync(path.join(dirs.files, 'dangling')).isSymbolicLink()).toBe(true);
+  });
+
+  it('still refuses roots and paths outside them', async () => {
+    for (const filePath of [dirs.files, `${dirs.files}/`, `${dirs.priv}/.`, path.join(dirs.files, 'link-etc', 'passwd'), path.join(dirs.files, '..', 'outside')]) {
+      const res = await post({ intent: 'deleteFile', filePath });
+      expect(res).toEqual({ success: false, error: 'Path is outside the file storage' });
+    }
+    expect(fs.existsSync(dirs.files)).toBe(true);
+    expect(fs.existsSync(dirs.outside)).toBe(true);
+  });
+});
+
+describe('uploads', () => {
+  it('stores an empty file sent as one empty chunk', async () => {
+    const res = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([]),
+      chunkIndex: '0',
+      totalChunks: '1',
+      fileName: '__init__.py',
+      fileId: 'empty1',
+    });
+    expect(res).toEqual({ success: true, message: 'File uploaded successfully' });
+    expect(fs.statSync(path.join(dirs.files, '__init__.py')).size).toBe(0);
+  });
+
+  it("refuses upload ids that could name another operation's temp dir", async () => {
+    const busy = path.join(dirs.files, '.tmp-move-abc123');
+    fs.mkdirSync(busy);
+    fs.writeFileSync(path.join(busy, 'item'), 'copy in progress');
+    const abort = await post({ intent: 'abortUpload', filePath: dirs.files, fileId: 'move-abc123' });
+    expect(abort.success).toBe(false);
+    const chunk = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob(['x']),
+      chunkIndex: '0',
+      totalChunks: '2',
+      fileName: 'a.txt',
+      fileId: 'move-abc123',
+    });
+    expect(chunk).toEqual({ success: false, error: 'Invalid upload id' });
+    expect(fs.readFileSync(path.join(busy, 'item'), 'utf-8')).toBe('copy in progress');
+  });
+
+  it('never creates the folders an upload or a new folder would go into', async () => {
+    const missing = [
+      path.join(dirs.files, 'new', '.hidden'),
+      path.join(dirs.files, 'new', 'x\u202Etxt.exe'),
+      path.join(dirs.files, 'new', '.tmp-sweep'),
+    ];
+    for (const filePath of missing) {
+      const chunk = await post({
+        intent: 'uploadChunk',
+        filePath,
+        chunk: new Blob(['x']),
+        chunkIndex: '0',
+        totalChunks: '1',
+        fileName: 'a.txt',
+        fileId: 'nodir1',
+      });
+      expect(chunk).toEqual({ success: false, error: 'The folder does not exist' });
+      const plain = await post({ intent: 'uploadFile', filePath, file: new File(['x'], 'a.txt') });
+      expect(plain).toEqual({ success: false, error: 'The folder does not exist' });
+      const folder = await post({ intent: 'createFolder', currentPath: filePath, folderName: 'ok' });
+      expect(folder).toEqual({ success: false, error: 'The folder does not exist' });
+    }
+    // A file is not a folder either.
+    fs.writeFileSync(path.join(dirs.files, 'plain.txt'), 'x');
+    const intoFile = await post({
+      intent: 'uploadFile',
+      filePath: path.join(dirs.files, 'plain.txt'),
+      file: new File(['x'], 'a.txt'),
+    });
+    expect(intoFile.success).toBe(false);
+    expect(fs.existsSync(path.join(dirs.files, 'new'))).toBe(false);
+  });
+
+  it('refuses a name that is too long with a clear message', async () => {
+    const res = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob(['x']),
+      chunkIndex: '0',
+      totalChunks: '1',
+      fileName: '日'.repeat(100),
+      fileId: 'long1',
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/too long/);
+    expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+});
+
+describe('request body size', () => {
+  it('stores a plain upload', async () => {
+    const res = await post({ intent: 'uploadFile', filePath: dirs.files, file: new File(['hello'], 'plain.txt') });
+    expect(res).toEqual({ success: true, message: 'File uploaded successfully' });
+    expect(fs.readFileSync(path.join(dirs.files, 'plain.txt'), 'utf-8')).toBe('hello');
+  });
+
+  it('refuses a plain upload or a chunk larger than the limit without storing it', async () => {
+    const big = new Uint8Array(MAX_FORM_BYTES + 1);
+    const plain = await post({ intent: 'uploadFile', filePath: dirs.files, file: new File([big], 'big.bin') });
+    expect(plain.success).toBe(false);
+    expect(plain.error).toMatch(/too large/);
+    const chunk = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([big]),
+      chunkIndex: '0',
+      totalChunks: '2',
+      fileName: 'big.bin',
+      fileId: 'big1',
+    });
+    expect(chunk.success).toBe(false);
+    expect(chunk.error).toMatch(/too large/);
+    expect(fs.readdirSync(dirs.files).filter((n) => !n.startsWith('link-') && n !== 'dangling')).toEqual([]);
+  });
+
+  it('accepts a full 10 MB chunk', async () => {
+    const res = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([new Uint8Array(10240 * 1024)]),
+      chunkIndex: '0',
+      totalChunks: '1',
+      fileName: 'ten.bin',
+      fileId: 'ten1',
+    });
+    expect(res.success).toBe(true);
+    expect(fs.statSync(path.join(dirs.files, 'ten.bin')).size).toBe(10240 * 1024);
+  });
+});
+
+describe('folder paths', () => {
+  it('redirects another spelling of a folder to its canonical path', async () => {
+    fs.mkdirSync(path.join(dirs.files, 'base'));
+    for (const spelling of [`${dirs.files}/base/`, `${dirs.files}//base`, `${dirs.files}/./base`]) {
+      const thrown = await loader({
+        request: new Request(`http://admin.mirror.intra/file-manager?path=${encodeURIComponent(spelling)}&page=2`),
+      }).catch((e: unknown) => e);
+      expect(thrown).toBeInstanceOf(Response);
+      const location = new URL((thrown as Response).headers.get('Location')!, 'http://admin.mirror.intra');
+      expect(location.pathname).toBe('/file-manager');
+      expect(location.searchParams.get('path')).toBe(`${dirs.files}/base`);
+      expect(location.searchParams.get('page')).toBe('2');
+    }
+  });
+});
+
+describe('URL download', () => {
+  it('cancelling ends the pending request and leaves nothing behind', async () => {
+    const http = await import('http');
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200);
+      res.write('x'.repeat(1000));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as import('net').AddressInfo;
+    try {
+      const pending = post({
+        intent: 'downloadFile',
+        url: `http://127.0.0.1:${port}/slow`,
+        fileName: 'slow.bin',
+        currentPath: dirs.files,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const cancel = await post({ intent: 'cleanupDownload', filePath: dirs.files, fileName: 'slow.bin' });
+      expect(cancel.success).toBe(true);
+      expect(await pending).toEqual({ success: false, error: 'Failed to download file: Download cancelled' });
+      expect(fs.readdirSync(dirs.files).filter((n) => n.includes('slow') || n.startsWith('.tmp-'))).toEqual([]);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
+  });
+});
+
+describe('container image download', () => {
+  const pull = () =>
+    post({ intent: 'downloadImage', imageUrl: 'busybox', imageTag: 'latest', currentPath: dirs.files });
+  const tar = () => path.join(dirs.files, 'busybox_latest_amd64.tar');
+
+  it('stores the image under its name', async () => {
+    skopeo.fail = false;
+    expect(await pull()).toEqual({ success: true, message: 'Container image downloaded successfully' });
+    expect(fs.readFileSync(tar(), 'utf-8')).toBe('image');
+    expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+
+  it('refuses to replace a file with the same name', async () => {
+    skopeo.fail = false;
+    fs.writeFileSync(tar(), 'user data');
+    const res = await pull();
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/already exists/);
+    expect(fs.readFileSync(tar(), 'utf-8')).toBe('user data');
+  });
+
+  it('says the name is taken whatever words the image name holds', async () => {
+    skopeo.fail = false;
+    const name = path.join(dirs.files, 'manifest-tool_latest_amd64.tar');
+    // The name is taken while the image is pulled.
+    skopeo.during = () => fs.writeFileSync(name, 'user data');
+    const res = await post({ intent: 'downloadImage', imageUrl: 'manifest-tool', imageTag: 'latest', currentPath: dirs.files });
+    skopeo.during = null;
+    expect(res).toEqual({
+      success: false,
+      error: '"manifest-tool_latest_amd64.tar" already exists here; rename or delete it first',
+    });
+    expect(fs.readFileSync(name, 'utf-8')).toBe('user data');
+  });
+
+  it('a failed pull leaves an existing file and no temp data', async () => {
+    skopeo.fail = true;
+    fs.writeFileSync(tar(), 'user data');
+    expect((await pull()).success).toBe(false);
+    expect(fs.readFileSync(tar(), 'utf-8')).toBe('user data');
+    fs.rmSync(tar());
+    expect((await pull()).success).toBe(false);
+    expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.') || n.endsWith('.tar'))).toEqual([]);
+  });
+
+  it('pulls from the registry named in the image', async () => {
+    skopeo.fail = false;
+    skopeo.calls.length = 0;
+    const res = await post({
+      intent: 'downloadImage',
+      imageUrl: 'quay.io/prometheus/busybox',
+      imageTag: 'latest',
+      currentPath: dirs.files,
+    });
+    expect(res.success).toBe(true);
+    expect(skopeo.calls[0]).toContain('docker://quay.io/prometheus/busybox:latest');
+  });
+
+  it('refuses a tag in the image name with a clear message', async () => {
+    const res = await post({ intent: 'downloadImage', imageUrl: 'busybox:1.36', imageTag: 'latest', currentPath: dirs.files });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/Tag field/);
+  });
+});
+
+describe('a move between public and private storage', () => {
+  // The two storages behave like separate mounts.
+  const crossDevice = async () => {
+    const fsp = (await import('fs/promises')).default;
+    const mount = (p: unknown) => (String(p).startsWith(dirs.priv) ? 'priv' : 'files');
+    const exdev = () => Object.assign(new Error('EXDEV'), { code: 'EXDEV' });
+    const realRename = fsp.rename;
+    const realLink = fsp.link;
+    vi.spyOn(fsp, 'rename').mockImplementation(async (a, b) => {
+      if (mount(a) !== mount(b)) throw exdev();
+      return realRename(a, b);
+    });
+    vi.spyOn(fsp, 'link').mockImplementation(async (a, b) => {
+      if (mount(a) !== mount(b)) throw exdev();
+      return realLink(a, b);
+    });
+    return fsp;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refuses to rename, move or delete what it holds until it is done', async () => {
+    const fsp = await crossDevice();
+    fs.mkdirSync(path.join(dirs.files, 'parent', 'child'), { recursive: true });
+    fs.writeFileSync(path.join(dirs.files, 'parent', 'child', 'big.bin'), 'data');
+    const during: Record<string, unknown> = {};
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      during.renameParent = await post({
+        intent: 'renameFile',
+        filePath: path.join(dirs.files, 'parent'),
+        newName: 'parent2',
+      });
+      during.moveParent = await post({
+        intent: 'moveFile',
+        sourcePath: path.join(dirs.files, 'parent'),
+        destinationPath: path.join(dirs.priv, 'victim'),
+      });
+      during.deleteParent = await post({ intent: 'deleteFile', filePath: path.join(dirs.files, 'parent') });
+      during.deletePlaceholder = await post({ intent: 'deleteFile', filePath: path.join(dirs.priv, 'child') });
+      return realCp(...args);
+    });
+    const moved = await post({
+      intent: 'moveFile',
+      sourcePath: path.join(dirs.files, 'parent', 'child'),
+      destinationPath: dirs.priv,
+    });
+    expect(moved).toEqual({ success: true, message: 'File moved successfully' });
+    for (const res of Object.values(during)) {
+      expect(res).toEqual({ success: false, error: expect.stringMatching(/move .* still running/) });
+    }
+    expect(fs.readFileSync(path.join(dirs.priv, 'child', 'big.bin'), 'utf-8')).toBe('data');
+    expect(fs.readdirSync(path.join(dirs.files, 'parent'))).toEqual([]);
+    // Once it is done, the folder can be renamed again.
+    const after = await post({ intent: 'renameFile', filePath: path.join(dirs.files, 'parent'), newName: 'parent2' });
+    expect(after.success).toBe(true);
+  });
+});
+
+describe('managed storage and the public host', () => {
+  beforeEach(() => {
+    fs.mkdirSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d'), { recursive: true });
+    fs.writeFileSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key'), 'secret');
+    fs.mkdirSync(path.join(dirs.mirror, 'mirror', 'dists'), { recursive: true });
+    fs.mkdirSync(path.join(dirs.npm, 'public'), { recursive: true });
+  });
+
+  const browse = (p: string, host = 'files.mirror.intra') =>
+    // The files host serves the file manager at / only; anything else redirects there.
+    loader({ request: new Request(`http://${host}/${host.startsWith('files') ? '' : 'file-manager'}?path=${encodeURIComponent(p)}`) });
+
+  it('the files host lists public files and the published mirror tree only', async () => {
+    expect((await browse(dirs.files)).error).toBeUndefined();
+    const mirror = await browse(path.join(dirs.mirror, 'mirror'));
+    expect(mirror.error).toBeUndefined();
+    expect(mirror.files.map((f: { name: string }) => f.name)).toEqual(['dists']);
+    for (const p of [path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d'), dirs.mirror, dirs.npm, dirs.priv]) {
+      const res = await browse(p);
+      expect(res.error).toMatch(/Access denied/);
+      expect(res.files).toEqual([]);
+    }
+  });
+
+  it('the admin host still lists every root', async () => {
+    const res = await browse(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d'), 'admin.mirror.intra');
+    expect(res.error).toBeUndefined();
+    expect(res.files.map((f: { name: string }) => f.name)).toEqual(['KEY.key']);
+  });
+
+  it('nothing can be moved out of the mirror or npm, but it can be deleted', async () => {
+    const key = path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key');
+    const res = await post({ intent: 'moveFile', sourcePath: key, destinationPath: dirs.files });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/managed by the mirror/);
+    expect(fs.existsSync(key)).toBe(true);
+    expect((await post({ intent: 'moveFile', sourcePath: path.join(dirs.npm, 'public'), destinationPath: dirs.files })).success).toBe(false);
+    expect((await post({ intent: 'deleteFile', filePath: path.join(dirs.mirror, 'mirror', 'dists') })).success).toBe(true);
+    expect((await post({ intent: 'deleteFile', filePath: path.join(dirs.npm, 'public') })).success).toBe(true);
+  });
+
+  it('the signing keys and the mirror folders themselves cannot be deleted', async () => {
+    fs.writeFileSync(path.join(dirs.mirror, 'gpg', 'keys.json'), '{}');
+    for (const name of ['gpg', 'gpg/keys.json', 'gpg/gnupg', 'mirror', 'mirror/', 'mirror/.']) {
+      const res = await post({ intent: 'deleteFile', filePath: path.join(dirs.mirror, name) });
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/signing keys/);
+    }
+    const rename = await post({ intent: 'renameFile', filePath: path.join(dirs.mirror, 'gpg'), newName: 'gpg-old' });
+    expect(rename.success).toBe(false);
+    expect(fs.existsSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key'))).toBe(true);
+    expect(fs.existsSync(path.join(dirs.mirror, 'gpg', 'keys.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dirs.mirror, 'mirror', 'dists'))).toBe(true);
+  });
+});

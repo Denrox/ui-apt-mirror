@@ -85,6 +85,22 @@ are kept.
   - Cheatsheet sources (add GitHub repositories, update, remove)
   - User management and settings
 
+Failed logins (web and `npm login`) are limited per client address and per
+username. The container has no IPv6 address, so Docker's userland proxy
+connects IPv6 clients and clients on the Docker host itself (`127.0.0.1`,
+`::1`) from the network gateway, and they all reach the mirror with that one
+address, so the mirror can't tell them apart. For that address the limits are 5
+failures per username (so a client guessing at one user doesn't lock that
+user out for the others), 50 failures in all (so no client can try a password
+on every username), and the usual per-username limit, all per 15 minutes.
+Any of those clients can still fill these limits, and then a user signing in
+from there waits up to 15 minutes, as often as the attacker repeats it. A
+browser that has signed in as the user before (in the last 30 days, and since
+the last password change) is exempt: it has a limit of its own. `npm login`
+from those clients has no such exemption. A reverse proxy in front of the
+mirror has the same problem: its clients share its address, and the mirror
+ignores `X-Forwarded-For` because any client can send one.
+
 ### File Repository (files.mirror.intra)
 
 - **URL**: `http://files.mirror.intra`
@@ -180,10 +196,28 @@ npm install --registry http://npm.mirror.intra
 npm config set registry https://registry.npmjs.org
 ```
 
+Other package managers:
+
+```bash
+# pnpm
+pnpm config set registry http://npm.mirror.intra
+
+# Yarn 1
+yarn config set registry http://npm.mirror.intra
+
+# Yarn 2+ (it refuses a registry over plain http unless the host is whitelisted)
+yarn config set npmRegistryServer http://npm.mirror.intra
+yarn config set unsafeHttpWhitelist --json '["npm.mirror.intra"]'
+```
+
+To let Corepack download Yarn or pnpm itself through the proxy, also set
+`COREPACK_NPM_REGISTRY=http://npm.mirror.intra`.
+
 The npm proxy will:
 - Cache packages locally on first download
 - Serve cached packages for subsequent requests
 - Automatically fetch from npmjs.org if not cached
+- Point tarball URLs (and so lockfiles) at the proxy, so installs keep working when npmjs.org cannot be reached
 
 ### Publishing NPM Packages
 
@@ -226,9 +260,16 @@ npm publish
 - All published packages are treated as private packages
 - Private packages are stored in `data/data/npm/private/`
 - Public packages (cached from npmjs.org) are stored in `data/data/npm/public/`
-- Published packages are **NOT** forwarded to npmjs.org
-- Private packages take precedence over cached public packages
-- Authentication tokens for npm are JWT-based and valid for 1 year
+- The contents of published packages are **NOT** sent to npmjs.org; only the check of a new name is (below)
+- Authentication tokens for npm are JWT-based and valid for 1 year; `npm logout` (and `pnpm logout`) ends
+  the token on the server. Yarn 2+'s `yarn npm logout` only removes it from Yarn's own settings
+- A name that is a public package on npmjs.org cannot be published (403); publish under a scope of your
+  own, such as `@yourorg/tool`. The first publish of a name is checked with npmjs.org: for a scoped name
+  only the package list of its scope is asked for, so the name itself is never sent; an unscoped name is
+  looked up as is. Later versions of a package already published here are not checked again
+- If npmjs.org gives no clear answer (an error, a rate limit), the publish is refused with 503; try again
+  later. If npmjs.org cannot be reached at all, only a scoped name whose scope has no public package in
+  the cache can be published; unscoped names wait until npmjs.org can be reached
 
 ### File Hosting
 
@@ -249,7 +290,8 @@ To upgrade to the latest version:
 The upgrade script will:
 - Check connectivity to the official website
 - Ask you to choose between current architecture or all architectures
-- Back up your configuration to `backups/pre-upgrade-<date>.tar.gz`
+- Back up your configuration, users, repository signing keys and cheatsheet
+  sources list to `backups/pre-upgrade-<date>.tar.gz`
 - Download the latest version and install the new image and scripts
 - Run `setup.sh --upgrade`, which asks nothing and keeps your configuration
 - Clean up temporary files
@@ -258,7 +300,7 @@ The upgrade script will:
 
 | What | Where | On upgrade |
 |------|-------|------------|
-| Settings (domain, sync frequency, timezone, npm proxy) | `.env` | kept |
+| Settings (domain, sync frequency, timezone, npm proxy) and your own lines | `.env` | kept |
 | Your own compose changes (ports, volumes, …) | `docker-compose.override.yml` | kept |
 | Repositories and package filters | `data/conf/apt-mirror/mirror.list` | kept |
 | Users and passwords | `data/auth/.htpasswd` | kept |
@@ -273,27 +315,37 @@ instead (same format, merged on top by `start.sh`). To change an nginx site,
 copy it from the running container (`docker exec ui-apt-mirror cat
 /etc/nginx/sites-available/files.mirror.intra.conf`) to
 `data/conf/nginx/custom/files.mirror.intra.conf` and edit it there; delete the
-file to go back to the stock config.
+file to go back to the stock config. An override that is the previous
+release's stock config, unedited, is removed on upgrade and the current stock
+config is used. Any other change, even only a different host name, makes it
+your override, which is kept.
 
-#### Upgrading from older versions
+#### Supported upgrades
 
-The first upgrade of an install that predates `.env` migrates it automatically:
-settings are read from the old `docker-compose.yml`, nginx configs you had
-edited become overrides in `data/conf/nginx/custom/`, and private files are
-copied out of the old container (they were not stored on the host before). If
-the old `docker-compose.yml` had hand edits, it is saved under `backups/` and
-the upgrade tells you to move those edits to `docker-compose.override.yml`.
+`./upgrade.sh` upgrades from the latest release only (3.0 to 3.1, then 3.1 to
+3.2, and so on). Version 3 does not upgrade 2.x installs: its `setup.sh`,
+`upgrade.sh` and `start.sh` recognise one (it has no `.ui-apt-mirror-version`
+file) and stop before changing anything.
 
-Every install signs logins with its own secret now, so everyone has to sign in
-again once, and npm tokens from `npm login` must be renewed.
+#### Moving from 2.x
 
-Installs whose `upgrade.sh` does not copy a new `setup.sh` (versions from before
-August 2025) should fetch the current `upgrade.sh` before upgrading:
-
-```bash
-curl -fsSLO https://raw.githubusercontent.com/Denrox/ui-apt-mirror/master/upgrade.sh
-chmod +x upgrade.sh && ./upgrade.sh
-```
+1. Back up the 2.x install's settings, users, signing keys and files (in its
+   directory):
+   ```bash
+   tar -czf ../ui-apt-mirror-2.x-backup.tar.gz .env docker-compose*.yml data/conf data/auth \
+       data/data/apt-mirror/gpg data/data/files data/data/files-private
+   ```
+2. Install version 3 in a new directory. It stops and replaces the 2.x
+   container, which has the same name and ports:
+   ```bash
+   curl -fsSLO https://ui-apt-mirror.dbashkatov.com/downloads/install.sh && bash install.sh
+   ```
+3. Copy over what you want to keep with `cp -a`, then run
+   `docker restart ui-apt-mirror`:
+   - `data/data/files` and `data/data/files-private`: public and private files
+   - `data/data/apt-mirror`: mirrored packages and the signing keys apt clients trust
+   - `data/conf/apt-mirror/mirror.list`: repositories
+4. Set up users, npm packages and cheatsheet sources again in the admin panel.
 
 ## Directory Structure
 
@@ -341,6 +393,21 @@ ui-apt-mirror/
         ├── apt-mirror/      # APT mirror logs
         └── nginx/           # Nginx logs
 ```
+
+## Releasing
+
+An upgrade recognises the previous release's stock nginx site configs among
+the overrides in `data/conf/nginx/custom/` and replaces them with the new
+stock configs. After tagging a release, replace the list of those configs with
+the new release's and commit it, so the next version recognises them:
+
+```bash
+git tag v3.0.0
+nginx/sites-setup/update-released-sites.sh v3.0.0
+git commit -m "List the stock nginx site configs of v3.0.0" nginx/sites-setup/released-sites.sha256
+```
+
+`nginx/sites-setup/test.sh` checks that the list matches the tag it names.
 
 ## License
 

@@ -18,8 +18,8 @@ interface MediaPlayerModalProps {
   mediaType: 'video' | 'audio';
   onSelectMedia?: (file: MediaFile) => void;
   allFiles?: { name: string; path: string; size?: number; isDirectory?: boolean }[];
-  basePath?: string;
-  filesHost?: string;
+  /** Browser URL of a file, or null when no host serves it. */
+  urlOf?: (path: string) => string | null;
 }
 
 export default function MediaPlayerModal({
@@ -30,8 +30,7 @@ export default function MediaPlayerModal({
   mediaType,
   onSelectMedia,
   allFiles = [],
-  basePath = '',
-  filesHost = '',
+  urlOf,
 }: MediaPlayerModalProps) {
   const mediaRef = useRef<HTMLVideoElement | HTMLAudioElement>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
@@ -46,16 +45,16 @@ export default function MediaPlayerModal({
   };
 
   const computedMediaFiles: MediaFile[] = useMemo(() => {
-    if (!allFiles || !filesHost || !basePath) return [];
+    if (!allFiles || !urlOf) return [];
     return allFiles
-      .filter((file: any) => !file.isDirectory && isMediaFile(file.name))
+      .filter((file: any) => !file.isDirectory && isMediaFile(file.name) && urlOf(file.path))
       .map((file: any) => ({
         name: file.name,
-        url: `${filesHost}/downloads${file.path.replace(basePath, '')}`,
+        url: urlOf(file.path) as string,
         type: isMediaFile(file.name) as 'video' | 'audio',
         size: file.size,
       }));
-  }, [allFiles, filesHost, basePath]);
+  }, [allFiles, urlOf]);
 
   useEffect(() => {
     if (!isOpen && mediaRef.current) {

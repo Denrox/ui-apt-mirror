@@ -32,7 +32,17 @@ import CheatsheetModal, {
 } from '~/components/cheatsheets/cheatsheet-modal';
 import SourcesPanel from '~/components/cheatsheets/sources-panel';
 import type { SearchResult } from '~/routes/api.cheatsheets.search';
+import { fetchSearch } from '~/lib/search-fetch';
 import { onlySheetChanged, parseSheetParam, plural, sheetSearch, SHEET_PARAM } from '~/lib/cheatsheets';
+import { useHydrated } from '~/utils/use-hydrated';
+import { hostOf, useRuntimeConfig } from '~/utils/use-runtime-config';
+import { getHostAddress } from '~/utils/url';
+import {
+  DESKTOP_OPEN_MAX_SOURCES,
+  initialSourcesOpen,
+  readSourcesOpen,
+  rememberSourcesOpen,
+} from '~/utils/sources-open';
 
 export { loader, action };
 
@@ -78,11 +88,18 @@ export default function Cheatsheets() {
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [sourcesOpen, setSourcesOpen] = useState(sources.length === 0);
+  // null until hydrated: the default depends on the screen width and on the
+  // choice remembered in this browser, which the server can't know.
+  const [sourcesOpen, setSourcesOpen] = useState<boolean | null>(null);
+  const { hosts } = useRuntimeConfig();
+  const publicHost = hostOf(hosts, 'cheatsheets');
   const [urlParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const sheetState = (location.state ?? {}) as SheetState;
+  // The browser keeps history state across a reload, but the server never
+  // sees it: read it only once hydrated, or the popup renders differently (#418).
+  const hydrated = useHydrated();
+  const sheetState = ((hydrated && location.state) || {}) as SheetState;
   const depth = sheetState.depth ?? 0;
   const sheet = parseSheetParam(urlParams.get(SHEET_PARAM));
   const openPage: CheatsheetRef | null = !sheet
@@ -128,6 +145,28 @@ export default function Cheatsheets() {
     [browsable, activeSource],
   );
 
+  useEffect(() => {
+    setSourcesOpen(
+      initialSourcesOpen(
+        readSourcesOpen(),
+        sources.length,
+        window.matchMedia('(min-width: 768px)').matches,
+      ),
+    );
+    // Only once: a revalidation (download progress) must not reopen it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleSources = () => {
+    const open = !sourcesExpanded;
+    setSourcesOpen(open);
+    rememberSourcesOpen(open);
+  };
+  // Before hydration the CSS gives the default (initialSourcesOpen without a
+  // remembered choice); only a few sources on desktop differ from a phone.
+  const desktopOnly = sourcesOpen === null && sources.length > 0 && sources.length <= DESKTOP_OPEN_MAX_SOURCES;
+  const sourcesExpanded = sourcesOpen ?? sources.length === 0;
+
   const downloading = sources.some((s) => s.status === 'downloading');
   useEffect(() => {
     if (!downloading) return;
@@ -162,15 +201,16 @@ export default function Cheatsheets() {
     const params = searchParams;
     setSearching(true);
     setSearchError(null);
-    fetch(`/api/cheatsheets/search?${params}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Search failed');
-        const body = (await response.json()) as { total: number; results: SearchResult[] };
+    fetchSearch(`/api/cheatsheets/search?${params}`, controller.signal)
+      .then((body) => {
         setResults(body.results);
         setTotal(body.total);
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
+        // The results of the previous query don't answer this one.
+        setResults([]);
+        setTotal(0);
         setSearchError(err instanceof Error ? err.message : 'Search failed');
       })
       .finally(() => {
@@ -182,10 +222,8 @@ export default function Cheatsheets() {
   const loadMore = () => {
     const gen = searchGenRef.current;
     setLoadingMore(true);
-    fetch(`/api/cheatsheets/search?${searchParams}&offset=${results.length}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Search failed');
-        const body = (await response.json()) as { total: number; results: SearchResult[] };
+    fetchSearch(`/api/cheatsheets/search?${searchParams}&offset=${results.length}`)
+      .then((body) => {
         if (searchGenRef.current !== gen) return;
         setResults((prev) => [...prev, ...body.results]);
         setTotal(body.total);
@@ -218,22 +256,41 @@ export default function Cheatsheets() {
         <Title title={'Cheatsheets'} />
       </div>
 
+      {!isPublic && publicHost && (
+        <p className="px-[12px] mb-3 text-sm text-on-surface-variant">
+          Everyone on the network can read these cheatsheets, without a login, at{' '}
+          <a
+            href={getHostAddress(publicHost)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary break-all"
+          >
+            {getHostAddress(publicHost)}
+          </a>
+        </p>
+      )}
+
       {!isPublic && (
         <ContentBlock className="flex-none mb-4">
-          {/* Collapsed on phones, where it would push the search box screens down. */}
+          {/* Collapsible everywhere; by default collapsed on phones, and on desktop
+              once there are many sources, so the search box stays in view. */}
           <button
             type="button"
-            className="w-full text-left text-sm font-medium text-on-surface-variant flex items-center gap-2 md:pointer-events-none"
-            aria-expanded={sourcesOpen}
-            onClick={() => setSourcesOpen((open) => !open)}
+            className="w-full text-left text-sm font-medium text-on-surface-variant flex items-center gap-2"
+            aria-expanded={sourcesExpanded}
+            aria-controls="cheatsheet-sources"
+            onClick={toggleSources}
           >
             <FontAwesomeIcon icon={faBook} /> Sources ({sources.length})
             <FontAwesomeIcon
-              icon={sourcesOpen ? faChevronUp : faChevronDown}
-              className="ml-auto md:hidden"
+              icon={sourcesExpanded ? faChevronUp : faChevronDown}
+              className={`ml-auto ${desktopOnly ? 'md:hidden' : ''}`}
             />
           </button>
-          <div className={`mt-3 ${sourcesOpen ? '' : 'hidden md:block'}`}>
+          <div
+            id="cheatsheet-sources"
+            className={`mt-3 ${sourcesExpanded ? '' : desktopOnly ? 'hidden md:block' : 'hidden'}`}
+          >
             <SourcesPanel sources={sources} />
           </div>
         </ContentBlock>
@@ -284,7 +341,8 @@ export default function Cheatsheets() {
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     <Tag
-                      label={`All (${totalPages})`}
+                      label="All"
+                      count={totalPages}
                       size="medium"
                       variant={selectedSource === null ? 'selected' : 'default'}
                       onClick={() => selectSource(null)}
@@ -292,7 +350,8 @@ export default function Cheatsheets() {
                     {browsable.map((s) => (
                       <Tag
                         key={s.id}
-                        label={`${s.name} (${s.fileCount})`}
+                        label={s.name}
+                        count={s.fileCount}
                         size="medium"
                         variant={selectedSource === s.id ? 'selected' : 'default'}
                         onClick={() => selectSource(selectedSource === s.id ? null : s.id)}
@@ -312,7 +371,8 @@ export default function Cheatsheets() {
                     {categories.map((c) => (
                       <Tag
                         key={c.name}
-                        label={`${c.name} (${c.count})`}
+                        label={c.name}
+                        count={c.count}
                         variant={selectedCategory === c.name ? 'selected' : 'default'}
                         onClick={() =>
                           setSelectedCategory(selectedCategory === c.name ? null : c.name)
@@ -347,74 +407,78 @@ export default function Cheatsheets() {
                 <div className="p-4 bg-error/10 text-error rounded-md">{searchError}</div>
               )}
 
-              <div className="border border-outline-variant rounded-md">
-                {results.length === 0 ? (
-                  <div className="p-8 text-center text-on-surface-variant">
-                    <FontAwesomeIcon
-                      icon={faFileAlt}
-                      className="text-4xl mb-4 text-on-surface-variant/40"
-                    />
-                    {searching ? (
-                      <p>Searching…</p>
-                    ) : hasQuery ? (
-                      <>
-                        <p>No cheatsheets found</p>
-                        <p className="text-sm mt-2">Try adjusting your search or filters</p>
-                      </>
-                    ) : (
-                      <p>
-                        Search all {plural(totalPages, 'page')}
-                        {categories.length > 0
-                          ? ' or pick a category'
-                          : browsable.length > 1
-                            ? ' or pick a source to see its categories'
-                            : ''}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <TableWrapper>
-                    {results.map((r) => (
-                      <TableRow
-                        key={`${r.source}/${r.path}`}
-                        onClick={() => showPage(r)}
-                        cursorClass="cursor-pointer min-w-0"
-                        icon={
-                          <FontAwesomeIcon
-                            icon={faFileAlt}
-                            className="text-on-surface-variant"
-                          />
-                        }
-                        title={
-                          <div className="flex flex-col min-w-0">
-                            <div className="font-medium text-on-surface">{r.title}</div>
-                            {r.snippet && (
-                              <div className="text-xs text-on-surface-variant mt-1 line-clamp-2">
-                                {r.snippet}
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {!activeSource && <Tag label={r.sourceName} size="small" />}
-                              {r.categories.slice(0, 3).map((category) => (
-                                <Tag key={category} label={category} size="small" />
-                              ))}
-                            </div>
-                          </div>
-                        }
-                        actions={
-                          <FormButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => showPage(r)}
-                          >
-                            <FontAwesomeIcon icon={faEye} />
-                          </FormButton>
-                        }
+              {/* A search that failed did not run: show its error, not "No cheatsheets found". */}
+              {!(searchError && results.length === 0) && (
+                <div className="border border-outline-variant rounded-md">
+                  {results.length === 0 ? (
+                    <div className="p-8 text-center text-on-surface-variant">
+                      <FontAwesomeIcon
+                        icon={faFileAlt}
+                        className="text-4xl mb-4 text-on-surface-variant/40"
                       />
-                    ))}
-                  </TableWrapper>
-                )}
-              </div>
+                      {searching ? (
+                        <p>Searching…</p>
+                      ) : hasQuery ? (
+                        <>
+                          <p>No cheatsheets found</p>
+                          <p className="text-sm mt-2">Try adjusting your search or filters</p>
+                        </>
+                      ) : (
+                        <p>
+                          Search all {plural(totalPages, 'page')}
+                          {categories.length > 0
+                            ? ' or pick a category'
+                            : browsable.length > 1
+                              ? ' or pick a source to see its categories'
+                              : ''}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <TableWrapper>
+                      {results.map((r) => (
+                        <TableRow
+                          key={`${r.source}/${r.path}`}
+                          onClick={() => showPage(r)}
+                          cursorClass="cursor-pointer min-w-0"
+                          icon={
+                            <FontAwesomeIcon
+                              icon={faFileAlt}
+                              className="text-on-surface-variant"
+                            />
+                          }
+                          title={
+                            <div className="flex flex-col min-w-0">
+                              <div className="font-medium text-on-surface">{r.title}</div>
+                              {r.snippet && (
+                                <div className="text-xs text-on-surface-variant mt-1 line-clamp-2">
+                                  {r.snippet}
+                                </div>
+                              )}
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {!activeSource && <Tag label={r.sourceName} size="small" />}
+                                {r.categories.slice(0, 3).map((category) => (
+                                  <Tag key={category} label={category} size="small" />
+                                ))}
+                              </div>
+                            </div>
+                          }
+                          actions={
+                            <FormButton
+                              type="secondary"
+                              size="small"
+                              onClick={() => showPage(r)}
+                              ariaLabel={`Open ${r.title}`}
+                            >
+                              <FontAwesomeIcon icon={faEye} />
+                            </FormButton>
+                          }
+                        />
+                      ))}
+                    </TableWrapper>
+                  )}
+                </div>
+              )}
 
               {!searching && results.length > 0 && results.length < total && (
                 <div className="flex justify-center">
@@ -433,7 +497,9 @@ export default function Cheatsheets() {
           page={openPage}
           onClose={closePage}
           onOpenLinked={showPage}
-          onBack={depth > 1 ? () => navigate(-1) : undefined}
+          // The entry before is a popup page too: depth 1 is the first page from
+          // the results, but from a shared link it is the page after that link.
+          onBack={depth > (sheetState.fromLink ? 0 : 1) ? () => navigate(-1) : undefined}
         />
       )}
     </PageLayoutFull>

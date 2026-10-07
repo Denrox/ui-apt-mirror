@@ -19,6 +19,8 @@ DIST_DIR="dist"
 ENV_FILE=".env"
 COMPOSE_HAND_EDITED=""
 COMPOSE_HASH_FILE=".docker-compose.yml.sha256"
+# Written by setup.sh since 3.0; an install without it is a 2.x one (see refuse_2x_install)
+VERSION_FILE=".ui-apt-mirror-version"
 
 # Function to print colored output
 print_status() {
@@ -61,7 +63,7 @@ require_cmd() {
             *" curl "*)          print_error "  curl:    sudo apt-get install -y curl" ;;
         esac
         case " ${missing[*]} " in
-            *" tar "*|*" gunzip "*) print_error "  tar/gunzip: sudo apt-get install -y tar gzip" ;;
+            *" gunzip "*)        print_error "  gunzip:  sudo apt-get install -y gzip" ;;
         esac
         exit 1
     fi
@@ -157,21 +159,41 @@ validate_dist() {
     print_success "Found image file: $tar_file"
 }
 
-# Settings live in .env (read by docker compose); upgrades never touch it.
+# Stops before anything is changed if this directory holds a 2.x install: 3.0 can't
+# upgrade those. Every 2.x setup.sh wrote .env or docker-compose.yml; .htpasswd covers
+# an install whose settings files were deleted.
+refuse_2x_install() {
+    local mode=$1
+    [ -f "$VERSION_FILE" ] && return 0
+    [ -f "$ENV_FILE" ] || [ -f docker-compose.yml ] || [ -s data/auth/.htpasswd ] || return 0
+
+    print_error "This directory holds a ui-apt-mirror 2.x install. Version 3 can't upgrade it;"
+    print_error "your settings and data were not changed, and its container keeps running."
+    if [ "$mode" = "upgrade" ]; then
+        echo "The 2.x upgrade.sh already replaced the scripts, README.md and the image in dist/ with"
+        echo "version 3's. Delete ./tmp (the downloaded release)."
+    fi
+    cat <<'MSG'
+
+To move to version 3, install it fresh (also in README.md, "Moving from 2.x"):
+  1. Back up your settings, users, signing keys and files:
+       tar -czf ../ui-apt-mirror-2.x-backup.tar.gz .env docker-compose*.yml data/conf data/auth \
+           data/data/apt-mirror/gpg data/data/files data/data/files-private
+  2. Install version 3 in a new directory. It stops and replaces the 2.x container,
+     which has the same name and ports:
+       curl -fsSLO https://ui-apt-mirror.dbashkatov.com/downloads/install.sh && bash install.sh
+  3. Copy over what you want to keep with cp -a, then run docker restart ui-apt-mirror:
+       data/data/files, data/data/files-private    public and private files
+       data/data/apt-mirror                         mirrored packages and signing keys
+       data/conf/apt-mirror/mirror.list             repositories
+     Set up users, npm packages and cheatsheet sources again in the admin panel.
+MSG
+    exit 1
+}
 
 # Read KEY from a KEY=VALUE file without sourcing it
 env_get() {
     grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2-
-}
-
-# Read "- KEY=value" from a pre-.env docker-compose.yml
-compose_get() {
-    local value
-    value=$(grep -E "^[[:space:]]*-[[:space:]]*$1=" "$2" 2>/dev/null | head -n 1 | sed -E "s/^[[:space:]]*-[[:space:]]*$1=//")
-    case "$value" in
-        *'${'*) echo "" ;;
-        *) echo "$value" ;;
-    esac
 }
 
 # Function to load the current settings, if any
@@ -189,12 +211,6 @@ load_existing_config() {
         CUR_SYNC=$(env_get SYNC_FREQUENCY "$ENV_FILE")
         CUR_TZ=$(env_get TZ "$ENV_FILE")
         CUR_NPM=$(env_get NPM_PROXY_ENABLED "$ENV_FILE")
-    elif [ -f "docker-compose.yml" ]; then
-        CONFIG_SOURCE="docker-compose.yml"
-        CUR_DOMAIN=$(compose_get MIRROR_DOMAIN docker-compose.yml)
-        CUR_SYNC=$(compose_get SYNC_FREQUENCY docker-compose.yml)
-        CUR_TZ=$(compose_get TZ docker-compose.yml)
-        CUR_NPM=$(compose_get NPM_PROXY_ENABLED docker-compose.yml)
     fi
 
     if [ -n "$CONFIG_SOURCE" ] || [ -s data/auth/.htpasswd ]; then
@@ -208,7 +224,7 @@ use_current_config() {
     MIRROR_DOMAIN="${CUR_DOMAIN:-mirror.intra}"
     SYNC_FREQUENCY="${CUR_SYNC:-14400}"
     HOST_TIMEZONE="${CUR_TZ:-$host_timezone}"
-    # Unset means enabled: before NPM_PROXY_ENABLED existed the proxy was always on.
+    # On unless .env turns it off
     if [ "$CUR_NPM" = "false" ]; then ENABLE_NPM_PROXY="n"; else ENABLE_NPM_PROXY="y"; fi
 }
 
@@ -268,12 +284,60 @@ prompt_user_config() {
     print_success "Configuration completed."
 }
 
+# Same rules as the admin panel: 4+ characters, at most 256 bytes (openssl
+# ignores the rest), no control characters (openssl hashes only the first line).
+admin_password_error() {
+    local pass=$1 bytes
+    bytes=$(printf '%s' "$pass" | LC_ALL=C wc -c)
+    if [ "${#pass}" -lt 4 ]; then
+        echo "The password must be at least 4 characters long."
+    elif [ "$bytes" -gt 256 ]; then
+        echo "The password must be at most 256 bytes long."
+    elif [[ "$pass" == *[[:cntrl:]]* ]]; then
+        echo "The password must not contain tabs or other control characters."
+    fi
+}
+
+# Sets ADMIN_PASSWORD. There is no default: an empty answer asks again.
+# Without a terminal, ADMIN_PASSWORD must already be set in the environment.
 prompt_admin_password() {
-    local default_admin_pass="admin"
-    echo ""
-    read -s -p "Enter admin password (default: $default_admin_pass): " admin_pass
-    echo ""
-    ADMIN_PASSWORD=${admin_pass:-$default_admin_pass}
+    local pass confirm error
+    if [ -n "${ADMIN_PASSWORD:-}" ]; then
+        error=$(admin_password_error "$ADMIN_PASSWORD")
+        if [ -n "$error" ]; then
+            print_error "ADMIN_PASSWORD: $error"
+            exit 1
+        fi
+        print_status "Using the admin password from ADMIN_PASSWORD."
+        return
+    fi
+    if [ ! -t 0 ]; then
+        print_error "No terminal to ask for the admin password: set ADMIN_PASSWORD, or run setup.sh interactively."
+        exit 1
+    fi
+    while true; do
+        echo ""
+        # -r and an empty IFS keep backslashes and leading/trailing spaces as typed
+        if ! IFS= read -r -s -p "Enter admin password (at least 4 characters): " pass; then
+            echo ""
+            print_error "No admin password entered."
+            exit 1
+        fi
+        echo ""
+        error=$(admin_password_error "$pass")
+        if [ -n "$error" ]; then
+            print_warning "$error"
+            continue
+        fi
+        IFS= read -r -s -p "Repeat admin password: " confirm || confirm=
+        echo ""
+        if [ "$pass" != "$confirm" ]; then
+            print_warning "The passwords do not match. Try again."
+            continue
+        fi
+        ADMIN_PASSWORD=$pass
+        return
+    done
 }
 
 resolve_user_config() {
@@ -309,22 +373,60 @@ resolve_user_config() {
     esac
 }
 
+# The settings setup.sh owns in .env, in the order a fresh install writes them
+ENV_KEYS="MIRROR_DOMAIN SYNC_FREQUENCY NPM_PROXY_ENABLED TZ"
+
+# A fresh install writes .env with a header. On an existing .env only the lines of
+# ENV_KEYS are changed in place and missing ones appended: every other line (the
+# admin's variables and comments) is kept, and so are the file's owner and mode.
 write_env_file() {
-    local npm_enabled="false"
+    local npm_enabled="false" tmp
     [ "$ENABLE_NPM_PROXY" = "y" ] && npm_enabled="true"
 
-    print_status "Saving settings to $ENV_FILE..."
-    cat > "$ENV_FILE" <<ENVEOF
+    if [ ! -e "$ENV_FILE" ]; then
+        print_status "Saving settings to $ENV_FILE..."
+        cat > "$ENV_FILE" <<ENVEOF
 # ui-apt-mirror settings. Change with ./setup.sh --reconfigure, or edit and run ./start.sh.
+# The admin, files, npm and cheatsheets hosts are subdomains of MIRROR_DOMAIN.
 MIRROR_DOMAIN=$MIRROR_DOMAIN
-ADMIN_DOMAIN=admin.$MIRROR_DOMAIN
-FILES_DOMAIN=files.$MIRROR_DOMAIN
-NPM_DOMAIN=npm.$MIRROR_DOMAIN
-CHEATSHEETS_DOMAIN=cheatsheets.$MIRROR_DOMAIN
 SYNC_FREQUENCY=$SYNC_FREQUENCY
 NPM_PROXY_ENABLED=$npm_enabled
 TZ=$HOST_TIMEZONE
 ENVEOF
+        print_success "Settings saved."
+        return
+    fi
+
+    tmp=$(mktemp "$ENV_FILE.XXXXXX")
+    if ! SET_MIRROR_DOMAIN=$MIRROR_DOMAIN SET_SYNC_FREQUENCY=$SYNC_FREQUENCY \
+        SET_NPM_PROXY_ENABLED=$npm_enabled SET_TZ=$HOST_TIMEZONE \
+        awk -v keys="$ENV_KEYS" '
+            BEGIN { n = split(keys, key, " ") }
+            {
+                for (i = 1; i <= n; i++) {
+                    if (index($0, key[i] "=") == 1) {
+                        print key[i] "=" ENVIRON["SET_" key[i]]
+                        seen[i] = 1
+                        next
+                    }
+                }
+                print
+            }
+            END { for (i = 1; i <= n; i++) if (!seen[i]) print key[i] "=" ENVIRON["SET_" key[i]] }
+        ' "$ENV_FILE" > "$tmp"; then
+        rm -f "$tmp"
+        print_error "Could not update $ENV_FILE"
+        exit 1
+    fi
+    if cmp -s "$tmp" "$ENV_FILE"; then
+        rm -f "$tmp"
+        print_status "Settings in $ENV_FILE are up to date."
+        return
+    fi
+    print_status "Updating settings in $ENV_FILE (other lines are kept)..."
+    # Rewrite the file itself, not a new one, so its owner and mode stay
+    cat "$tmp" > "$ENV_FILE"
+    rm -f "$tmp"
     print_success "Settings saved."
 }
 
@@ -368,67 +470,9 @@ generate_htpasswd() {
     print_success "htpasswd file generated successfully."
 }
 
-
-# Same backup as upgrade.sh; old upgrade.sh versions have none
-backup_config() {
-    local items=()
-    local item
-    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth; do
-        [ -e "$item" ] && items+=("$item")
-    done
-    if [ ${#items[@]} -eq 0 ]; then
-        return
-    fi
-
-    mkdir -p backups
-    local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
-    print_status "Backing up configuration to $backup..."
-    local skipped
-    if skipped=$(umask 077; tar -czf "$backup" --ignore-failed-read "${items[@]}" 2>&1 >/dev/null); then
-        chmod 600 "$backup"
-        if [ -n "$skipped" ]; then
-            print_warning "Some files could not be read and are not in the backup:"
-            echo "$skipped" | sed 's/^/  /'
-        fi
-        print_success "Backup saved: $backup"
-    else
-        [ -n "$skipped" ] && echo "$skipped"
-        print_error "Backup failed; aborting before anything is changed."
-        exit 1
-    fi
-}
-
-# Fingerprints of every released docker-compose.src.yml with values blanked;
-# a pre-.env docker-compose.yml matching one was never edited by hand.
-LEGACY_COMPOSE_FINGERPRINTS="24a1f8ce60550fc1 1a5fddfd8e7c4736 bdd1748a8142e672 67213f824f6d9873 2cabb2f42d493772 830e2a450d30f66d c5ed624d685be465 7fcfd9624207e48d 6d21328162dc297d 8f8e4cf1bb2e2fbb 8311e9dc94b89163"
-
-compose_fingerprint() {
-    sed -E 's/^([[:space:]]*-[[:space:]]*)([A-Z_]+)=.*/\1\2=/' "$1" \
-        | sed -E 's/[[:space:]]+$//' | sha256sum | cut -c1-16
-}
-
 install_docker_compose() {
-    if [ "$CONFIG_SOURCE" = "docker-compose.yml" ]; then
-        mkdir -p backups
-        local backup="backups/docker-compose.yml.before-env-$(date +%Y%m%d%H%M%S)"
-        cp docker-compose.yml "$backup"
-        local fingerprint
-        fingerprint=$(compose_fingerprint docker-compose.yml)
-        case " $LEGACY_COMPOSE_FINGERPRINTS " in
-            *" $fingerprint "*)
-                print_status "docker-compose.yml settings moved to $ENV_FILE (previous file: $backup)."
-                ;;
-            *)
-                COMPOSE_HAND_EDITED="$backup"
-                print_warning "Your docker-compose.yml had hand edits (ports, volumes...)."
-                print_warning "It is saved as $backup."
-                print_warning "Move those edits to docker-compose.override.yml; upgrades never touch that file."
-                ;;
-        esac
-    fi
-
     # Differs from the file we installed last time: hand edits
-    if [ "$CONFIG_SOURCE" = "$ENV_FILE" ] && [ -f docker-compose.yml ]; then
+    if [ -f docker-compose.yml ]; then
         local recorded current
         recorded=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null || true)
         current=$(sha256sum docker-compose.yml | cut -d' ' -f1)
@@ -446,27 +490,6 @@ install_docker_compose() {
     cp docker-compose.src.yml docker-compose.yml
     sha256sum docker-compose.yml | cut -d' ' -f1 > "$COMPOSE_HASH_FILE"
     print_success "docker-compose.yml installed."
-}
-
-# Older versions had no volume for private files; copy them out before the container goes
-preserve_private_files() {
-    if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
-        return
-    fi
-    if docker inspect -f '{{range .Mounts}}{{println .Destination}}{{end}}' "$CONTAINER_NAME" \
-        | grep -qx "/var/www/files-private"; then
-        return
-    fi
-
-    print_status "Copying private files out of the existing container..."
-    mkdir -p data/data/files-private
-    if docker cp "$CONTAINER_NAME:/var/www/files-private/." data/data/files-private/ >/dev/null 2>&1; then
-        local count
-        count=$(find data/data/files-private -type f | wc -l)
-        print_success "Private files saved to data/data/files-private ($count files)."
-    else
-        print_status "No private files found in the existing container."
-    fi
 }
 
 # Function to clean up previous installation
@@ -505,19 +528,6 @@ create_data_dirs() {
     print_success "Data directories created."
 }
 
-
-# Older mirror.list files ran a postmirror script that was never shipped (an error on every
-# sync) and so never ran clean.sh; let apt-mirror2 delete unneeded packages itself.
-migrate_mirror_config() {
-    local list=data/conf/apt-mirror/mirror.list
-    grep -qE '^set[[:space:]]+run_postmirror[[:space:]]+1[[:space:]]*$' "$list" || return 0
-    [ -e data/data/apt-mirror/var/postmirror.sh ] && return 0
-    sed -i -E 's/^set([[:space:]]+)run_postmirror([[:space:]]+)1[[:space:]]*$/set\1run_postmirror\20/' "$list"
-    if ! grep -qE '^set[[:space:]]+_autoclean[[:space:]]' "$list"; then
-        sed -i -E '/^set[[:space:]]+run_postmirror[[:space:]]/a set _autoclean 1' "$list"
-    fi
-    print_status "mirror.list: turned off the missing postmirror script; old packages are now deleted after each sync."
-}
 
 # Function to generate apt-mirror2 configuration
 generate_mirror_config() {
@@ -694,24 +704,28 @@ show_status() {
         print_warning "docker-compose.override.yml, then run ./start.sh."
     fi
 
+    # The container drops unedited overrides and writes the .stock copies while
+    # starting; list the overrides once it is done
+    local i
+    for i in $(seq 1 60); do
+        docker logs --since "${CONTAINER_STARTED_AT:-0}" "$CONTAINER_NAME" 2>&1 \
+            | grep -q "Starting admin server" && break
+        [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)" = true ] || break
+        sleep 1
+    done
     local custom
     custom=$(ls data/conf/nginx/custom/*.conf 2>/dev/null || true)
     if [ -n "$custom" ]; then
         echo ""
         print_warning "Custom nginx configs in use (they replace the stock ones):"
         echo "$custom" | sed 's/^/  /'
-        # The container writes the .stock copies while starting
-        local i
-        for i in $(seq 1 30); do
-            docker logs "$CONTAINER_NAME" 2>&1 | grep -q "Starting admin server" && break
-            sleep 1
-        done
         local changed="" conf
         for conf in $custom; do
             [ -f "$conf.stock" ] && changed+="  $conf"$'\n'
         done
         if [ -n "$changed" ]; then
-            print_warning "The stock config changed since these were written; they may be missing fixes:"
+            print_warning "These may be missing fixes made to the stock config (it changed since they were"
+            print_warning "written, or it is not known which version they were written against):"
             printf '%s' "$changed"
             print_warning "Compare each with its .stock copy, merge what you need, then delete the .stock file."
         fi
@@ -721,34 +735,6 @@ show_status() {
     print_status "Logs:"
     echo "  docker logs $CONTAINER_NAME"
     echo "  docker compose -f docker-compose.yml logs"
-}
-
-# Things an upgrade from an old release leaves for the admin to do
-print_upgrade_notes() {
-    local mode=$1
-    local cheatsheets=data/data/cheatsheets
-    if [ -n "$(find "$cheatsheets" -maxdepth 1 -type f -name '*.md' -print -quit 2>/dev/null)" ]; then
-        echo ""
-        if ! grep -q '"url"' "$cheatsheets/sources.json" 2>/dev/null; then
-            print_warning "Cheatsheets are no longer bundled. To get the tldr pages back, open Cheatsheets in the"
-            print_warning "admin panel and add https://github.com/tldr-pages/tldr/tree/main/pages as a source."
-        fi
-        print_status "The previously bundled cheatsheets in $cheatsheets/*.md are no longer used. Remove them with:"
-        echo "  find $cheatsheets -maxdepth 1 -type f -name '*.md' -delete"
-    fi
-
-    # Releases before 2.4 run ./setup.sh without --upgrade and then print their own closing lines
-    if [ "$mode" = "default" ] && ps -o args= -p "$PPID" 2>/dev/null | grep -qE '(^|[ /])upgrade\.sh( |$)'; then
-        local domain
-        domain=$(env_get MIRROR_DOMAIN "$ENV_FILE")
-        echo ""
-        print_warning "The previous release's upgrade.sh prints a closing message next; parts of it are outdated:"
-        echo "  - docker-compose.yml is replaced on every upgrade. Keep your changes in"
-        echo "    docker-compose.override.yml instead of re-applying them to docker-compose.yml."
-        if [ -n "$domain" ] && [ "$domain" != "mirror.intra" ]; then
-            echo "  - The addresses are the ones listed above (http://$domain), not mirror.intra."
-        fi
-    fi
 }
 
 # Function to show usage
@@ -763,6 +749,9 @@ show_usage() {
     echo "  --no-cleanup            Skip cleanup of previous installation"
     echo "  --help                  Show this help message"
     echo ""
+    echo "The admin password is asked for (twice) when it is set. To run without a"
+    echo "terminal, pass it as ADMIN_PASSWORD=... in the environment."
+    echo ""
     echo "On a fresh install this asks for the domain, sync frequency, npm proxy,"
     echo "timezone and admin password. On an existing install it keeps what is"
     echo "configured and never overwrites:"
@@ -773,7 +762,7 @@ show_usage() {
     echo "Prerequisites:"
     echo "  - Docker installed and running (with Compose v2 plugin)"
     echo "  - Built images in dist/ directory (run ./build.sh first)"
-    echo "  - openssl, curl, tar, gzip, procps (free), awk, sed"
+    echo "  - openssl, curl, gzip, procps (free), awk, sed"
 }
 
 # Main execution
@@ -818,10 +807,13 @@ main() {
         esac
     done
 
+    refuse_2x_install "$mode"
+    echo 3 > "$VERSION_FILE"
+
     print_status "Starting ui-apt-mirror deployment..."
 
     # Verify required commands are installed
-    require_cmd docker openssl free awk sed tar gunzip curl
+    require_cmd docker openssl free awk sed gunzip curl
     require_docker_compose
 
     # Detect architecture
@@ -834,7 +826,6 @@ main() {
     load_existing_config
     if [ "$INSTALL_EXISTS" = true ]; then
         print_status "Existing installation detected; your configuration will be kept."
-        [ -f "$ENV_FILE" ] || backup_config
     fi
 
     resolve_user_config "$mode"
@@ -852,7 +843,6 @@ main() {
         generate_mirror_config "$MIRROR_DOMAIN"
     else
         print_status "Keeping data/conf/apt-mirror/mirror.list (managed in the admin panel)."
-        migrate_mirror_config
     fi
 
     write_env_file
@@ -863,8 +853,6 @@ main() {
         exit 0
     fi
 
-    preserve_private_files
-
     # Clean up previous installation
     if [ "$no_cleanup" = false ]; then
         cleanup_previous
@@ -872,14 +860,19 @@ main() {
 
     # Start container using start.sh
     print_status "Starting container..."
+    CONTAINER_STARTED_AT=$(date +%s)
     ./start.sh
 
     # Show status
     show_status
 
     print_success "Deployment completed successfully!"
-    print_upgrade_notes "$mode"
 }
+
+# "source setup.sh --lib" only defines the functions (tests/setup-env.sh)
+if [ "${1:-}" = --lib ]; then
+    return 0 2>/dev/null || exit 0
+fi
 
 # Run main function with all arguments
 main "$@"

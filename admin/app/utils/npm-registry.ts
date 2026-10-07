@@ -1,12 +1,17 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import zlib from 'zlib';
 
 // npm's own rules for package names; anything else could escape the storage dirs.
 export const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
-export const NPM_VERSION_RE = /^[0-9A-Za-z.+-]{1,256}$/;
+// Strict semver (semver.org); npm cleans versions before publishing, as npmjs requires.
+const SEMVER_IDENT = '(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)';
+const SEMVER_RE = new RegExp(
+  `^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)` +
+    `(?:-${SEMVER_IDENT}(?:\\.${SEMVER_IDENT})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
+);
 const DIST_TAG_RE = /^[A-Za-z][A-Za-z0-9._-]{0,127}$/;
 
 export const METADATA_TTL_MS = 10 * 60 * 1000;
-const LEGACY_REV = '0-legacy';
 
 export interface PackageDoc {
   _id?: string;
@@ -30,9 +35,19 @@ export function isValidName(name: string): boolean {
   return name.length <= 214 && NPM_NAME_RE.test(name);
 }
 
-/** A tag may not look like a version or range, or `npm install pkg@tag` becomes ambiguous. */
+export function isValidVersion(version: string): boolean {
+  return version.length <= 256 && SEMVER_RE.test(version);
+}
+
+// Names every plain object inherits (`constructor`, `toString`, …): npmjs refuses them as tags.
+const RESERVED_DIST_TAGS = new Set(Object.getOwnPropertyNames(Object.prototype));
+
+/**
+ * A tag may not look like a version or range, or `npm install pkg@tag` becomes ambiguous, nor be
+ * the name of an Object.prototype property.
+ */
 export function isValidDistTag(tag: string): boolean {
-  return DIST_TAG_RE.test(tag) && !/^v\d/i.test(tag);
+  return DIST_TAG_RE.test(tag) && !/^v\d/i.test(tag) && !RESERVED_DIST_TAGS.has(tag);
 }
 
 function splitName(segments: string[]): { name: string; rest: string[] } | null {
@@ -78,12 +93,8 @@ export function nextRev(rev?: string): string {
   return `${(parseInt(rev ?? '', 10) || 0) + 1}-${randomBytes(8).toString('hex')}`;
 }
 
-export function currentRev(doc: PackageDoc): string {
-  return doc._rev ?? LEGACY_REV;
-}
-
 export function revMatches(doc: PackageDoc, rev: string | undefined): boolean {
-  return rev === undefined || rev === currentRev(doc);
+  return rev === undefined || rev === doc._rev;
 }
 
 /** Add the versions of a publish request to the stored document; existing versions are immutable. */
@@ -98,12 +109,25 @@ export function mergePublish(
   const added = Object.keys(versions);
   if (added.length === 0) return { status: 400, reason: 'No versions to publish' };
 
-  const taken = added.filter((v) => existing?.versions?.[v]);
+  if (added.some((v) => !isValidVersion(v))) return { status: 400, reason: 'Versions must be valid semver' };
+
+  const taken = added.filter((v) => Object.hasOwn(existing?.versions ?? {}, v));
   if (taken.length) {
     return {
       status: 403,
       reason: `You cannot publish over the previously published versions: ${taken.join(', ')}.`,
     };
+  }
+
+  const allVersions = { ...existing?.versions, ...versions };
+  const incomingTags: unknown = incoming['dist-tags'] ?? { latest: added[0] };
+  if (
+    !isObject(incomingTags) ||
+    Object.entries(incomingTags).some(
+      ([tag, version]) => !isValidDistTag(tag) || typeof version !== 'string' || !Object.hasOwn(allVersions, version),
+    )
+  ) {
+    return { status: 400, reason: 'Every dist-tag must name a published version' };
   }
 
   const time = { ...existing?.time };
@@ -117,8 +141,8 @@ export function mergePublish(
       _id: name,
       _rev: nextRev(existing?._rev),
       name,
-      versions: { ...existing?.versions, ...versions },
-      'dist-tags': { ...existing?.['dist-tags'], ...(incoming['dist-tags'] ?? { latest: added[0] }) },
+      versions: allVersions,
+      'dist-tags': { ...existing?.['dist-tags'], ...incomingTags },
       _attachments: {},
       time,
       _publishedBy: publishedBy,
@@ -135,9 +159,10 @@ export function applyDocUpdate(
   incoming: any,
   now = new Date().toISOString(),
 ): DocResult {
-  const incomingVersions: Record<string, any> = incoming.versions ?? {};
+  const incomingVersions: Record<string, any> = isObject(incoming.versions) ? incoming.versions : {};
   const keep = Object.keys(incomingVersions);
-  if (keep.some((v) => !existing.versions[v])) {
+  // Only own keys count as versions: `constructor` or `toString` would otherwise look published.
+  if (keep.some((v) => !isValidVersion(v) || !Object.hasOwn(existing.versions ?? {}, v))) {
     return { status: 400, reason: 'New versions must be published with their tarball' };
   }
   if (keep.length === 0) return { status: 400, reason: 'Use npm unpublish to remove the package' };
@@ -152,14 +177,14 @@ export function applyDocUpdate(
   }
 
   const tags = Object.entries<unknown>(incoming['dist-tags'] ?? existing['dist-tags']).filter(
-    ([tag, version]) => typeof version === 'string' && versions[version] && isValidDistTag(tag),
+    ([tag, version]) => typeof version === 'string' && Object.hasOwn(versions, version) && isValidDistTag(tag),
   ) as [string, string][];
   const distTags = Object.fromEntries(tags);
   distTags.latest ??= keep[keep.length - 1];
 
   const time: Record<string, string> = {};
   for (const [key, value] of Object.entries(existing.time ?? {})) {
-    if (versions[key] || !existing.versions[key]) time[key] = value;
+    if (Object.hasOwn(versions, key) || !Object.hasOwn(existing.versions ?? {}, key)) time[key] = value;
   }
   time.modified = now;
 
@@ -240,18 +265,68 @@ export function withoutAuditPackages(payload: Record<string, any>, bulk: boolean
   return out;
 }
 
-/** Where an upstream response is cached, relative to the public dir; null for paths never cached. */
+/**
+ * Where an upstream response is cached, relative to the public dir; null for paths never cached.
+ * Every package has a directory of its own (`_packages/<name>/`, like the private store) with the
+ * packument in `package.json` and the tarballs under `-/`; `.meta` files sit next to each. Only
+ * `*.tgz` tarballs are cached, so no tarball can be named like the `.meta` file of another.
+ */
 export function publicCachePath(route: NpmPath): string | null {
-  if (route.kind === 'package' && route.rev === undefined) return route.name;
-  if (route.kind === 'tarball' && route.rev === undefined) {
-    const [first, ...rest] = route.name.split('/');
-    return [`${first}-tarballs`, ...rest, '-', route.file].join('/');
+  if (route.kind === 'package' && route.rev === undefined) return `_packages/${route.name}/package.json`;
+  if (route.kind === 'tarball' && route.rev === undefined && /^[^/]+\.tgz$/.test(route.file)) {
+    return `_packages/${route.name}/-/${route.file}`;
   }
   return null;
 }
 
-/** A JSON object from a request body, or null for anything else. */
-export function parseJsonObject(text: string): Record<string, any> | null {
+/** How large a JSON body may be once parsed, beyond its bytes. */
+export interface JsonLimits {
+  /** Most values, counted as the objects and arrays plus the commas between items or members. */
+  values: number;
+  /** Most levels of objects and arrays inside each other. */
+  depth: number;
+}
+
+/**
+ * Throws a PayloadTooLargeError when JSON text is over the limits. Bytes alone do not bound the
+ * parsed result: a few MB of `[{},{},…]` parse to millions of objects. Each character is looked
+ * at once, and nothing is parsed.
+ */
+function checkJsonLimits(text: string, limits: JsonLimits): void {
+  let values = 0;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x22) {
+      i = stringEnd(text, i);
+    } else if (c === 0x7b || c === 0x5b) {
+      if (++depth > limits.depth) throw new PayloadTooLargeError(`The request nests JSON deeper than ${limits.depth} levels`);
+      values++;
+    } else if (c === 0x7d || c === 0x5d) {
+      depth--;
+    } else if (c === 0x2c) {
+      values++;
+    }
+    if (values > limits.values) throw new PayloadTooLargeError(`The request has more than ${limits.values} JSON values`);
+  }
+}
+
+/** The index of the quote that ends the JSON string starting at `start`, or the end of the text. */
+function stringEnd(text: string, start: number): number {
+  for (let end = text.indexOf('"', start + 1); end !== -1; end = text.indexOf('"', end + 1)) {
+    let backslash = end - 1;
+    while (text.charCodeAt(backslash) === 0x5c) backslash--;
+    if ((end - 1 - backslash) % 2 === 0) return end;
+  }
+  return text.length;
+}
+
+/**
+ * A JSON object from a request body, or null for anything else. With limits, a body over them is
+ * a PayloadTooLargeError, before it is parsed.
+ */
+export function parseJsonObject(text: string, limits?: JsonLimits): Record<string, any> | null {
+  if (limits) checkJsonLimits(text, limits);
   try {
     const value = JSON.parse(text);
     return isObject(value) ? value : null;
@@ -273,6 +348,52 @@ export function pathPackage(raw: string): { name: string; rest: string[] } | nul
   return splitName(segments);
 }
 
+/**
+ * The upstream URL for a registry path (without the /npm prefix) and query, or null if the path
+ * could leave the registry: it is always a path on `registry`'s origin, never an absolute URL
+ * (`http:/host/`, `//host/`), and has no dot segments or backslashes that could climb out of the
+ * package the path was checked for.
+ */
+export function upstreamUrl(registry: string, packagePath: string, search = ''): URL | null {
+  const raw = packagePath.replace(/^\/+/, '');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (/\\/.test(decoded) || decoded.split('/').some((s) => s === '.' || s === '..')) return null;
+  const base = new URL(registry);
+  const url = new URL(base.origin);
+  url.pathname = `/${raw}`;
+  url.search = search;
+  return url.origin === base.origin && url.pathname === `/${raw}` ? url : null;
+}
+
+/**
+ * An upstream response (packument, version) with its npmjs tarball URLs pointed at `origin`, so
+ * that every client fetches tarballs through this registry and its cache. npmjs serves a tarball
+ * at the same path, so only the origin changes.
+ */
+export function tarballsAt(json: string, origin: string): string {
+  return json.replace(/("tarball"\s*:\s*")https?:\/\/registry\.npmjs\.org\//g, (_, key) => `${key}${origin}/`);
+}
+
+/**
+ * `npm logout` sends `DELETE /-/user/token/<token>`. For such a path (also percent-encoded), the
+ * token in it ('' if there is none); null for other paths.
+ */
+export function logoutPathToken(packagePath: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(packagePath.replace(/^\/+/, ''));
+  } catch {
+    return /^(?:-|%2d)\/user\/token(?:\/|%2f|$)/i.test(packagePath) ? '' : null;
+  }
+  const match = /^-\/+user\/+token(?:\/(.*))?$/s.exec(decoded);
+  return match ? (match[1] ?? '').replace(/\/+$/, '') : null;
+}
+
 /** A version of a private packument by version or dist-tag (/<name>/<spec>), or null. */
 export function privateVersion(doc: PackageDoc, spec: string): Record<string, any> | null {
   const version = Object.hasOwn(doc['dist-tags'] ?? {}, spec) ? doc['dist-tags'][spec] : spec;
@@ -282,4 +403,87 @@ export function privateVersion(doc: PackageDoc, spec: string): Record<string, an
 /** npm tries web login first and falls back to the legacy login when this answers with a 4xx. */
 export function isWebLoginPath(packagePath: string): boolean {
   return /^-\/v1\/(login|done)(\/|$)/.test(packagePath);
+}
+
+/** The scope of a scoped package name without the `@` (`types` for `@types/node`), else null. */
+export function packageScope(name: string): string | null {
+  return /^@([^/]+)\//.exec(name)?.[1] ?? null;
+}
+
+/** Whether npmjs' package list of a scope (`GET /-/org/<scope>/package`, name → access) has the name. */
+export function scopeListsPackage(list: unknown, name: string): boolean {
+  return isObject(list) && Object.hasOwn(list, name);
+}
+
+export class PayloadTooLargeError extends Error {
+  constructor(message = 'The request is too large') {
+    super(message);
+  }
+}
+
+/**
+ * A request body decoded as its Content-Encoding says (gzip, deflate or none). Decoding stops as
+ * soon as the output passes maxBytes, with a PayloadTooLargeError: a few hundred KB of gzip can
+ * decode to GBs. Anything that is not valid gzip or deflate is an ordinary error.
+ */
+export function decodeBody(body: Buffer, encoding: string | undefined, maxBytes: number): Promise<Buffer> {
+  const coding = encoding?.trim().toLowerCase();
+  const decoder =
+    coding === 'gzip' || coding === 'x-gzip' ? zlib.createGunzip() : coding === 'deflate' ? zlib.createInflate() : null;
+  if (!decoder) {
+    return body.length > maxBytes ? Promise.reject(new PayloadTooLargeError()) : Promise.resolve(body);
+  }
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    decoder.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) decoder.destroy(new PayloadTooLargeError());
+      else chunks.push(chunk);
+    });
+    decoder.on('error', reject);
+    decoder.on('end', () => resolve(Buffer.concat(chunks)));
+    decoder.end(body);
+  });
+}
+
+export interface TarballDist {
+  integrity?: string;
+  shasum?: string;
+}
+
+/** dist.integrity and dist.shasum of the version whose tarball is `file`, from a packument; or null. */
+export function tarballDist(packument: string, file: string): TarballDist | null {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(packument);
+  } catch {
+    return null;
+  }
+  if (!isObject(doc) || !isObject(doc.versions)) return null;
+  for (const version of Object.values(doc.versions)) {
+    const dist = isObject(version) && isObject(version.dist) ? version.dist : null;
+    if (typeof dist?.tarball !== 'string' || !dist.tarball.endsWith(`/-/${file}`)) continue;
+    return {
+      integrity: typeof dist.integrity === 'string' ? dist.integrity : undefined,
+      shasum: typeof dist.shasum === 'string' ? dist.shasum : undefined,
+    };
+  }
+  return null;
+}
+
+const SRI_ALGORITHMS = new Set(['sha512', 'sha384', 'sha256', 'sha1']);
+
+/**
+ * Whether data has the hashes of `dist`: one of the known algorithms in the SRI string
+ * (integrity), else the hex sha1 (shasum). With neither there is nothing to compare.
+ */
+export function matchesDist(data: Buffer, dist: TarballDist): boolean {
+  const sri = (dist.integrity ?? '')
+    .split(/\s+/)
+    .map((entry) => /^([a-z0-9]+)-([A-Za-z0-9+/=]+)(?:\?.*)?$/.exec(entry))
+    .filter((m): m is RegExpExecArray => !!m && SRI_ALGORITHMS.has(m[1]));
+  if (sri.length) return sri.some(([, algorithm, digest]) => createHash(algorithm).update(data).digest('base64') === digest);
+  if (dist.shasum) return createHash('sha1').update(data).digest('hex') === dist.shasum.toLowerCase();
+  return true;
 }

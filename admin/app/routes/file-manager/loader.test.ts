@@ -1,0 +1,34 @@
+import { describe, it, expect } from 'vitest';
+import { canonicalPath, pageOf } from './loader';
+
+describe('pageOf', () => {
+  const items = Array.from({ length: 450 }, (_, i) => i);
+
+  it('returns one page and the page count', () => {
+    expect(pageOf(items, 1, 200)).toMatchObject({ page: 1, pageCount: 3, total: 450 });
+    expect(pageOf(items, 1, 200).items).toHaveLength(200);
+    expect(pageOf(items, 3, 200).items).toEqual(items.slice(400));
+  });
+
+  it('clamps out-of-range and invalid pages', () => {
+    expect(pageOf(items, 9, 200).page).toBe(3);
+    expect(pageOf(items, 0, 200).page).toBe(1);
+    expect(pageOf(items, Number.NaN, 200).page).toBe(1);
+    expect(pageOf([], 1, 200)).toMatchObject({ page: 1, pageCount: 1, items: [] });
+  });
+});
+
+describe('canonicalPath', () => {
+  it.each([
+    ['/var/www/files/base/', '/var/www/files/base'],
+    ['/var/www/files/base//', '/var/www/files/base'],
+    ['/var/www/files//base', '/var/www/files/base'],
+    ['/var/www/files/./base', '/var/www/files/base'],
+    ['/var/www/files/base/sub/..', '/var/www/files/base'],
+    ['/var/www/files/base', '/var/www/files/base'],
+    ['/', '/'],
+    ['../data/data/files/', '../data/data/files'],
+  ])('%s -> %s', (input, expected) => {
+    expect(canonicalPath(input)).toBe(expected);
+  });
+});

@@ -7,12 +7,16 @@ import { promisify } from 'util';
 import {
   generateKey,
   deleteKey,
+  getKey,
   signReleasesForHost,
   restoreUpstreamSignatures,
   assertValidHost,
 } from '~/lib/gpg';
-import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
+import { MirrorConfig, canonicalBaseUrl, mirrorDirOf, type RepositoryInput } from '~/utils/mirror-config';
 import { atomicWriteFile, validateRepositoryInput, withMirrorListLock } from '~/utils/mirror-list';
+import { checkLockFile } from '~/utils/sync';
+import { deleteMirrorDirs, unusedMirrorDirs } from '~/utils/mirror-data';
+import path from 'path';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,17 +35,41 @@ async function runScript(path: string): Promise<{ ok: boolean; message: string }
 
 const STALE_ERROR =
   'This repository changed since you opened it (another tab or user saved it). Reload the page and try again.';
+const NO_REVISION_ERROR = 'The request did not say which version of the repository it changes. Reload the page and try again.';
+const SYNC_RUNNING_ERROR = 'A sync is running. Wait for it to finish (or stop it) before changing repositories.';
+const NOT_EDITABLE_ERROR =
+  'This repository has several upstreams or component sets and cannot be edited in the form.';
 
 function formRevision(formData: FormData): string | undefined {
   const revision = formData.get('revision');
   return typeof revision === 'string' && revision !== '' ? revision : undefined;
 }
 
-/** A stale revision means the client acted on an outdated view of the section. */
-function isStale(config: MirrorConfig, title: string, formData: FormData): boolean {
+/**
+ * Why a change to an existing section must be refused: no revision (the client did not say
+ * which version it saw) or a stale one (it acted on an outdated view of the section).
+ */
+function revisionError(config: MirrorConfig, title: string, formData: FormData): string | null {
   const revision = formRevision(formData);
+  if (!revision) return NO_REVISION_ERROR;
   const section = config.getSection(title, revision);
-  return !!section && !!revision && revision !== config.sectionRevision(section);
+  return section && revision !== config.sectionRevision(section) ? STALE_ERROR : null;
+}
+
+/**
+ * Delete the mirrored (and skel) files of the given upstream URIs that no enabled repository
+ * uses any more: apt-mirror2 never cleans an upstream that is no longer synced, so its files
+ * would stay on disk (and served) for good. Returns the end of the message for the user.
+ */
+async function deleteUnusedData(config: MirrorConfig, uris: string[], whose = 'its'): Promise<string> {
+  const dirs = unusedMirrorDirs(config, uris);
+  const roots = [appConfig.mirrorRoot, path.join(path.dirname(appConfig.mirrorRoot), 'skel')];
+  const deleted = dirs.length ? await deleteMirrorDirs(dirs, roots) : [];
+  return deleted.length
+    ? ` and ${whose} mirrored files deleted`
+    : dirs.length
+      ? `; ${whose === 'its' ? 'it' : whose.replace(/'s$/, '')} had no mirrored files`
+      : `; ${whose} mirrored files are kept because another enabled repository uses the same upstream`;
 }
 
 function signedMessage(count: number): string {
@@ -104,6 +132,16 @@ export async function action({ request }: { request: Request }) {
       : { error: message || 'Failed to stop mirror sync' };
   }
 
+  const changesRepositories = [
+    'addRepository',
+    'editRepository',
+    'removeRepository',
+    'deleteRepository',
+    'restoreRepository',
+  ].includes(action as string);
+  // The dashboard disables these while a sync runs; refuse them from other clients too.
+  if (changesRepositories && (await checkLockFile())) return { error: SYNC_RUNNING_ERROR };
+
   if (action === 'removeRepository') {
     const sectionTitle = formData.get('sectionTitle') as string;
     if (!sectionTitle) return { error: 'Section title is required' };
@@ -114,11 +152,21 @@ export async function action({ request }: { request: Request }) {
         if (!config.getSection(sectionTitle)) {
           return { error: `Repository section "${sectionTitle}" not found` };
         }
-        if (isStale(config, sectionTitle, formData)) return { error: STALE_ERROR };
+        const staleError = revisionError(config, sectionTitle, formData);
+        if (staleError) return { error: staleError };
 
+        const section = config.getSection(sectionTitle, formRevision(formData))!;
+        const uris = section.children.flatMap((c) => (c.kind === 'deb' ? [c.uri] : []));
         config.removeSection(sectionTitle, formRevision(formData));
         await atomicWriteFile(mirrorListPath, config.serialize());
-        return { success: true, message: `Repository "${sectionTitle}" removed` };
+        if (formData.get('deleteData') !== 'true') {
+          return { success: true, message: `Repository "${sectionTitle}" removed` };
+        }
+
+        return {
+          success: true,
+          message: `Repository "${sectionTitle}" removed${await deleteUnusedData(config, uris)}`,
+        };
       });
     } catch (error) {
       console.error('Error removing repository section:', error);
@@ -142,13 +190,26 @@ export async function action({ request }: { request: Request }) {
         if (!config.getSection(sectionTitle)) {
           return { error: `Repository section "${sectionTitle}" not found` };
         }
-        if (isStale(config, sectionTitle, formData)) return { error: STALE_ERROR };
+        const staleError = revisionError(config, sectionTitle, formData);
+        if (staleError) return { error: staleError };
 
         // Toggle only the deb and filter directives in the section; comments (the
         // description) and the client-facing Usage snippet are left untouched.
-        config.setSectionEnabled(sectionTitle, enable, formRevision(formData));
+        const section = config.getSection(sectionTitle, formRevision(formData))!;
+        config.setEnabled(section, enable);
+        // Enabling can put an unfiltered and a filtered repository on one upstream.
+        const conflict = config.upstreamConflict(section);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
+        if (!enable && formData.get('deleteData') === 'true') {
+          // Disabling keeps the files unless asked: enabling again then needs no full download.
+          const uris = section.children.flatMap((c) => (c.kind === 'deb' ? [c.uri] : []));
+          return {
+            success: true,
+            message: `Repository section "${sectionTitle}" disabled${await deleteUnusedData(config, uris)}`,
+          };
+        }
         return {
           success: true,
           message: `Repository section "${sectionTitle}" ${
@@ -179,6 +240,9 @@ export async function action({ request }: { request: Request }) {
         if (validationError) return { error: validationError };
 
         config.addSection(input, mirrorDomain());
+        const added = config.sections().filter((s) => s.title === input.title.trim()).pop();
+        const conflict = added && config.upstreamConflict(added);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {
@@ -208,7 +272,15 @@ export async function action({ request }: { request: Request }) {
         if (!config.getSection(originalTitle)) {
           return { error: `Repository "${originalTitle}" not found` };
         }
-        if (isStale(config, originalTitle, formData)) return { error: STALE_ERROR };
+        const staleError = revisionError(config, originalTitle, formData);
+        if (staleError) return { error: staleError };
+
+        // The form rebuilds the whole section: one that it cannot represent would lose its
+        // other sources (e.g. Debian's security.debian.org lines).
+        const section = config.getSection(originalTitle, formRevision(formData))!;
+        if (!config.sectionToInput(section)) return { error: NOT_EDITABLE_ERROR };
+        const oldUris = section.children.flatMap((c) => (c.kind === 'deb' ? [c.uri] : []));
+        const wasEnabled = config.isSectionEnabled(section);
 
         // A rename to the same title is fine; only collisions with *other*
         // sections are rejected.
@@ -219,8 +291,22 @@ export async function action({ request }: { request: Request }) {
         if (validationError) return { error: validationError };
 
         config.editSection(originalTitle, input, mirrorDomain(), formRevision(formData));
+        // Editing never enables a disabled repository (the next sync would download it).
+        if (!wasEnabled) config.setEnabled(section, false);
+        const conflict = config.upstreamConflict(section);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
+        // A new base URL leaves the old upstream's files on disk (and served): no sync cleans
+        // an upstream that is no longer configured. Deleted only when asked, like on remove.
+        const newDir = mirrorDirOf(canonicalBaseUrl(input.baseUrl));
+        const movedUris = oldUris.filter((uri) => mirrorDirOf(uri) !== newDir);
+        if (formData.get('deleteData') === 'true' && movedUris.length) {
+          return {
+            success: true,
+            message: `Repository "${input.title}" updated${await deleteUnusedData(config, movedUris, "the old upstream's")}`,
+          };
+        }
         return {
           success: true,
           message: `Repository "${input.title}" updated successfully`,
@@ -283,20 +369,24 @@ export async function action({ request }: { request: Request }) {
     const host = formData.get('host') as string;
     try {
       assertValidHost(host);
+      if (!(await getKey(host))) return { error: `There is no signing key for ${host}` };
       // Before the key goes: Release files signed with it would fail on every client.
       let restored = true;
+      let unrestored = 0;
       try {
-        await restoreUpstreamSignatures(host);
+        unrestored = await restoreUpstreamSignatures(host);
       } catch (restoreError) {
         console.error('Restoring upstream signatures failed:', restoreError);
         restored = false;
       }
-      await deleteKey(host);
+      if (!(await deleteKey(host))) return { error: `There is no signing key for ${host}` };
       return {
         success: true,
-        message: restored
-          ? `Deleted signing key for ${host} and restored the upstream signatures`
-          : `Deleted signing key for ${host}; restoring the upstream signatures failed, run a sync to fix them`,
+        message: !restored
+          ? `Deleted signing key for ${host}; restoring the upstream signatures failed, run a sync to fix them`
+          : unrestored
+            ? `Deleted signing key for ${host}. ${unrestored} Release file(s) had no saved upstream signature and stay signed with the deleted key until the next sync; run a sync to restore them`
+            : `Deleted signing key for ${host} and restored the upstream signatures`,
       };
     } catch (error) {
       console.error('Error deleting GPG key:', error);

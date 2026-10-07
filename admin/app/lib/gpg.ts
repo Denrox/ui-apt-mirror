@@ -3,6 +3,7 @@ import path from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
+import { serialQueue } from '~/utils/serial-queue';
 
 const execAsync = promisify(exec);
 
@@ -15,12 +16,23 @@ export interface GpgKeyRecord {
 
 type KeysIndex = Record<string, GpgKeyRecord>;
 
-const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+// A host name or IPv4 address: dot-separated labels of letters, digits and inner hyphens, a
+// single label (a LAN or Docker host such as `aptly`) included. The key's index entry, UID and
+// pubkey URL are named after it. IPv6 literals are not: sign-releases.sh finds a host's mirror
+// folders by `<host>` and `<host>:<port>` names, which `[fd00::10]` breaks.
+const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
+
+/** Whether an upstream host can have a signing key. */
+export function isSignableHost(host: string): boolean {
+  return Boolean(host) && host.length <= 253 && HOST_RE.test(host);
+}
 
 export function assertValidHost(host: string): void {
-  if (!host || host.length > 253 || !HOST_RE.test(host)) {
-    throw new Error(`Invalid host: ${host}`);
+  if (isSignableHost(host)) return;
+  if (/^\[[0-9a-f:.]+\]$/i.test(host ?? '')) {
+    throw new Error(`Signing keys are not supported for IPv6 address hosts (${host}); use a host name instead`);
   }
+  throw new Error(`Invalid host: ${host}`);
 }
 
 function gpgEnv(): NodeJS.ProcessEnv {
@@ -97,47 +109,61 @@ export async function getKey(host: string): Promise<GpgKeyRecord | null> {
   return index[host] ?? null;
 }
 
-export async function generateKey(host: string): Promise<GpgKeyRecord> {
+/** Run key generation and deletion one at a time, so a check and the change after it cannot interleave. */
+const withKeyLock = serialQueue();
+
+/** Fingerprint of the key `gpg --gen-key --status-fd 1` reports it created. */
+export function createdFingerprint(statusOutput: string): string | null {
+  return /^\[GNUPG:\] KEY_CREATED [BPS] ([0-9A-F]{40,64})\b/m.exec(statusOutput)?.[1] ?? null;
+}
+
+export function generateKey(host: string): Promise<GpgKeyRecord> {
   assertValidHost(host);
-  await ensureGpgHome();
+  return withKeyLock(async () => {
+    await ensureGpgHome();
 
-  const index = await readIndex();
-  if (index[host]) {
-    throw new Error(`A signing key already exists for ${host}`);
-  }
+    const index = await readIndex();
+    if (index[host]) {
+      throw new Error(`A signing key already exists for ${host}`);
+    }
 
-  const name = `apt-mirror+${host}`;
-  const email = `apt-mirror+${host}@mirror.intra`;
-  const uid = `${name} <${email}>`;
-  const batch = [
-    '%no-protection',
-    'Key-Type: EDDSA',
-    'Key-Curve: ed25519',
-    'Key-Usage: sign',
-    `Name-Real: ${name}`,
-    `Name-Email: ${email}`,
-    'Expire-Date: 0',
-    '%commit',
-    '',
-  ].join('\n');
+    const name = `apt-mirror+${host}`;
+    const email = `apt-mirror+${host}@mirror.intra`;
+    const uid = `${name} <${email}>`;
+    const batch = [
+      '%no-protection',
+      'Key-Type: EDDSA',
+      'Key-Curve: ed25519',
+      'Key-Usage: sign',
+      `Name-Real: ${name}`,
+      `Name-Email: ${email}`,
+      'Expire-Date: 0',
+      '%commit',
+      '',
+    ].join('\n');
 
-  await runGpg(['--batch', '--pinentry-mode', 'loopback', '--gen-key'], batch);
+    const { stdout } = await runGpg(
+      ['--batch', '--pinentry-mode', 'loopback', '--status-fd', '1', '--gen-key'],
+      batch,
+    );
 
-  const fingerprint = await findFingerprintByUid(email);
-  if (!fingerprint) {
-    throw new Error('Key generated but fingerprint lookup failed');
-  }
+    // The key this run created, not the last one with the same UID (an older one may exist).
+    const fingerprint = createdFingerprint(stdout) ?? (await findFingerprintByUid(email));
+    if (!fingerprint) {
+      throw new Error('Key generated but fingerprint lookup failed');
+    }
 
-  const record: GpgKeyRecord = {
-    fingerprint,
-    keyId: fingerprint.slice(-16),
-    uid,
-    createdAt: new Date().toISOString(),
-  };
+    const record: GpgKeyRecord = {
+      fingerprint,
+      keyId: fingerprint.slice(-16),
+      uid,
+      createdAt: new Date().toISOString(),
+    };
 
-  index[host] = record;
-  await writeIndex(index);
-  return record;
+    index[host] = record;
+    await writeIndex(index);
+    return record;
+  });
 }
 
 export async function exportPublicKey(host: string): Promise<string> {
@@ -149,21 +175,25 @@ export async function exportPublicKey(host: string): Promise<string> {
   return stdout;
 }
 
-export async function deleteKey(host: string): Promise<void> {
+/** Delete the host's key; false when it has none. */
+export function deleteKey(host: string): Promise<boolean> {
   assertValidHost(host);
-  const index = await readIndex();
-  const record = index[host];
-  if (!record) return;
+  return withKeyLock(async () => {
+    const index = await readIndex();
+    const record = index[host];
+    if (!record) return false;
 
-  await runGpg([
-    '--batch',
-    '--yes',
-    '--delete-secret-and-public-key',
-    record.fingerprint,
-  ]).catch(() => undefined);
+    await runGpg([
+      '--batch',
+      '--yes',
+      '--delete-secret-and-public-key',
+      record.fingerprint,
+    ]).catch(() => undefined);
 
-  delete index[host];
-  await writeIndex(index);
+    delete index[host];
+    await writeIndex(index);
+    return true;
+  });
 }
 
 function signScriptEnv(): NodeJS.ProcessEnv {
@@ -190,9 +220,20 @@ export async function signReleasesForHost(host: string): Promise<number> {
   return signedCount(stdout);
 }
 
-/** Put back the upstream signatures of Release files signed with the host's key (run before deleting it). */
-export async function restoreUpstreamSignatures(host: string): Promise<void> {
+/** Count of Release files sign-releases.sh --restore could not give their upstream signatures back. */
+export function unrestoredCount(output: string): number {
+  const match = /Not restored: (\d+) Release file/.exec(output);
+  return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Put back the upstream signatures of Release files signed with the host's key (run before
+ * deleting it). Returns how many Release files have no saved upstream signature: those keep
+ * our signature until the next sync replaces them.
+ */
+export async function restoreUpstreamSignatures(host: string): Promise<number> {
   assertValidHost(host);
-  if (!(await getKey(host))) return;
-  await execAsync(`${appConfig.signReleasesScriptPath} --restore ${host}`, { env: signScriptEnv() });
+  if (!(await getKey(host))) return 0;
+  const { stdout } = await execAsync(`${appConfig.signReleasesScriptPath} --restore ${host}`, { env: signScriptEnv() });
+  return unrestoredCount(stdout);
 }

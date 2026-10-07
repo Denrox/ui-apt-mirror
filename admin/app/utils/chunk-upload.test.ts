@@ -1,12 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import {
   abortUpload,
+  FINISHED_UPLOAD_MS,
+  isStaleTempDir,
   removeStaleTempDirs,
   sweepStaleUploads,
   uploadTempDir,
+  withBusyTempDir,
   writeChunk,
 } from './chunk-upload';
 
@@ -16,7 +20,10 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chunk-upload-'));
 });
 
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  vi.restoreAllMocks();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
 
 const chunk = (fileId: string, chunkIndex: number, totalChunks: number, data: string, fileName = 'f.bin') =>
   writeChunk({ fileId, dir, fileName, chunkIndex, totalChunks, data: Buffer.from(data) });
@@ -36,6 +43,30 @@ describe('writeChunk', () => {
     await chunk('b', 1, 3, 'two');
     await chunk('b', 2, 3, 'three');
     expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('onetwothree');
+  });
+
+  it('appends a chunk once when copies of it arrive while the first is still being written', async () => {
+    const big = (c: string) => c.repeat(2 * 1024 * 1024);
+    await chunk('dup', 0, 3, big('a'));
+    const copies = await Promise.all(Array.from({ length: 6 }, () => chunk('dup', 1, 3, big('b'))));
+    expect(copies).toEqual(Array(6).fill('chunk'));
+    expect(await chunk('dup', 2, 3, big('c'))).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe(big('a') + big('b') + big('c'));
+  });
+
+  it('accepts names up to 255 bytes and an empty file', async () => {
+    const name = 'r2-files-' + 'M'.repeat(246);
+    expect(Buffer.byteLength(name)).toBe(255);
+    expect(await chunk('long', 0, 1, 'x', name)).toBe('done');
+    expect(fs.readFileSync(path.join(dir, name), 'utf-8')).toBe('x');
+    expect(await chunk('empty', 0, 1, '', 'empty.txt')).toBe('done');
+    expect(fs.statSync(path.join(dir, 'empty.txt')).size).toBe(0);
+  });
+
+  it('removes its temp dir when a chunk cannot be stored', async () => {
+    const name = 'x'.repeat(300);
+    await expect(chunk('toolong', 0, 1, 'x', name)).rejects.toThrow();
+    expect(fs.readdirSync(dir)).toEqual([]);
   });
 
   it('restarts cleanly when chunk 0 is sent again', async () => {
@@ -77,6 +108,69 @@ describe('writeChunk', () => {
   });
 });
 
+describe('the final store', () => {
+  // Something takes the name right before the upload stores its file, after every check.
+  const takeNameFirst = (data: string) => {
+    const realLink = fsp.link;
+    vi.spyOn(fsp, 'link').mockImplementation(async (existing, target) => {
+      if (!fs.existsSync(String(target))) fs.writeFileSync(String(target), data);
+      return realLink(existing, target);
+    });
+  };
+
+  it('never replaces a file stored under the name after the last check', async () => {
+    expect(await chunk('r1', 0, 2, 'one')).toBe('chunk');
+    takeNameFirst('renamed here');
+    await expect(chunk('r1', 1, 2, 'two')).rejects.toThrow(/already exists/);
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('renamed here');
+    expect(fs.existsSync(uploadTempDir(dir, 'r1'))).toBe(false);
+  });
+
+  it('of two uploads of one name finishing at once, one is stored and the other refused', async () => {
+    expect(await chunk('r2a', 0, 2, 'A')).toBe('chunk');
+    expect(await chunk('r2b', 0, 2, 'B')).toBe('chunk');
+    const results = await Promise.allSettled([chunk('r2a', 1, 2, 'A'), chunk('r2b', 1, 2, 'B')]);
+    const stored = results.filter((r) => r.status === 'fulfilled');
+    expect(stored).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(String(refused.reason)).toMatch(/already exists/);
+    expect(['AA', 'BB']).toContain(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8'));
+    expect(fs.readdirSync(dir)).toEqual(['f.bin']);
+  });
+});
+
+describe('a resent last chunk', () => {
+  it('is acknowledged for a 2-chunk upload without writing it again', async () => {
+    expect(await chunk('last2', 0, 2, 'one')).toBe('chunk');
+    expect(await chunk('last2', 1, 2, 'two')).toBe('done');
+    expect(await chunk('last2', 1, 2, 'two')).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('onetwo');
+  });
+
+  it('is acknowledged for a 1-chunk upload', async () => {
+    expect(await chunk('last1', 0, 1, 'only')).toBe('done');
+    expect(await chunk('last1', 0, 1, 'only')).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('only');
+  });
+
+  it('is not acknowledged once the file is gone, or for another name', async () => {
+    expect(await chunk('last3', 0, 1, 'x')).toBe('done');
+    // The same id for another name is a new upload.
+    expect(await chunk('last3', 0, 1, 'y', 'g.bin')).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'g.bin'), 'utf-8')).toBe('y');
+    expect(await chunk('last4', 0, 2, 'a', 'k.bin')).toBe('chunk');
+    expect(await chunk('last4', 1, 2, 'b', 'k.bin')).toBe('done');
+    fs.rmSync(path.join(dir, 'k.bin'));
+    await expect(chunk('last4', 1, 2, 'b', 'k.bin')).rejects.toThrow(/interrupted/);
+  });
+
+  it('is forgotten after a while', async () => {
+    expect(await chunk('last5', 0, 1, 'x', 'h.bin')).toBe('done');
+    await sweepStaleUploads(undefined, Date.now() + FINISHED_UPLOAD_MS + 1);
+    await expect(chunk('last5', 0, 1, 'x', 'h.bin')).rejects.toThrow(/already exists/);
+  });
+});
+
 describe('cleanup', () => {
   it('abortUpload removes the partial data', async () => {
     await chunk('g', 0, 2, 'one');
@@ -107,5 +201,16 @@ describe('cleanup', () => {
     expect(await removeStaleTempDirs(dir, 60 * 60 * 1000)).toEqual([stale]);
     expect(fs.existsSync(fresh)).toBe(true);
     expect(fs.existsSync(uploadTempDir(dir, 'active'))).toBe(true);
+  });
+
+  it('never treats a temp dir that a move is still writing as stale', async () => {
+    const busy = path.join(dir, '.tmp-move-x');
+    fs.mkdirSync(busy);
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(busy, old, old);
+    await withBusyTempDir(busy, async () => {
+      expect(await isStaleTempDir(busy, 60_000)).toBe(false);
+    });
+    expect(await isStaleTempDir(busy, 60_000)).toBe(true);
   });
 });

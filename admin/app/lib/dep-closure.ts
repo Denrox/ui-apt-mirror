@@ -1,6 +1,7 @@
 import zlib from 'zlib';
 import { spawn } from 'child_process';
 import { checkUpstreamUrl, fetchUpstream, UpstreamFetchError } from './upstream-fetch';
+import { isPathToken } from '~/utils/mirror-config';
 
 /**
  * Dependency-closure resolver for apt repositories.
@@ -74,44 +75,269 @@ function relationNames(field: string | undefined): string[] {
 const FETCH_TIMEOUT_MS = 60_000;
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_INDEX_BYTES = 512 * 1024 * 1024;
+/**
+ * Most component × architecture combinations one resolve may load (each also loads binary-all):
+ * the stock component sets of Debian and Ubuntu (4 components) for up to 4 architectures. This
+ * bounds the downloads; memory is bounded by MAX_GRAPH_BYTES.
+ */
+const MAX_INDEX_COMBINATIONS = 16;
+/**
+ * Most heap the graph of one resolve may take, as estimated by GraphBudget. Packages of the same
+ * name in several indices are one entry and every name is held once, so more architectures add
+ * little: all 4 components of Debian trixie with Recommends for amd64, i386, arm64 and armhf
+ * come to about 48 MB by this estimate (41 MB of heap measured), Ubuntu noble's 4 components for
+ * the same architectures to about 43 MB (36 MB).
+ * Resolves run one at a time, so this and one downloaded index are what a resolve adds to the heap.
+ */
+const MAX_GRAPH_BYTES = 256 * 1024 * 1024;
 
-async function gunzip(buf: Buffer): Promise<Buffer> {
-  return new Promise((resolve, reject) =>
-    zlib.gunzip(buf, { maxOutputLength: MAX_INDEX_BYTES }, (err, out) =>
-      err ? reject(err) : resolve(out),
-    ),
-  );
+/** Thrown when the indices of one resolve hold more than MAX_GRAPH_BYTES. */
+export class ResolveTooLargeError extends Error {}
+
+/**
+ * What the graph of one resolve holds, shared by the parsers of its indices: the names in it,
+ * each held once (the dependency fields name the same packages over and over), and an estimate
+ * of the heap it takes. The estimate is on the high side of what V8 needs for each kind of entry.
+ */
+interface GraphBudget {
+  bytes: number;
+  max: number;
+  names: Map<string, string>;
 }
 
-/** Decompress an .xz buffer by piping it through the `xz` binary. */
-async function unxz(buf: Buffer): Promise<Buffer> {
+const newBudget = (): GraphBudget => ({ bytes: 0, max: MAX_GRAPH_BYTES, names: new Map() });
+
+// Estimated heap of an entry: a name (string of up to 2 bytes a character, and its place in
+// GraphBudget.names), a package (its map entry and dependency list), one name in a dependency
+// list or provider set, and a virtual package (its map entry and provider set).
+const nameBytes = (name: string) => 80 + 2 * name.length;
+const PACKAGE_BYTES = 120;
+const REFERENCE_BYTES = 8;
+const PROVIDER_BYTES = 40;
+const VIRTUAL_BYTES = 200;
+
+// Only these fields of a stanza matter for the closure; the rest is skipped unread.
+const WANTED_FIELDS = new Set(['package', 'depends', 'pre-depends', 'recommends', 'provides']);
+const NEWLINE = 0x0a;
+/**
+ * Longest line of an index. Lines of the fields the closure skips are not kept, so this only
+ * bounds what is held while a line is read.
+ */
+export const MAX_LINE_BYTES = 1024 * 1024;
+/**
+ * Longest kept field with its continuation lines, and longest package name. In Debian trixie and
+ * Ubuntu noble (all components and architectures) the longest field is the Provides of
+ * librust-winapi-dev, 75 KB; the longest Depends 10 KB; the longest name 88 characters.
+ */
+export const MAX_FIELD_LENGTH = 256 * 1024;
+export const MAX_NAME_LENGTH = 200;
+
+/** An index that is too large, or has a line, field or name that is too long, to be read. */
+export class IndexLimitError extends UpstreamFetchError {}
+
+/**
+ * Parses a Packages index chunk by chunk, keeping only the fields the closure needs. The
+ * decompressed index (hundreds of MB for Debian main) is never held in memory as a whole,
+ * and every kept name is a new string, not a slice that would keep a whole chunk or field alive.
+ * Every byte is looked at once: the unfinished line at the end of a chunk is kept as a list of
+ * parts and joined only when its newline arrives.
+ */
+export class PackagesParser {
+  private partial: Buffer[] = [];
+  private partialBytes = 0;
+  private fields: Record<string, string> = {};
+  private current: string | null = null;
+
+  constructor(
+    private readonly graph: DepGraph,
+    private readonly includeRecommends: boolean,
+    private readonly budget: GraphBudget = newBudget(),
+  ) {}
+
+  /** Parse the next chunk; throws an IndexLimitError on a line longer than MAX_LINE_BYTES. */
+  push(chunk: Buffer): void {
+    let start = 0;
+    let nl = chunk.indexOf(NEWLINE);
+    if (this.partialBytes > 0 && nl !== -1) {
+      this.keep(chunk.subarray(0, nl));
+      const line = this.takePartial();
+      this.line(line, 0, line.length);
+      start = nl + 1;
+      nl = chunk.indexOf(NEWLINE, start);
+    }
+    for (; nl !== -1; nl = chunk.indexOf(NEWLINE, start)) {
+      this.line(chunk, start, nl);
+      start = nl + 1;
+    }
+    if (start < chunk.length) this.keep(chunk.subarray(start));
+  }
+
+  end(): void {
+    if (this.partialBytes > 0) {
+      const line = this.takePartial();
+      this.line(line, 0, line.length);
+    }
+    this.finish();
+  }
+
+  private keep(part: Buffer): void {
+    this.partialBytes += part.length;
+    if (this.partialBytes > MAX_LINE_BYTES) throw new IndexLimitError('A line of the package index is too long');
+    this.partial.push(Buffer.from(part));
+  }
+
+  private takePartial(): Buffer {
+    const line = Buffer.concat(this.partial, this.partialBytes);
+    this.partial = [];
+    this.partialBytes = 0;
+    return line;
+  }
+
+  private line(buf: Buffer, start: number, end: number): void {
+    if (end > start && buf[end - 1] === 0x0d) end--;
+    if (end === start) {
+      this.finish();
+      return;
+    }
+    const first = buf[start];
+    if (first === 0x20 || first === 0x09) {
+      if (!this.current) return;
+      this.setField(this.current, this.fields[this.current] + ' ' + buf.toString('utf8', start, end).trim());
+      return;
+    }
+    const colon = buf.indexOf(0x3a, start);
+    if (colon === -1 || colon > end) {
+      this.current = null;
+      return;
+    }
+    const name = buf.toString('latin1', start, colon).toLowerCase();
+    if (!WANTED_FIELDS.has(name)) {
+      this.current = null;
+      return;
+    }
+    this.current = name;
+    this.setField(name, buf.toString('utf8', colon + 1, end).trim());
+  }
+
+  private setField(name: string, value: string): void {
+    if (value.length > MAX_FIELD_LENGTH) throw new IndexLimitError('A field of the package index is too long');
+    this.fields[name] = value;
+  }
+
+  private finish(): void {
+    const fields = this.fields;
+    this.fields = {};
+    this.current = null;
+    if (!fields['package']) return;
+    const name = this.intern(fields['package']);
+
+    const { pkgs, provides } = this.graph;
+    const deps = [
+      ...relationNames(fields['pre-depends']),
+      ...relationNames(fields['depends']),
+      ...(this.includeRecommends ? relationNames(fields['recommends']) : []),
+    ].map((dep) => this.intern(dep));
+    // Last stanza wins for duplicate names across components (fine for closure).
+    const replaced = pkgs.get(name);
+    this.count(REFERENCE_BYTES * (deps.length - (replaced?.deps.length ?? 0)) + (replaced ? 0 : PACKAGE_BYTES));
+    pkgs.set(name, { deps });
+
+    for (const virtual of relationNames(fields['provides'])) {
+      const prov = this.intern(virtual);
+      let providers = provides.get(prov);
+      if (!providers) {
+        this.count(VIRTUAL_BYTES);
+        providers = new Set();
+        provides.set(prov, providers);
+      }
+      if (!providers.has(name)) {
+        this.count(PROVIDER_BYTES);
+        providers.add(name);
+      }
+    }
+  }
+
+  /** The graph's copy of a name, made on first sight. */
+  private intern(name: string): string {
+    if (name.length > MAX_NAME_LENGTH) {
+      throw new IndexLimitError(`A package name in the index is longer than ${MAX_NAME_LENGTH} characters`);
+    }
+    const known = this.budget.names.get(name);
+    if (known !== undefined) return known;
+    this.count(nameBytes(name));
+    const copy = Buffer.from(name).toString();
+    this.budget.names.set(copy, copy);
+    return copy;
+  }
+
+  private count(bytes: number): void {
+    this.budget.bytes += bytes;
+    if (this.budget.bytes > this.budget.max) {
+      throw new ResolveTooLargeError(
+        'These package indices are too large to resolve at once; select fewer components or architectures',
+      );
+    }
+  }
+}
+
+/** Decompress a .gz buffer into the parser, in chunks. */
+function gunzipInto(buf: Buffer, parser: PackagesParser): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const gunzip = zlib.createGunzip();
+    let size = 0;
+    gunzip.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      try {
+        if (size > MAX_INDEX_BYTES) throw new IndexLimitError('A package index is too large');
+        parser.push(chunk);
+      } catch (err) {
+        gunzip.destroy(err as Error);
+      }
+    });
+    gunzip.on('error', reject);
+    gunzip.on('end', resolve);
+    gunzip.end(buf);
+  });
+}
+
+/** Decompress an .xz buffer into the parser by piping it through the `xz` binary. */
+function unxzInto(buf: Buffer, parser: PackagesParser): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('xz', ['-dc']);
-    const chunks: Buffer[] = [];
     let size = 0;
-    child.stdout.on('data', (c) => {
-      size += c.length;
-      if (size > MAX_INDEX_BYTES) child.kill();
-      else chunks.push(c);
+    let failed: Error | null = null;
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (failed) return;
+      size += chunk.length;
+      try {
+        if (size > MAX_INDEX_BYTES) throw new IndexLimitError('A package index is too large');
+        parser.push(chunk);
+      } catch (err) {
+        failed = err as Error;
+        child.kill();
+      }
     });
     child.on('error', reject);
-    child.on('close', (code) =>
-      code === 0
-        ? resolve(Buffer.concat(chunks))
-        : reject(new Error(`xz exited with ${code}`)),
-    );
+    child.on('close', (code) => {
+      if (failed) reject(failed);
+      else if (code === 0) resolve();
+      else reject(new Error(`xz exited with ${code}`));
+    });
     child.stdin.on('error', () => {});
     child.stdin.end(buf);
   });
 }
 
-/** Fetch and decompress one Packages index; returns null if unavailable. */
-async function fetchIndex(
+/** Fetch one Packages index and parse it into the graph; false if unavailable. */
+async function loadIndex(
   baseUrl: string,
   suite: string,
   component: string,
   arch: string,
-): Promise<string | null> {
+  graph: DepGraph,
+  includeRecommends: boolean,
+  budget: GraphBudget,
+): Promise<boolean> {
   const dir = `${baseUrl.replace(/\/+$/, '')}/dists/${suite}/${component}/binary-${arch}`;
   const candidates: Array<{ url: string; kind: 'gz' | 'xz' | 'raw' }> = [
     { url: `${dir}/Packages.gz`, kind: 'gz' },
@@ -125,15 +351,18 @@ async function fetchIndex(
         maxBytes: MAX_DOWNLOAD_BYTES,
       });
       if (!buf) continue;
-      if (kind === 'gz') return (await gunzip(buf)).toString('utf-8');
-      if (kind === 'xz') return (await unxz(buf)).toString('utf-8');
-      return buf.toString('utf-8');
+      const parser = new PackagesParser(graph, includeRecommends, budget);
+      if (kind === 'gz') await gunzipInto(buf, parser);
+      else if (kind === 'xz') await unxzInto(buf, parser);
+      else parser.push(buf);
+      parser.end();
+      return true;
     } catch (err) {
-      // A refused address, timeout or oversized answer would repeat for every variant
-      if (err instanceof UpstreamFetchError) throw err;
+      // A refused address, timeout or oversized answer or index would repeat for every variant
+      if (err instanceof UpstreamFetchError || err instanceof ResolveTooLargeError) throw err;
     }
   }
-  return null;
+  return false;
 }
 
 /** Parse a Packages file, merging into the graph's name→info and provides maps. */
@@ -142,37 +371,9 @@ export function parsePackages(
   graph: DepGraph,
   includeRecommends: boolean,
 ): void {
-  const { pkgs, provides } = graph;
-  for (const stanza of text.split(/\n\n+/)) {
-    if (!stanza.trim()) continue;
-    const fields: Record<string, string> = {};
-    let current = '';
-    for (const line of stanza.split('\n')) {
-      if (/^\s/.test(line)) {
-        if (current) fields[current] += ' ' + line.trim();
-      } else {
-        const idx = line.indexOf(':');
-        if (idx === -1) continue;
-        current = line.slice(0, idx).toLowerCase();
-        fields[current] = line.slice(idx + 1).trim();
-      }
-    }
-    const name = fields['package'];
-    if (!name) continue;
-
-    const deps = [
-      ...relationNames(fields['pre-depends']),
-      ...relationNames(fields['depends']),
-      ...(includeRecommends ? relationNames(fields['recommends']) : []),
-    ];
-    // Last stanza wins for duplicate names across components (fine for closure).
-    pkgs.set(name, { deps });
-
-    for (const prov of relationNames(fields['provides'])) {
-      if (!provides.has(prov)) provides.set(prov, new Set());
-      provides.get(prov)!.add(name);
-    }
-  }
+  const parser = new PackagesParser(graph, includeRecommends);
+  parser.push(Buffer.from(text, 'utf8'));
+  parser.end();
 }
 
 /**
@@ -222,8 +423,6 @@ export function closureFromGraph(
   };
 }
 
-const PATH_TOKEN_RE = /^[A-Za-z0-9._+~-]+(\/[A-Za-z0-9._+~-]+)*$/;
-
 /** Why the options cannot be resolved (bad URL, path traversal), or null. */
 export function closureOptionsError(opts: ClosureOptions): string | null {
   try {
@@ -232,11 +431,37 @@ export function closureOptionsError(opts: ClosureOptions): string | null {
     return (err as Error).message;
   }
   if (/[?#]/.test(opts.baseUrl)) return 'Base URL cannot contain a query or fragment';
+  if (opts.components.length * opts.arches.length > MAX_INDEX_COMBINATIONS) {
+    return `Resolve at most ${MAX_INDEX_COMBINATIONS} component × architecture combinations at once (for example 4 components × 4 architectures)`;
+  }
   const tokens = [opts.suite, ...opts.components, ...opts.arches];
-  if (tokens.some((t) => !PATH_TOKEN_RE.test(t) || t.split('/').some((p) => p === '..' || p === '.'))) {
+  if (!tokens.every(isPathToken)) {
     return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ / (no "..")';
   }
   return null;
+}
+
+/** Thrown when too many resolves are already running or waiting. */
+export class ResolveBusyError extends Error {}
+
+const MAX_WAITING_RESOLVES = 2;
+let resolveQueue: Promise<unknown> = Promise.resolve();
+let pendingResolves = 0;
+
+/**
+ * Run resolves one at a time: each loads whole package indices, and several at once (two tabs)
+ * could push the shared admin process towards running out of memory. A few may wait.
+ */
+export function runResolveExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  if (pendingResolves > MAX_WAITING_RESOLVES) {
+    return Promise.reject(new ResolveBusyError('Other dependency resolves are running; try again in a minute'));
+  }
+  pendingResolves++;
+  const run = resolveQueue.then(fn).finally(() => {
+    pendingResolves--;
+  });
+  resolveQueue = run.catch(() => undefined);
+  return run;
 }
 
 /** Resolve the dependency closure of `seeds` against the upstream indices. */
@@ -244,12 +469,12 @@ export async function resolveClosure(
   opts: ClosureOptions,
 ): Promise<ClosureResult> {
   const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
+  const budget = newBudget();
 
   for (const component of opts.components) {
     // binary-all holds Architecture: all packages shared by every arch.
     for (const arch of [...opts.arches, 'all']) {
-      const text = await fetchIndex(opts.baseUrl, opts.suite, component, arch);
-      if (text) parsePackages(text, graph, !!opts.includeRecommends);
+      await loadIndex(opts.baseUrl, opts.suite, component, arch, graph, !!opts.includeRecommends, budget);
     }
   }
 

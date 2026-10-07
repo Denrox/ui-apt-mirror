@@ -40,6 +40,12 @@
       "address": "npm.mirror.intra",
       "name": "NPM Mirror",
       "description": "NPM Registry Cache"
+    },
+    {
+      "id": "cheatsheets",
+      "address": "cheatsheets.mirror.intra",
+      "name": "Cheatsheets",
+      "description": "Public cheatsheets (read-only)"
     }
   ]
 }

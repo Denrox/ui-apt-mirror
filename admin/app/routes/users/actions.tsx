@@ -1,8 +1,18 @@
 import { readFileSync } from 'fs';
 import { data } from 'react-router';
 import appConfig from '~/config/config.json';
-import { hashPassword, writePrivateFile } from '~/utils/htpasswd';
-import { passwordError } from '~/utils/password-rules';
+import { hashPassword, withAuthFileLock, writePrivateFile } from '~/utils/htpasswd';
+import { tooManyAttemptsMessage } from '~/utils/login-limiter';
+import { passwordError, usernameError } from '~/utils/password-rules';
+
+function lineUsername(line: string): string | null {
+  if (!line.trim() || line.startsWith('#') || !line.includes(':')) return null;
+  return line.substring(0, line.indexOf(':'));
+}
+
+function userExists(content: string, username: string): boolean {
+  return content.split('\n').some((line) => lineUsername(line) === username);
+}
 
 type ActionResult = { success: boolean; message?: string; error?: string };
 
@@ -11,8 +21,13 @@ export async function action({
 }: {
   request: Request;
 }): Promise<ActionResult | ReturnType<typeof data<ActionResult>>> {
-  const { requireAuth, revokeUserTokens, createAuthToken, createAuthCookie } =
-    await import('~/utils/server-auth');
+  const {
+    attemptLogin,
+    requireAuth,
+    revokeUserTokens,
+    createAuthToken,
+    createAuthCookie,
+  } = await import('~/utils/server-auth');
   const user = await requireAuth(request);
 
   if (!user) {
@@ -50,35 +65,48 @@ export async function action({
       return { success: false, error: newPasswordError };
     }
 
+    // A session alone must not be enough to take the account over for good.
+    // The admin resetting someone else's password is not asked for theirs.
+    if (username === user.username) {
+      const currentPassword = formData.get('currentPassword');
+      if (typeof currentPassword !== 'string' || !currentPassword) {
+        return { success: false, error: 'Current password is required' };
+      }
+      const { ok, retryAfter } = await attemptLogin(request, {
+        username,
+        password: currentPassword,
+      });
+      if (retryAfter) {
+        return data(
+          { success: false, error: tooManyAttemptsMessage(retryAfter) },
+          { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+        );
+      }
+      if (!ok) {
+        return { success: false, error: 'Current password is incorrect' };
+      }
+    }
+
     try {
       const passwordHash = await hashPassword(newPassword);
       const htpasswdPath = appConfig.htpasswdPath;
-      const htpasswdContent = readFileSync(htpasswdPath, 'utf-8');
-      const lines = htpasswdContent.split('\n');
-
-      let userFound = false;
-      const updatedLines = lines.map((line) => {
-        if (!line.trim() || line.startsWith('#') || !line.includes(':')) {
-          return line;
-        }
-
-        const colonIndex = line.indexOf(':');
-        const existingUsername = line.substring(0, colonIndex);
-
-        if (existingUsername === username) {
-          userFound = true;
+      const userFound = await withAuthFileLock(() => {
+        const lines = readFileSync(htpasswdPath, 'utf-8').split('\n');
+        let found = false;
+        const updatedLines = lines.map((line) => {
+          if (lineUsername(line) !== username) return line;
+          found = true;
           return `${username}:${passwordHash}`;
-        }
-
-        return line;
+        });
+        if (!found) return false;
+        writePrivateFile(htpasswdPath, updatedLines.join('\n'));
+        revokeUserTokens(username);
+        return true;
       });
 
       if (!userFound) {
         return { success: false, error: 'User not found' };
       }
-
-      writePrivateFile(htpasswdPath, updatedLines.join('\n'));
-      revokeUserTokens(username);
 
       const result = {
         success: true,
@@ -105,26 +133,31 @@ export async function action({
       return { success: false, error: 'Username is required' };
     }
 
+    const deleteNameError = usernameError(username);
+    if (deleteNameError) {
+      return { success: false, error: deleteNameError };
+    }
+
     if (username === 'admin') {
       return { success: false, error: 'Cannot delete admin user' };
     }
 
     try {
       const htpasswdPath = appConfig.htpasswdPath;
-      const htpasswdContent = readFileSync(htpasswdPath, 'utf-8');
-      const lines = htpasswdContent.split('\n');
-
-      const filteredLines = lines.filter((line) => {
-        if (!line.trim() || line.startsWith('#')) return true;
-        if (!line.includes(':')) return true;
-
-        const colonIndex = line.indexOf(':');
-        const existingUsername = line.substring(0, colonIndex);
-        return existingUsername !== username;
+      const deleted = await withAuthFileLock(() => {
+        const content = readFileSync(htpasswdPath, 'utf-8');
+        if (!userExists(content, username)) return false;
+        const filteredLines = content
+          .split('\n')
+          .filter((line) => lineUsername(line) !== username);
+        writePrivateFile(htpasswdPath, filteredLines.join('\n'));
+        revokeUserTokens(username);
+        return true;
       });
 
-      writePrivateFile(htpasswdPath, filteredLines.join('\n'));
-      revokeUserTokens(username);
+      if (!deleted) {
+        return { success: false, error: 'User not found' };
+      }
 
       return {
         success: true,
@@ -148,12 +181,9 @@ export async function action({
       return { success: false, error: 'Username and password are required' };
     }
 
-    if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
-      return {
-        success: false,
-        error:
-          'Username can only contain letters, numbers, hyphens, and underscores',
-      };
+    const addNameError = usernameError(username);
+    if (addNameError) {
+      return { success: false, error: addNameError };
     }
 
     const addPasswordError = passwordError(password);
@@ -163,27 +193,27 @@ export async function action({
 
     try {
       const htpasswdPath = appConfig.htpasswdPath;
-      const htpasswdContent = readFileSync(htpasswdPath, 'utf-8');
-      const lines = htpasswdContent.split('\n').filter((line) => line.trim());
-
-      const existingUser = lines.find((line) => {
-        if (line.startsWith('#') || !line.includes(':')) return false;
-        const colonIndex = line.indexOf(':');
-        const existingUsername = line.substring(0, colonIndex);
-        return existingUsername === username;
-      });
-
-      if (existingUser) {
+      if (userExists(readFileSync(htpasswdPath, 'utf-8'), username)) {
         return { success: false, error: 'User already exists' };
       }
 
       const passwordHash = await hashPassword(password);
-      const current = readFileSync(htpasswdPath, 'utf-8');
-      const separator = current && !current.endsWith('\n') ? '\n' : '';
-      writePrivateFile(
-        htpasswdPath,
-        `${current}${separator}${username}:${passwordHash}\n`,
-      );
+      // Check again under the lock: another request may have added the
+      // same name while this one was hashing.
+      const created = await withAuthFileLock(() => {
+        const current = readFileSync(htpasswdPath, 'utf-8');
+        if (userExists(current, username)) return false;
+        const separator = current && !current.endsWith('\n') ? '\n' : '';
+        writePrivateFile(
+          htpasswdPath,
+          `${current}${separator}${username}:${passwordHash}\n`,
+        );
+        return true;
+      });
+
+      if (!created) {
+        return { success: false, error: 'User already exists' };
+      }
 
       return {
         success: true,

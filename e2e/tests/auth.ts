@@ -1,5 +1,6 @@
 import type { BrowserContext } from '@playwright/test';
 import { readFileSync } from 'fs';
+import { randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
 
 /**
@@ -27,6 +28,8 @@ export function makeAuthToken(username = 'admin'): string {
       username,
       exp: Math.floor(Date.now() / 1000) + 60 * 60,
       type: 'web',
+      iatMs: Date.now(),
+      jti: randomBytes(16).toString('base64url'),
     },
     jwtSecret(),
   );

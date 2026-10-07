@@ -1,7 +1,8 @@
 import { randomBytes } from 'crypto';
 import fs from 'fs/promises';
 import { giveToDirOwner } from './file-owner';
-import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
+import { MirrorConfig, isPathToken, type RepositoryInput } from '~/utils/mirror-config';
+import { serialQueue } from './serial-queue';
 
 /**
  * Thin helpers for the apt-mirror2 `mirror.list` file.
@@ -16,14 +17,8 @@ import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
 /** Re-exported for callers that predate the {@link MirrorConfig} model. */
 export type NewRepositoryInput = RepositoryInput;
 
-let mirrorListQueue: Promise<unknown> = Promise.resolve();
-
 /** Run read-modify-write cycles on mirror.list one at a time, so none is lost. */
-export function withMirrorListLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = mirrorListQueue.then(fn);
-  mirrorListQueue = run.catch(() => undefined);
-  return run;
-}
+export const withMirrorListLock = serialQueue();
 
 /** Write a file atomically: write to a sibling temp file, then rename. */
 export async function atomicWriteFile(
@@ -52,8 +47,53 @@ export function getSectionTitles(content: string): string[] {
  * Validate user input for a new repository. Returns an error string, or null
  * when the input is valid.
  */
-const CONTROL_RE = /[\u0000-\u001f\u007f]/;
-const TOKEN_RE = /^[A-Za-z0-9._+~\/-]+$/;
+// C0/C1 controls (incl. U+0085 NEL) and the Unicode line/paragraph separators U+2028/U+2029:
+// line terminators to some readers (Python's splitlines, JS `.`), so none may reach the file.
+const CONTROL_RE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+// URL characters (RFC 3986) without whitespace, `?` and `#`: any other character could be read
+// differently by apt-mirror2 (Python splits on Unicode whitespace) than by this app.
+const BASE_URL_RE = /^[A-Za-z0-9\-._~:\/@!$&'()*+,;=%\[\]]+$/;
+// Characters a title must not contain because they do not show: format characters (zero-width
+// space and joiners, bidi embeddings, overrides and isolates, U+FEFF), the other default-ignorable
+// code points (combining grapheme joiner, variation selectors, Hangul fillers, Khmer inherent
+// vowels, Mongolian variation selectors), private-use and unassigned code points, lone
+// surrogates, the object replacement character and the Braille blank. Two titles would otherwise
+// look the same, and a bidi override displays a title reversed.
+const INVISIBLE_RE =
+  /[\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u115F\u1160\u2800\u3164\uFFA0\uFFFC\uFFFD]/u;
+// A combining mark with no letter to attach to (at the start or after a space), the same
+// nonspacing mark twice in a row, or three or more stacked: such marks either do not show or
+// pile up over the text.
+const STRAY_MARK_RE = /^\p{M}|\s\p{M}|(\p{Mn})\1|\p{Mn}{3,}/u;
+
+// Letters of other scripts that look like Latin ones (a subset of the Unicode confusables of
+// UTS #39), so "Dеbian" with a Cyrillic "е" counts as a duplicate of "Debian".
+const LOOKALIKES: Record<string, string> = {
+  А: 'A', В: 'B', Е: 'E', Ѕ: 'S', І: 'I', Ј: 'J', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C',
+  Т: 'T', Х: 'X', Ү: 'Y', Ԝ: 'W', Ӏ: 'I', а: 'a', е: 'e', ѕ: 's', і: 'i', ј: 'j', о: 'o', р: 'p',
+  с: 'c', у: 'y', х: 'x', ү: 'y', һ: 'h', ԁ: 'd', ԛ: 'q', ԝ: 'w', ӏ: 'l',
+  Α: 'A', Β: 'B', Ε: 'E', Ζ: 'Z', Η: 'H', Ι: 'I', Κ: 'K', Μ: 'M', Ν: 'N', Ο: 'O', Ρ: 'P', Τ: 'T',
+  Υ: 'Y', Χ: 'X', α: 'a', ι: 'i', κ: 'k', ν: 'v', ο: 'o', ρ: 'p', υ: 'u', χ: 'x', ϲ: 'c', ϳ: 'j',
+  ı: 'i', ȷ: 'j', ɑ: 'a', ɡ: 'g',
+};
+const LOOKALIKE_RE = new RegExp(`[${Object.keys(LOOKALIKES).join('')}]`, 'gu');
+
+/**
+ * A title as it is compared for duplicates, close to a confusables skeleton: compatibility
+ * forms folded (NFKC), combining marks and default-ignorable characters dropped, look-alike
+ * letters of other scripts mapped to Latin, case-folded, single spaces. Titles with the same
+ * key look the same (or nearly: "Café" and "Cafe" count as duplicates).
+ */
+function titleKey(title: string): string {
+  return title
+    .normalize('NFKD')
+    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}]/gu, '')
+    .replace(LOOKALIKE_RE, (c) => LOOKALIKES[c])
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export function validateRepositoryInput(
   input: NewRepositoryInput,
@@ -71,11 +111,8 @@ export function validateRepositoryInput(
     return 'Values cannot contain line breaks or control characters';
   }
   const pathTokens = [...input.suites, ...input.components, ...(input.arches ?? [])];
-  if (pathTokens.some((t) => !TOKEN_RE.test(t))) {
-    return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ /';
-  }
-  if (pathTokens.some((t) => t.split('/').includes('..'))) {
-    return 'Suites, components and architectures cannot contain ".."';
+  if (!pathTokens.every(isPathToken)) {
+    return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ / (no "." or ".." parts)';
   }
   if ((input.description?.trim().length ?? 0) > 500) {
     return 'Description is too long (max 500 characters)';
@@ -87,13 +124,24 @@ export function validateRepositoryInput(
   if (title.includes('---') || /[\n\r]/.test(title)) {
     return 'Title cannot contain "---" or line breaks';
   }
-  if (existingTitles.some((t) => t.toLowerCase() === title.toLowerCase())) {
+  if (INVISIBLE_RE.test(title)) {
+    return 'Title cannot contain invisible, bidirectional or private-use characters';
+  }
+  if (STRAY_MARK_RE.test(title.normalize('NFD'))) {
+    return 'Title cannot start with a combining mark, or repeat or stack combining marks';
+  }
+  if (existingTitles.some((t) => titleKey(t) === titleKey(title))) {
     return `A repository titled "${title}" already exists`;
   }
 
   const base = input.baseUrl?.trim() ?? '';
   if (!base) return 'Base URL is required';
   if (/\s/.test(base)) return 'Base URL cannot contain spaces';
+  // apt-mirror2 leaves ";parameters" out of the folder it stores a repository in, like a query.
+  if (/[#?;]/.test(base)) {
+    return 'Base URL cannot contain a query, ";" parameters or fragment';
+  }
+  if (!BASE_URL_RE.test(base)) return 'Base URL may only contain plain ASCII URL characters';
   let parsed: URL;
   try {
     parsed = new URL(base);
@@ -103,16 +151,13 @@ export function validateRepositoryInput(
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return 'Base URL must use http or https';
   }
-  if (base.includes('#') || base.includes('?')) {
-    return 'Base URL cannot contain a query or fragment';
+  if (parsed.username || parsed.password) return 'Base URL cannot contain credentials';
+  if (base.replace(/^[a-z]+:\/\/[^/]*/i, '').split('/').some((p) => /^(\.|%2e){1,2}$/i.test(p))) {
+    return 'Base URL cannot contain "." or ".." parts';
   }
 
   if (!input.suites.length) return 'At least one suite is required';
   if (!input.components.length) return 'At least one component is required';
-  if (input.suites.some((s) => s.includes('#'))) return 'Invalid suite name';
-  if (input.components.some((c) => c.includes('#'))) {
-    return 'Invalid component name';
-  }
 
   return null;
 }

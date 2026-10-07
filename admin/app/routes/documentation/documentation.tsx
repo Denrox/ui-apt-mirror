@@ -9,6 +9,8 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import {
   documentationSections,
   findDocumentationSection,
+  npmClientSetup,
+  npmLoginCommand,
 } from '~/utils/documentation-sections';
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -31,6 +33,8 @@ export function meta() {
 export default function Documentation() {
   const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
   const npmHost = hostOf(hosts, 'npm');
+  const filesHost = hostOf(hosts, 'files');
+  const cheatsheetsHost = hostOf(hosts, 'cheatsheets');
   const sections = documentationSections(isNpmProxyEnabled);
   const activeSection = useParams().section ?? 'file-structure';
 
@@ -42,6 +46,11 @@ export default function Documentation() {
           <pre className="overflow-x-auto whitespace-pre">
             {`ui-apt-mirror/
 ├── .env                         # Settings, change with ./setup.sh --reconfigure
+├── setup.sh                     # First setup, --reconfigure, --reset-admin-password
+├── start.sh                     # Loads the image and starts the container
+├── upgrade.sh                   # Installs the latest release
+├── README.md
+├── docker-compose.src.yml       # Template of docker-compose.yml
 ├── docker-compose.yml           # Stock file, replaced on upgrade
 ├── docker-compose.override.yml  # Optional: your compose changes
 ├── backups/                     # Configuration backups made by upgrades
@@ -86,8 +95,10 @@ export default function Documentation() {
           <div>
             <h4 className="font-semibold text-primary">.env</h4>
             <p className="text-on-surface-variant">
-              Domains, sync frequency, npm proxy and timezone. Change them with
-              ./setup.sh --reconfigure, or edit the file and run ./start.sh.
+              The base domain (MIRROR_DOMAIN; the admin, files, npm and
+              cheatsheets hosts are its subdomains), sync frequency, npm proxy
+              and timezone. Change them with ./setup.sh --reconfigure, or edit
+              the file and run ./start.sh.
             </p>
           </div>
           <div>
@@ -101,9 +112,11 @@ export default function Documentation() {
             <h4 className="font-semibold text-primary">conf/</h4>
             <p className="text-on-surface-variant">
               The mirror list. Nginx sites are generated in the container from
-              .env; a file in conf/nginx/custom/ with the name of a site (e.g.
-              files.mirror.intra.conf) replaces it. Delete the file to go back
-              to the stock site.
+              .env; a file in conf/nginx/custom/ with the name of a stock site
+              replaces it. Delete the file to go back to the stock site. The
+              names stay the stock ones whatever the domain: the site for{' '}
+              {filesHost || 'files.mirror.intra'} is overridden by
+              files.mirror.intra.conf, and so on.
             </p>
           </div>
           <div>
@@ -112,7 +125,8 @@ export default function Documentation() {
               Main data storage directory. apt-mirror/ contains downloaded
               package repositories and signing keys, files/ and files-private/
               the public and private file repositories, cheatsheets/
-              cheatsheets downloaded from GitHub sources
+              cheatsheets downloaded from GitHub sources (shown to everyone,
+              without a login, at http://{cheatsheetsHost || 'cheatsheets.mirror.intra'})
               {isNpmProxyEnabled
                 ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}
@@ -134,29 +148,6 @@ export default function Documentation() {
   const renderCommands = () => (
     <div className="space-y-8">
       <div>
-        <h3 className="text-lg font-semibold mb-4">Build Process</h3>
-        <div className="bg-surface-container p-4 rounded-lg">
-          <h4 className="font-semibold text-primary mb-2">./build.sh</h4>
-          <p className="text-on-surface-variant mb-3">
-            Builds Docker images for multiple architectures (amd64, arm64).
-          </p>
-          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
-            <h5 className="font-semibold mb-2">Operations:</h5>
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              <li>Checks Docker and buildx prerequisites</li>
-              <li>Sets up multi-platform builder</li>
-              <li>Builds images for both amd64 and arm64 architectures</li>
-              <li>Saves compressed tar files to dist/ directory</li>
-              <li>
-                Installs required packages: apt-mirror, nginx, openssl, curl,
-                wget, xz-utils, nodejs, npm
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      <div>
         <h3 className="text-lg font-semibold mb-4">Initial Setup</h3>
         <div className="bg-surface-container p-4 rounded-lg">
           <h4 className="font-semibold text-primary mb-2">./setup.sh</h4>
@@ -170,7 +161,8 @@ export default function Documentation() {
               <li>Detects system architecture (amd64/arm64)</li>
               <li>Validates required image files exist in dist/</li>
               <li>
-                Prompts for custom configuration (domain, sync frequency, admin
+                Prompts for custom configuration (domain, sync frequency,
+                whether to enable the caching npm proxy, timezone, admin
                 password)
               </li>
               <li>
@@ -312,6 +304,31 @@ export default function Documentation() {
           </div>
         </div>
       </div>
+      <div>
+        <h3 className="text-lg font-semibold mb-4">Building From Source</h3>
+        <div className="bg-surface-container p-4 rounded-lg">
+          <h4 className="font-semibold text-primary mb-2">./build.sh</h4>
+          <p className="text-on-surface-variant mb-3">
+            Builds Docker images for multiple architectures (amd64, arm64).
+            Part of the source repository only; an installation has no
+            build.sh and gets new images with ./upgrade.sh.
+          </p>
+          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
+            <h5 className="font-semibold mb-2">Operations:</h5>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Checks Docker and buildx prerequisites</li>
+              <li>Sets up multi-platform builder</li>
+              <li>Builds images for both amd64 and arm64 architectures</li>
+              <li>Saves compressed tar files to dist/ directory</li>
+              <li>
+                Installs apt-mirror2 (from PyPI) and the packages it needs:
+                nginx, openssl, curl, wget, xz-utils, nodejs, npm
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 
@@ -328,8 +345,8 @@ export default function Documentation() {
             <p className="text-on-surface-variant mb-3">
               The NPM Proxy provides a local caching layer for npm packages,
               speeding up installations and reducing bandwidth usage. It also
-              supports publishing private packages that are stored locally and
-              never forwarded to the public npm registry.
+              supports publishing private packages that are stored locally;
+              their contents are never sent to the public npm registry.
             </p>
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
               <h5 className="font-semibold mb-2">Features:</h5>
@@ -340,9 +357,10 @@ export default function Documentation() {
                 <li>Offline package availability</li>
                 <li>Private package publishing (requires authentication)</li>
                 <li>
-                  Private packages stored separately and never forwarded to
-                  npmjs.org
+                  Private packages stored separately; their contents are never
+                  sent to npmjs.org
                 </li>
+                <li>Works with npm, pnpm and Yarn (1 and 2+)</li>
               </ul>
             </div>
           </div>
@@ -352,15 +370,33 @@ export default function Documentation() {
           <h3 className="text-lg font-semibold mb-4">Usage</h3>
           <div className="bg-surface-container p-4 rounded-lg">
             <h4 className="font-semibold text-primary mb-2">
-              Configure npm to use the proxy
+              Point your package manager at the proxy
             </h4>
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-tertiary">
               <h5 className="font-semibold mb-2">Commands:</h5>
-              <div className="space-y-2 text-sm font-mono">
-                <div className="bg-surface-container-lowest p-2 rounded">
-                  npm config set registry http://{npmHost}
-                </div>
+              <div className="space-y-3 text-sm">
+                {npmClientSetup(npmHost).map(({ client, commands }) => (
+                  <div key={client}>
+                    <p className="text-on-surface-variant mb-1">{client}:</p>
+                    {commands.map((command) => (
+                      <div
+                        key={command}
+                        className="bg-surface-container-lowest p-2 rounded font-mono text-xs break-all"
+                      >
+                        {command}
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
+              <p className="text-sm text-on-surface-variant mt-3">
+                Yarn 2+ refuses a registry over plain http unless its host is
+                in unsafeHttpWhitelist. To let Corepack download Yarn or pnpm
+                itself through the proxy, set
+                COREPACK_NPM_REGISTRY=http://{npmHost} as well. Tarball URLs
+                in lockfiles point at the proxy, so installs keep working when
+                npmjs.org cannot be reached.
+              </p>
             </div>
 
             <h4 className="font-semibold text-primary mb-2 mt-4">
@@ -389,8 +425,10 @@ export default function Documentation() {
           </h3>
           <div className="bg-surface-container p-4 rounded-lg">
             <p className="text-on-surface-variant mb-3">
-              You can publish private npm packages to this registry. All
-              packages are stored locally and never forwarded to npmjs.org.
+              You can publish private npm packages to this registry. Their
+              contents are stored locally and never sent to npmjs.org. Publish
+              them under a scope of your own (for example @yourorg/tool): a
+              name that is a public package on npmjs.org cannot be published.
             </p>
 
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-success mb-4">
@@ -400,8 +438,7 @@ export default function Documentation() {
               </p>
               <div className="space-y-2 text-sm">
                 <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
-                  npm login --registry=http://{npmHost}
-                  --auth-type=legacy
+                  {npmLoginCommand(npmHost)}
                 </div>
                 <p className="text-on-surface-variant">
                   Enter your username and password when prompted, then verify:
@@ -444,6 +481,47 @@ export default function Documentation() {
               </div>
             </div>
 
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary mb-4">
+              <h5 className="font-semibold mb-2">Logging out:</h5>
+              <p className="text-sm text-on-surface-variant mb-2">
+                npm logout (and pnpm logout) ends the token on the server, so
+                it no longer works anywhere:
+              </p>
+              <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
+                npm logout --registry=http://{npmHost}
+              </div>
+              <p className="text-sm text-on-surface-variant mt-2">
+                Yarn 2+'s yarn npm logout only removes the token from its own
+                settings; the token stays valid until it expires.
+              </p>
+            </div>
+
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary mb-4">
+              <h5 className="font-semibold mb-2">Which names can be published:</h5>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>
+                  The first publish of a name is checked with npmjs.org. A
+                  public package name is refused (403). For a scoped name only
+                  the package list of its scope is asked for, so the name
+                  itself is never sent; an unscoped name is looked up as is
+                </li>
+                <li>
+                  If npmjs.org gives no clear answer (an error, a rate limit),
+                  the publish is refused with 503; try again later
+                </li>
+                <li>
+                  If npmjs.org cannot be reached at all, only a scoped name
+                  whose scope has no public package in the cache can be
+                  published; unscoped names wait until npmjs.org can be
+                  reached
+                </li>
+                <li>
+                  Later versions of a package already published here are not
+                  checked again
+                </li>
+              </ul>
+            </div>
+
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-tertiary">
               <h5 className="font-semibold mb-2">Important Notes:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
@@ -455,12 +533,13 @@ export default function Documentation() {
                   Public packages (cached from npmjs.org) are stored in
                   data/data/npm/public/
                 </li>
-                <li>Published packages are never forwarded to npmjs.org</li>
                 <li>
-                  Private packages take precedence over cached public packages
+                  The contents of published packages are never sent to
+                  npmjs.org; only the check of a new name is
                 </li>
                 <li>
-                  Authentication tokens are JWT-based and valid for 1 year
+                  Authentication tokens are JWT-based and valid for 1 year, or
+                  until npm logout
                 </li>
               </ul>
             </div>

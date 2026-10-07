@@ -70,7 +70,8 @@ export default function ChunkedUpload({
   const splitFileIntoChunks = (file: File): UploadChunk[] => {
     const chunks: UploadChunk[] = [];
     const fileId = generateFileId();
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    // An empty file is still sent, as one empty chunk.
+    const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
 
     for (let i = 0; i < totalChunks; i++) {
       const start = i * CHUNK_SIZE;
@@ -260,6 +261,7 @@ export default function ChunkedUpload({
             }
             type="secondary"
             disabled={uploading}
+            ariaLabel="Upload files"
           >
             <FontAwesomeIcon icon={faUpload} />
           </FormButton>

@@ -1,19 +1,31 @@
 import { describe, it, expect } from 'vitest';
+import zlib from 'zlib';
+import { createHash } from 'crypto';
 import {
   applyDocUpdate,
   auditPackageNames,
+  decodeBody,
   isFresh,
   isRegistryRequest,
   isValidDistTag,
+  isValidVersion,
   isWebLoginPath,
+  logoutPathToken,
+  matchesDist,
+  tarballsAt,
   mergePublish,
   nextRev,
+  packageScope,
   parseJsonObject,
   parseNpmPath,
+  PayloadTooLargeError,
   pathPackage,
   privateVersion,
   publicCachePath,
   revMatches,
+  scopeListsPackage,
+  tarballDist,
+  upstreamUrl,
   upstreamHeaders,
   withoutAuditPackages,
   type PackageDoc,
@@ -115,6 +127,31 @@ describe('mergePublish', () => {
     expect(result).toMatchObject({ status: 403 });
   });
 
+  it('refuses versions that are not semver', () => {
+    for (const v of ['..', '.', '1', '1.0', 'v1.0.0', '01.0.0', '1.0.0-', '1.0.0+', 'latest', '1.0.0-a..b', `1.0.0-${'a'.repeat(260)}`]) {
+      const result = mergePublish(null, publishBody('@acme/widget', v), 'alice', NOW);
+      expect(result, v).toMatchObject({ status: 400 });
+      expect(isValidVersion(v), v).toBe(false);
+    }
+    for (const v of ['0.0.0', '1.2.3', '1.0.0-beta.1', '1.0.0-0.3.7', '1.0.0-x-y.z', '1.0.0+build.5', '99.0.0-r2']) {
+      expect(isValidVersion(v), v).toBe(true);
+    }
+  });
+
+  it('refuses dist-tags that do not name a valid tag and a published version', () => {
+    const bad: Record<string, unknown>[] = [{ latest: '..' }, { latest: '2.0.0' }, { 'v1': '1.0.0' }, { latest: 1 }, { 'a/b': '1.0.0' }];
+    for (const tags of bad) {
+      const body = publishBody('@acme/widget', '1.0.0', tags as Record<string, string>);
+      expect(mergePublish(null, body, 'alice', NOW), JSON.stringify(tags)).toMatchObject({ status: 400 });
+    }
+    const body = { ...publishBody('@acme/widget', '1.1.0'), 'dist-tags': 'latest' };
+    expect(mergePublish(published('1.0.0'), body, 'alice', NOW)).toMatchObject({ status: 400 });
+    // A tag may point at a version published earlier.
+    expect(
+      mergePublish(published('1.0.0'), publishBody('@acme/widget', '1.1.0', { latest: '1.1.0', old: '1.0.0' }), 'alice', NOW),
+    ).toHaveProperty('doc');
+  });
+
   it('refuses an empty publish', () => {
     expect(mergePublish(null, { name: 'x', versions: {} }, 'alice')).toMatchObject({ status: 400 });
   });
@@ -157,6 +194,20 @@ describe('applyDocUpdate', () => {
     expect(applyDocUpdate(doc, { versions: { ...doc.versions, '9.9.9': {} } })).toMatchObject({ status: 400 });
     expect(applyDocUpdate(doc, { versions: {} })).toMatchObject({ status: 400 });
   });
+
+  it('takes no Object.prototype name for a version, nor a tag pointing at one', () => {
+    const doc = published('1.0.0');
+    for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const versions = JSON.parse(`{"1.0.0": {}, ${JSON.stringify(name)}: {}}`);
+      expect(applyDocUpdate(doc, { versions }), name).toMatchObject({ status: 400 });
+    }
+    const result = applyDocUpdate(doc, {
+      versions: { '1.0.0': {} },
+      'dist-tags': { latest: '1.0.0', beta: 'constructor', next: 'toString' },
+    });
+    if ('status' in result) throw new Error(result.reason);
+    expect(result.doc['dist-tags']).toEqual({ latest: '1.0.0' });
+  });
 });
 
 describe('revisions', () => {
@@ -167,7 +218,6 @@ describe('revisions', () => {
     expect(revMatches(doc, undefined)).toBe(true);
     expect(revMatches(doc, doc._rev)).toBe(true);
     expect(revMatches(doc, '1-stale')).toBe(false);
-    expect(revMatches({ ...doc, _rev: undefined }, '0-legacy')).toBe(true);
   });
 });
 
@@ -178,6 +228,49 @@ describe('isValidDistTag', () => {
     expect(isValidDistTag('1.0.0')).toBe(false);
     expect(isValidDistTag('v2')).toBe(false);
     expect(isValidDistTag('a/b')).toBe(false);
+  });
+
+  it('rejects the names of Object.prototype properties', () => {
+    for (const tag of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'toLocaleString']) {
+      expect(isValidDistTag(tag), tag).toBe(false);
+    }
+    expect(isValidDistTag('construct')).toBe(true);
+  });
+});
+
+describe('upstreamUrl', () => {
+  const REG = 'https://registry.npmjs.org';
+  const href = (p: string, search?: string) => upstreamUrl(REG, p, search)?.href ?? null;
+
+  it('keeps every path on the registry', () => {
+    expect(href('is-number')).toBe(`${REG}/is-number`);
+    expect(href('@types%2fnode')).toBe(`${REG}/@types%2fnode`);
+    expect(href('-/v1/search', '?text=x')).toBe(`${REG}/-/v1/search?text=x`);
+    expect(href('-/user/org.couchdb.user:alice')).toBe(`${REG}/-/user/org.couchdb.user:alice`);
+    for (const p of ['http:/example.com/', 'http://example.com/', '//example.com/x', 'https:/x:8443/', 'file:/etc/passwd', 'javascript:alert(1)', '@:x@evil/']) {
+      const url = upstreamUrl(REG, p);
+      expect(url?.origin ?? REG, p).toBe(REG);
+    }
+    expect(href('http:/example.com/')).toBe(`${REG}/http:/example.com/`);
+  });
+
+  it('refuses dot segments and backslashes', () => {
+    for (const p of ['a/../b', 'a/%2e%2e/b', 'a%2f..%2fb', '.', 'a/./b', 'a\\b', 'a%5cb', '%E0%A4%A']) {
+      expect(upstreamUrl(REG, p), p).toBeNull();
+    }
+  });
+});
+
+describe('logoutPathToken', () => {
+  it('finds the token of npm logout requests only', () => {
+    expect(logoutPathToken('-/user/token/abc.def')).toBe('abc.def');
+    expect(logoutPathToken('-/user/token/abc/')).toBe('abc');
+    expect(logoutPathToken('-/user/token')).toBe('');
+    expect(logoutPathToken('%2d/user%2ftoken/abc')).toBe('abc');
+    expect(logoutPathToken('-/user/token/%E0%A4%A')).toBe('');
+    expect(logoutPathToken('-/user/org.couchdb.user:alice')).toBeNull();
+    expect(logoutPathToken('-/user/tokens')).toBeNull();
+    expect(logoutPathToken('token')).toBeNull();
   });
 });
 
@@ -275,15 +368,31 @@ describe('audit payloads', () => {
 });
 
 describe('publicCachePath', () => {
-  it('caches packuments and tarballs in the existing layout', () => {
-    expect(publicCachePath(parseNpmPath('left-pad'))).toBe('left-pad');
-    expect(publicCachePath(parseNpmPath('@babel%2fcore'))).toBe('@babel/core');
+  it('caches each package in a directory of its own', () => {
+    expect(publicCachePath(parseNpmPath('left-pad'))).toBe('_packages/left-pad/package.json');
+    expect(publicCachePath(parseNpmPath('@babel%2fcore'))).toBe('_packages/@babel/core/package.json');
     expect(publicCachePath(parseNpmPath('left-pad/-/left-pad-1.3.0.tgz'))).toBe(
-      'left-pad-tarballs/-/left-pad-1.3.0.tgz',
+      '_packages/left-pad/-/left-pad-1.3.0.tgz',
     );
     expect(publicCachePath(parseNpmPath('@babel/core/-/core-7.0.0.tgz'))).toBe(
-      '@babel-tarballs/core/-/core-7.0.0.tgz',
+      '_packages/@babel/core/-/core-7.0.0.tgz',
     );
+  });
+
+  it('gives names that could collide (x.meta, x-tarballs) paths that do not overlap', () => {
+    const names = ['x', 'x.meta', 'x-tarballs', '@s/y', '@s-tarballs/y', '@s/y.meta'];
+    const files = names.flatMap((n) => [
+      publicCachePath(parseNpmPath(n))!,
+      publicCachePath(parseNpmPath(`${n}/-/${n.split('/').pop()}-1.0.0.tgz`))!,
+    ]);
+    const all = files.flatMap((f) => [f, `${f}.meta`]);
+    expect(new Set(all).size).toBe(all.length);
+    for (const a of all) for (const b of all) expect(b.startsWith(`${a}/`), `${a} / ${b}`).toBe(false);
+  });
+
+  it('caches only .tgz tarballs, so none can be named like a .meta file', () => {
+    expect(publicCachePath(parseNpmPath('x/-/x-1.0.0.tgz.meta'))).toBeNull();
+    expect(publicCachePath(parseNpmPath('x/-/sub/x-1.0.0.tgz'))).toBeNull();
   });
 
   it('does not cache paths that would collide with a packument or depend on the query', () => {
@@ -297,6 +406,25 @@ describe('parseJsonObject', () => {
   it('accepts only JSON objects', () => {
     expect(parseJsonObject('{"name":"x"}')).toEqual({ name: 'x' });
     for (const text of ['not json', '', 'null', '[]', '"x"', '1']) expect(parseJsonObject(text)).toBeNull();
+  });
+
+  it('refuses a body with more values or deeper nesting than the limits, before parsing it', () => {
+    const limits = { values: 1000, depth: 10 };
+    const items = (n: number) => `{"a":[${Array(n).fill('{}').join(',')}]}`;
+    // The object, its array, the items and the commas between them.
+    expect(parseJsonObject(items(499), limits)?.a).toHaveLength(499);
+    expect(() => parseJsonObject(items(500), limits)).toThrow(PayloadTooLargeError);
+    expect(() => parseJsonObject(items(500), limits)).toThrow('more than 1000 JSON values');
+    const nested = (n: number) => `{"a":${'['.repeat(n - 1)}${']'.repeat(n - 1)}}`;
+    expect(parseJsonObject(nested(10), limits)).not.toBeNull();
+    expect(() => parseJsonObject(nested(11), limits)).toThrow('deeper than 10 levels');
+    // Not even an invalid body is parsed once it is over the limits.
+    expect(() => parseJsonObject(`${items(2000)}garbage`, limits)).toThrow(PayloadTooLargeError);
+
+    // Brackets and commas in strings, also after escaped quotes and backslashes, are not counted.
+    const text = JSON.stringify({ s: `\\"${'[{,'.repeat(5000)}\\`, t: '\\', u: '[,]' });
+    expect(parseJsonObject(text, limits)).toEqual(JSON.parse(text));
+    expect(parseJsonObject('{"a":"unterminated [[[[[[[[[[[[', limits)).toBeNull();
   });
 });
 
@@ -332,5 +460,90 @@ describe('private package routing', () => {
     expect(isWebLoginPath('-/v1/done/abc')).toBe(true);
     expect(isWebLoginPath('-/v1/search')).toBe(false);
     expect(isWebLoginPath('-/v1/loginx')).toBe(false);
+  });
+});
+
+describe('scoped public names', () => {
+  it('takes the scope from a scoped name only', () => {
+    expect(packageScope('@types/node')).toBe('types');
+    expect(packageScope('@sindresorhus/slugify')).toBe('sindresorhus');
+    expect(packageScope('left-pad')).toBeNull();
+  });
+
+  it('looks a name up in the package list of its scope', () => {
+    const list = { '@types/node': 'write', '@types/react': 'write', 'env-paths': 'write' };
+    expect(scopeListsPackage(list, '@types/node')).toBe(true);
+    expect(scopeListsPackage(list, '@types/not-there')).toBe(false);
+    expect(scopeListsPackage(list, 'constructor')).toBe(false);
+    for (const bad of [null, [], 'x', 1]) expect(scopeListsPackage(bad, '@types/node')).toBe(false);
+  });
+});
+
+describe('tarballsAt', () => {
+  it('points npmjs tarball URLs at this registry, and nothing else', () => {
+    const doc = JSON.stringify({
+      versions: {
+        '1.0.0': { dist: { tarball: 'https://registry.npmjs.org/@s/x/-/x-1.0.0.tgz' } },
+        '2.0.0': { dist: { tarball: 'https://example.com/x-2.0.0.tgz' } },
+      },
+      homepage: 'https://registry.npmjs.org/x',
+    });
+    const out = JSON.parse(tarballsAt(doc, 'http://npm.mirror.intra'));
+    expect(out.versions['1.0.0'].dist.tarball).toBe('http://npm.mirror.intra/@s/x/-/x-1.0.0.tgz');
+    expect(out.versions['2.0.0'].dist.tarball).toBe('https://example.com/x-2.0.0.tgz');
+    expect(out.homepage).toBe('https://registry.npmjs.org/x');
+    expect(tarballsAt('{"tarball" : "http://registry.npmjs.org/a/-/a-1.tgz"}', 'http://m')).toBe('{"tarball" : "http://m/a/-/a-1.tgz"}');
+  });
+});
+
+
+describe('decodeBody', () => {
+  const json = Buffer.from('{"ms":["2.1.3"]}');
+
+  it('decodes gzip and deflate bodies and passes others through', async () => {
+    expect(await decodeBody(zlib.gzipSync(json), 'gzip', 1024)).toEqual(json);
+    expect(await decodeBody(zlib.gzipSync(json), ' X-Gzip', 1024)).toEqual(json);
+    expect(await decodeBody(zlib.deflateSync(json), 'deflate', 1024)).toEqual(json);
+    expect(await decodeBody(json, undefined, 1024)).toBe(json);
+    await expect(decodeBody(json, 'gzip', 1024)).rejects.not.toBeInstanceOf(PayloadTooLargeError);
+  });
+
+  it('stops decompressing at the limit', async () => {
+    const bomb = zlib.gzipSync(Buffer.alloc(64 * 1024 * 1024));
+    expect(bomb.length).toBeLessThan(100 * 1024);
+    await expect(decodeBody(bomb, 'gzip', 1024 * 1024)).rejects.toBeInstanceOf(PayloadTooLargeError);
+    await expect(decodeBody(zlib.deflateSync(Buffer.alloc(2048)), 'deflate', 1024)).rejects.toBeInstanceOf(
+      PayloadTooLargeError,
+    );
+    await expect(decodeBody(Buffer.alloc(2048), undefined, 1024)).rejects.toBeInstanceOf(PayloadTooLargeError);
+    expect((await decodeBody(zlib.gzipSync(Buffer.alloc(1024)), 'gzip', 1024)).length).toBe(1024);
+  });
+});
+
+describe('tarball integrity', () => {
+  const data = Buffer.from('tarball bytes');
+  const hash = (algorithm: string, encoding: 'hex' | 'base64') => createHash(algorithm).update(data).digest(encoding);
+
+  it('finds the dist of the version whose tarball it is', () => {
+    const doc = JSON.stringify({
+      versions: {
+        '1.0.0': { dist: { tarball: 'https://registry.npmjs.org/a/-/a-1.0.0.tgz', integrity: 'sha512-x' } },
+        '1.1.0': { dist: { tarball: 'https://registry.npmjs.org/a/-/a-1.1.0.tgz', shasum: 'abc' } },
+      },
+    });
+    expect(tarballDist(doc, 'a-1.0.0.tgz')).toEqual({ integrity: 'sha512-x', shasum: undefined });
+    expect(tarballDist(doc, 'a-1.1.0.tgz')).toEqual({ integrity: undefined, shasum: 'abc' });
+    expect(tarballDist(doc, 'a-2.0.0.tgz')).toBeNull();
+    expect(tarballDist('{"versions":', 'a-1.0.0.tgz')).toBeNull();
+  });
+
+  it('compares the SRI hashes, else the sha1 shasum', () => {
+    expect(matchesDist(data, { integrity: `sha512-${hash('sha512', 'base64')}` })).toBe(true);
+    expect(matchesDist(data, { integrity: `sha512-${hash('sha1', 'base64')}` })).toBe(false);
+    expect(matchesDist(data, { integrity: `md5-x sha1-${hash('sha1', 'base64')}` })).toBe(true);
+    expect(matchesDist(data, { integrity: `sha512-${hash('sha512', 'base64')}`, shasum: 'wrong' })).toBe(true);
+    expect(matchesDist(data, { shasum: hash('sha1', 'hex') })).toBe(true);
+    expect(matchesDist(data, { shasum: 'wrong' })).toBe(false);
+    expect(matchesDist(data, {})).toBe(true);
   });
 });

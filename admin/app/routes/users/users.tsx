@@ -36,7 +36,7 @@ export function meta() {
 }
 
 export default function Users() {
-  const { users, isAdmin, error } = useLoaderData<typeof loader>();
+  const { users, isAdmin, currentUser, error } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const revalidator = useRevalidator();
   const submit = useSubmit();
@@ -186,6 +186,7 @@ export default function Users() {
                       size="small"
                       onClick={() => handleChangePasswordClick(user.username)}
                       disabled={isDeleting}
+                      ariaLabel={`Change password of ${user.username}`}
                     >
                       <FontAwesomeIcon icon={faEdit} />
                     </FormButton>
@@ -195,6 +196,7 @@ export default function Users() {
                         size="small"
                         onClick={() => handleDeleteClick(user.username)}
                         disabled={isDeleting}
+                        ariaLabel={`Delete user ${user.username}`}
                       >
                         <FontAwesomeIcon icon={faTrash} />
                       </FormButton>
@@ -228,6 +230,7 @@ export default function Users() {
       <ChangePasswordModal
         isOpen={!!userToChangePassword}
         username={userToChangePassword || ''}
+        requireCurrentPassword={userToChangePassword === currentUser}
         onClose={() => setUserToChangePassword(null)}
         onSuccess={handleChangePasswordSuccess}
       />

@@ -93,6 +93,15 @@ describe('addSection', () => {
       .filter((l) => l === 'clean http://archive.ubuntu.com/ubuntu');
     expect(cleans).toHaveLength(1);
   });
+
+  it('writes the base URL in canonical form, so one upstream keeps one clean line', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ baseUrl: 'HTTP://ARCHIVE.Ubuntu.com/ubuntu/', title: 'Upper' }), 'mirror.intra');
+    const out = cfg.serialize();
+    expect(out).toContain('deb http://archive.ubuntu.com/ubuntu noble stable');
+    expect(out.split('\n').filter((l) => l.startsWith('clean '))).toEqual(['clean http://archive.ubuntu.com/ubuntu']);
+    expect(out).toContain('#URIs: http://mirror.intra/archive.ubuntu.com/ubuntu');
+  });
 });
 
 describe('removeSection', () => {
@@ -519,5 +528,226 @@ describe('enabledHosts', () => {
     expect(cfg.enabledHosts()).toEqual(['archive.ubuntu.com', 'download.docker.com']);
     cfg.setSectionEnabled('Docker Ubuntu', false);
     expect(cfg.enabledHosts()).toEqual(['archive.ubuntu.com']);
+  });
+});
+
+describe('base URLs with a port', () => {
+  it('points the Usage snippet at the host:port folder apt-mirror2 uses', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ title: 'LAN', baseUrl: 'http://aptly.lan:8080/debian', trusted: false }), 'mirror.intra');
+    const section = cfg.getSection('LAN')!;
+    expect(cfg.sectionUsageLines(section)).toContain('URIs: http://mirror.intra/aptly.lan:8080/debian');
+  });
+
+  it('keeps the key host without the port', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ title: 'LAN', baseUrl: 'http://192.168.0.10:18099/', trusted: false }), 'mirror.intra');
+    expect(cfg.sectionHosts(cfg.getSection('LAN')!)).toEqual(['192.168.0.10']);
+  });
+
+  it('leaves snippets of upstreams without a port alone', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    expect(cfg.sectionUsageLines(cfg.getSection('Ubuntu Noble')!)).toContain(
+      'URIs: http://mirror.intra/archive.ubuntu.com/ubuntu',
+    );
+  });
+});
+
+describe('one-line trusted snippets', () => {
+  const DOCKER = `# ---start---Docker Debian 13---
+## Docker CE for Debian 13
+deb https://download.docker.com/linux/debian trixie stable
+# Usage start
+#deb [trusted=yes] http://mirror.intra/download.docker.com/linux/debian trixie stable
+# Usage end
+# ---end---Docker Debian 13---
+`;
+
+  it('reads trusted from a one-line [trusted=yes] Usage line', () => {
+    const cfg = MirrorConfig.parse(DOCKER);
+    expect(cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)?.trusted).toBe(true);
+  });
+
+  it('keeps Trusted: yes when the section is saved unchanged', () => {
+    const cfg = MirrorConfig.parse(DOCKER);
+    const editable = cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)!;
+    cfg.editSection('Docker Debian 13', editable, 'mirror.intra');
+    expect(cfg.sectionUsageLines(cfg.getSection('Docker Debian 13')!)).toContain('Trusted: yes');
+  });
+
+  it('does not treat other options as trusted', () => {
+    const cfg = MirrorConfig.parse(DOCKER.replace('[trusted=yes]', '[arch=amd64]'));
+    expect(cfg.sectionToInput(cfg.getSection('Docker Debian 13')!)?.trusted).toBe(false);
+  });
+});
+
+describe('upstreams shared by several sections', () => {
+  const LIST = `# ---start---Hello---
+deb http://deb.debian.org/debian trixie main
+include_binary_packages http://deb.debian.org/debian hello
+# ---end---Hello---
+# ---start---Updates---
+deb [arch=amd64] http://deb.debian.org/debian/ trixie-updates main
+# ---end---Updates---
+# ---start---Off---
+#deb http://deb.debian.org/debian bookworm main
+# ---end---Off---
+# ---start---Ubuntu---
+deb http://archive.ubuntu.com/ubuntu noble main
+# ---end---Ubuntu---
+`;
+
+  it('lists the other enabled sections on the same upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Updates')!)).toEqual([{ title: 'Hello', filtered: true }]);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Ubuntu')!)).toEqual([]);
+  });
+
+  it('reports a filtered and an unfiltered section on one upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamConflict(cfg.getSection('Updates')!)).toMatch(/"Updates" has no package filter/);
+    expect(cfg.upstreamConflict(cfg.getSection('Hello')!)).toMatch(/"Updates" would only get the packages "Hello" selects/);
+    expect(cfg.upstreamConflict(cfg.getSection('Off')!)).toBeNull();
+    expect(cfg.upstreamConflict(cfg.getSection('Ubuntu')!)).toBeNull();
+  });
+});
+
+describe('base URLs that share a mirror folder', () => {
+  const LIST = `# ---start---Trixie---
+deb http://deb.debian.org/debian trixie main
+# ---end---Trixie---
+# ---start---Backports---
+deb https://deb.debian.org/debian trixie-backports main
+# ---end---Backports---
+# ---start---Nested---
+#deb http://deb.debian.org/debian/extra trixie main
+# ---end---Nested---
+# ---start---Security---
+deb http://deb.debian.org/debian-security trixie-security main
+# ---end---Security---
+`;
+
+  it('counts http and https spellings of one upstream as the same upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Trixie')!)).toEqual([{ title: 'Backports', filtered: false }]);
+  });
+
+  it('reports two base URLs stored in one folder, even without filters', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamConflict(cfg.getSection('Backports')!)).toMatch(
+      /"Backports" \(https:\/\/deb\.debian\.org\/debian\) and "Trixie" \(http:\/\/deb\.debian\.org\/debian\) are stored in the same mirror folder \(deb\.debian\.org\/debian\).*Use the base URL http:\/\/deb\.debian\.org\/debian for both/,
+    );
+    expect(cfg.mirrorDirConflict(cfg.getSection('Security')!)).toBeNull();
+    expect(cfg.mirrorDirConflict(cfg.getSection('Nested')!)).toBeNull();
+  });
+
+  it('reports a base URL whose folder lies inside another enabled one', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    cfg.setSectionEnabled('Backports', false);
+    cfg.setSectionEnabled('Nested', true);
+    expect(cfg.mirrorDirConflict(cfg.getSection('Nested')!)).toMatch(
+      /nested mirror folders \(deb\.debian\.org\/debian\/extra and deb\.debian\.org\/debian\)/,
+    );
+  });
+
+  it('writes default ports, case and trailing slashes as one base URL, so they never clash', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    cfg.setSectionEnabled('Backports', false);
+    cfg.addSection(input({ title: 'Updates', baseUrl: 'HTTP://Deb.Debian.org:80/debian/', suites: ['trixie-updates'] }), 'mirror.intra');
+    expect(cfg.upstreamConflict(cfg.getSection('Updates')!)).toBeNull();
+    expect(cfg.upstreamNeighbours(cfg.getSection('Updates')!)).toEqual([{ title: 'Trixie', filtered: false }]);
+  });
+});
+
+describe('several filtered repositories on one upstream', () => {
+  const LIST = (second: string) => `# ---start---Hello---
+deb http://deb.debian.org/debian trixie main
+include_binary_packages http://deb.debian.org/debian hello sl libc6
+# ---end---Hello---
+# ---start---Second---
+deb http://deb.debian.org/debian trixie-updates main
+${second}
+# ---end---Second---
+`;
+
+  it('accepts two include lists of the same kind', () => {
+    const cfg = MirrorConfig.parse(LIST('include_binary_packages http://deb.debian.org/debian curl'));
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toBeNull();
+    expect(cfg.upstreamConflict(cfg.getSection('Hello')!)).toBeNull();
+  });
+
+  it('refuses filters of different kinds, which apt-mirror2 would AND together', () => {
+    const cfg = MirrorConfig.parse(LIST('include_source_name http://deb.debian.org/debian hello'));
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toMatch(
+      /filters of "Second" and "Hello" \(same upstream\) do not add up/,
+    );
+    expect(cfg.filterCombineConflict(cfg.getSection('Hello')!)).toMatch(/"Hello" and "Second"/);
+  });
+
+  it('refuses an exclude list that would apply to the other repository', () => {
+    const cfg = MirrorConfig.parse(
+      LIST('include_binary_packages http://deb.debian.org/debian curl\nexclude_binary_packages http://deb.debian.org/debian sl'),
+    );
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toMatch(/do not add up/);
+  });
+
+  it('ignores a disabled neighbour', () => {
+    const cfg = MirrorConfig.parse(LIST('include_source_name http://deb.debian.org/debian hello'));
+    cfg.setSectionEnabled('Hello', false);
+    expect(cfg.upstreamConflict(cfg.getSection('Second')!)).toBeNull();
+  });
+});
+
+describe('source packages of a filtered repository', () => {
+  const LIST = (filter: string, src = true) => `# ---start---Synth---
+deb http://example.org/synth r4synth main
+${src ? 'deb-src http://example.org/synth r4synth main' : ''}
+${filter}
+# ---end---Synth---
+`;
+
+  it('refuses deb-src with a binary package filter, which apt-mirror2 does not apply to sources', () => {
+    const cfg = MirrorConfig.parse(LIST('include_binary_packages http://example.org/synth hello'));
+    expect(cfg.upstreamConflict(cfg.getSection('Synth')!)).toMatch(
+      /"Synth" mirrors source packages \(deb-src\).*every source package of the upstream would be downloaded/,
+    );
+  });
+
+  it('accepts deb-src with a source name or section filter, and a binary filter without deb-src', () => {
+    for (const cfg of [
+      MirrorConfig.parse(LIST('include_source_name http://example.org/synth srca')),
+      MirrorConfig.parse(LIST('include_sections http://example.org/synth games')),
+      MirrorConfig.parse(LIST('include_binary_packages http://example.org/synth hello', false)),
+      MirrorConfig.parse(LIST('')),
+    ]) {
+      expect(cfg.upstreamConflict(cfg.getSection('Synth')!)).toBeNull();
+    }
+  });
+
+  it('refuses deb-src next to a repository with a binary filter on the same upstream', () => {
+    const cfg = MirrorConfig.parse(
+      LIST('include_binary_packages http://example.org/synth hello', false) +
+        `# ---start---Src---
+deb http://example.org/synth r4other main
+deb-src http://example.org/synth r4other main
+include_binary_packages http://example.org/synth sl
+# ---end---Src---
+`,
+    );
+    expect(cfg.upstreamConflict(cfg.getSection('Synth')!)).toMatch(/"Src" mirrors source packages/);
+  });
+});
+
+describe('Usage snippet folder', () => {
+  it('points at the folder the sync writes to, for any spelling of the base URL', () => {
+    for (const [baseUrl, uri] of [
+      ['HTTPS://Download.Docker.com:443/linux/ubuntu/', 'http://mirror.intra/download.docker.com/linux/ubuntu'],
+      ['http://Aptly:8080//debian', 'http://mirror.intra/aptly:8080/debian'],
+    ]) {
+      const cfg = MirrorConfig.parse(BASE);
+      cfg.addSection(input({ baseUrl }), 'mirror.intra');
+      const section = cfg.getSection('Docker Ubuntu')!;
+      expect(cfg.sectionUsageLines(section)).toContain(`URIs: ${uri}`);
+    }
   });
 });

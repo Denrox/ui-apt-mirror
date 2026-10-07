@@ -5,6 +5,16 @@ import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
+/** Entries per page: a whole large folder (npm cache, mirror pool) makes the page unusable. */
+const PAGE_SIZE = 200;
+
+/** One page of `items`; a page past the end shows the last one. */
+export function pageOf<T>(items: T[], requested: number, pageSize = PAGE_SIZE) {
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const page = Number.isInteger(requested) ? Math.min(Math.max(requested, 1), pageCount) : 1;
+  return { items: items.slice((page - 1) * pageSize, page * pageSize), page, pageCount, total: items.length };
+}
+
 interface FileItem {
   name: string;
   path: string;
@@ -61,21 +71,44 @@ async function getFileList(dirPath: string): Promise<FileItem[]> {
   }
 }
 
+/** One spelling per folder: no `.`/`..` segments, doubled or trailing slashes. */
+export function canonicalPath(p: string): string {
+  const normalized = path.posix.normalize(p);
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+}
+
+/** What the anonymous files host may browse: public files and the published mirror tree. */
+function publicRoots(): string[] {
+  return [appConfig.filesDir, appConfig.mirrorRoot];
+}
+
 function isPathAllowed(requestedPath: string, isPublicRoute: boolean): boolean {
-  // The public host never sees private files; symlinks may not lead outside the roots.
-  return resolveInside(requestedPath, storageRoots({ includePrivate: !isPublicRoute })) !== null;
+  // The public host never sees private files, the mirror's keys and state, or the npm cache;
+  // symlinks may not lead outside the roots.
+  const roots = isPublicRoute ? publicRoots() : storageRoots();
+  return resolveInside(requestedPath, roots) !== null;
 }
 
 export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
   const isPublicRoute = url.hostname.startsWith('files');
-  
+  // The files host lists files at / only, never inside the admin shell (/File-manager).
+  if (isPublicRoute && url.pathname !== '/') {
+    throw new Response(null, { status: 302, headers: { Location: '/' } });
+  }
+
   if (!isPublicRoute) {
     await requireAuthMiddleware(request);
   }
 
   const searchParams = url.searchParams;
   const requestedPath = searchParams.get('path');
+  // The page lists a folder's entries by their path below currentPath; another spelling of
+  // the same folder (a trailing slash, `//`, `/./`) would show it as empty.
+  if (requestedPath && canonicalPath(requestedPath) !== requestedPath) {
+    searchParams.set('path', canonicalPath(requestedPath));
+    throw new Response(null, { status: 302, headers: { Location: `${url.pathname}?${searchParams}` } });
+  }
   let rootPath = appConfig.filesDir;
   
   if (requestedPath) {
@@ -134,7 +167,7 @@ export async function loader({ request }: { request: Request }) {
     };
   }
 
-  const [files, isLockFilePresent, healthReport] = await Promise.all([
+  const [allFiles, isLockFilePresent, healthReport] = await Promise.all([
     getFileList(currentPath).catch((error) => {
       console.error('Failed to get file list:', error);
       return [];
@@ -149,8 +182,16 @@ export async function loader({ request }: { request: Request }) {
       }),
   ]);
 
+  const { items: files, page, pageCount, total } = pageOf(
+    allFiles,
+    Number(searchParams.get('page') ?? '1'),
+  );
+
   return {
     files,
+    page,
+    pageCount,
+    totalFiles: total,
     currentPath: currentPath,
     isLockFilePresent,
     healthReport,

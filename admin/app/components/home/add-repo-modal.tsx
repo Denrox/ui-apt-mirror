@@ -4,6 +4,14 @@ import FormButton from '~/components/shared/form/form-button';
 import FormField from '~/components/shared/form/form-field';
 import FormInput from '~/components/shared/form/form-input';
 import FormCheckbox from '~/components/shared/form/form-checkbox';
+import {
+  canonicalBaseUrl,
+  filtersCombine,
+  filtersMissSources,
+  mirrorDirOf,
+  mirrorDirsOverlap,
+  type PackageFilters,
+} from '~/utils/mirror-config/upstream';
 
 export interface NewRepoValues {
   title: string;
@@ -19,6 +27,16 @@ export interface NewRepoValues {
   includeBinaryPackages: string;
   excludeBinaryPackages: string;
   includeSections: string;
+  /** Edit only: also delete the mirrored files of the base URL the repository had. */
+  deleteOldData?: boolean;
+}
+
+/** An enabled repository's upstream and package filters. */
+interface Upstream {
+  url: string;
+  title: string;
+  filtered: boolean;
+  filters?: PackageFilters;
 }
 
 interface AddRepoModalProps {
@@ -32,6 +50,80 @@ interface AddRepoModalProps {
   readonly title?: string;
   /** Submit button label; defaults to "Add Repository"/"Adding...". */
   readonly submitLabel?: string;
+  /** Upstreams of the enabled repositories, to warn about package filters they would share. */
+  readonly upstreams?: readonly Upstream[];
+}
+
+/** Package filters as the server counts them (architectures are not a filter). */
+const hasPackageFilter = (v: NewRepoValues): boolean =>
+  Boolean(
+    v.includeSourceName.trim() ||
+      v.includeBinaryPackages.trim() ||
+      v.excludeBinaryPackages.trim() ||
+      v.includeSections.trim(),
+  );
+
+/** The package filters the form sends, by apt-mirror2 key. */
+function formFilters(v: NewRepoValues): PackageFilters {
+  const list = (s: string) => s.split(/[\s,]+/).filter(Boolean);
+  return {
+    include_source_name: list(v.includeSourceName),
+    include_binary_packages: list(v.includeBinaryPackages),
+    exclude_binary_packages: list(v.excludeBinaryPackages),
+    include_sections: list(v.includeSections),
+  };
+}
+
+/**
+ * A warning about a combination the server refuses: this repository and an enabled one stored
+ * in the same mirror folder under different base URLs (e.g. http:// and https://), or on the
+ * same upstream with one filtered and the other not (apt-mirror2 keeps one package filter per
+ * upstream), or both are filtered but their filters do not add up.
+ */
+export function sharedFilterWarning(
+  values: NewRepoValues,
+  upstreams: readonly Upstream[],
+  ownTitle?: string,
+): string | null {
+  if (!values.baseUrl.trim()) return null;
+  const url = canonicalBaseUrl(values.baseUrl);
+  const dir = mirrorDirOf(url);
+  const sameDir = upstreams.filter((u) => {
+    const other = mirrorDirOf(u.url);
+    return u.title !== ownTitle && dir !== null && other !== null && mirrorDirsOverlap(dir, other);
+  });
+  const clash = sameDir.find((u) => u.url !== url);
+  if (clash) {
+    return `"${clash.title}" is stored in the same mirror folder under the base URL ${clash.url}. apt-mirror2 would sync the two as separate repositories that delete each other's files: ${
+      mirrorDirOf(clash.url) === dir ? `use ${clash.url} here` : 'mirror them under one base URL'
+    }, or disable "${clash.title}" first.`;
+  }
+  const filtered = hasPackageFilter(values);
+  const others = sameDir.filter((u) => u.filtered !== filtered);
+  if (!others.length) {
+    const own = formFilters(values);
+    const clashing = filtered ? sameDir.filter((u) => u.filters && !filtersCombine([own, u.filters])) : [];
+    if (!clashing.length) return null;
+    const names = [...new Set(clashing.map((o) => `"${o.title}"`))].join(', ');
+    return `${names} uses the same upstream with other kinds of package filters. apt-mirror2 merges the filters of one upstream and mirrors only packages that match all of them, so one filter would delete the other's packages. Use the same kinds of filters, differing in one include list only.`;
+  }
+  const names = [...new Set(others.map((o) => `"${o.title}"`))].join(', ');
+  return filtered
+    ? `${names} uses the same upstream without a package filter. apt-mirror2 filters per base URL, so this filter would restrict ${names} too. Disable it first, or give it the same filter.`
+    : `${names} uses the same upstream with a package filter. apt-mirror2 filters per base URL, so this repository would only get the packages ${names} selects. Add the same filter here, or disable ${names} first.`;
+}
+
+/** Why "Also mirror source packages" does not go with the filters (the server refuses it). */
+export function sourceFilterWarning(values: NewRepoValues): string | null {
+  if (!values.includeSrc || !filtersMissSources(formFilters(values))) return null;
+  return 'apt-mirror2 applies "Include/Exclude binary packages" to binary packages only, so every source package of the upstream would be downloaded. Untick this, or filter by source package names instead.';
+}
+
+/** The mirror folder an edit moves the repository away from, or null when it stays. */
+export function movedFromDir(values: NewRepoValues, initial?: NewRepoValues | null): string | null {
+  if (!initial) return null;
+  const from = mirrorDirOf(canonicalBaseUrl(initial.baseUrl));
+  return from && from !== mirrorDirOf(canonicalBaseUrl(values.baseUrl)) ? from : null;
 }
 
 const EMPTY: NewRepoValues = {
@@ -90,6 +182,7 @@ export default function AddRepoModal({
   initialValues,
   title = 'Add Repository',
   submitLabel,
+  upstreams = [],
 }: AddRepoModalProps) {
   const [values, setValues] = useState<NewRepoValues>(EMPTY);
   const [showFilters, setShowFilters] = useState(false);
@@ -156,6 +249,10 @@ export default function AddRepoModal({
     }
   };
 
+  const filterWarning = sharedFilterWarning(values, upstreams, initialValues?.title);
+  const sourceWarning = sourceFilterWarning(values);
+  const oldDir = movedFromDir(values, initialValues);
+
   const isValid =
     values.title.trim() !== '' &&
     values.baseUrl.trim() !== '' &&
@@ -164,7 +261,7 @@ export default function AddRepoModal({
 
   const handleSubmit = () => {
     if (!isValid || isSubmitting) return;
-    onSubmit(values);
+    onSubmit({ ...values, deleteOldData: Boolean(oldDir && values.deleteOldData) });
   };
 
   return (
@@ -186,6 +283,21 @@ export default function AddRepoModal({
             placeholder="http://archive.ubuntu.com/ubuntu"
             disabled={isSubmitting}
           />
+          {filterWarning && (
+            <p role="alert" className="text-[12px] leading-relaxed text-error">
+              {filterWarning}
+            </p>
+          )}
+          {oldDir && (
+            <FormCheckbox
+              id="edit-repo-delete-old-data"
+              label="Also delete the old upstream's mirrored files"
+              description={`Syncs never clean an upstream that is no longer configured, so ${oldDir} would stay on disk and be served. Files still used by another enabled repository are kept.`}
+              checked={Boolean(values.deleteOldData)}
+              onChange={(v) => set('deleteOldData', v)}
+              disabled={isSubmitting}
+            />
+          )}
         </FormField>
 
         <FormField label="Suites" required>
@@ -222,6 +334,11 @@ export default function AddRepoModal({
           onChange={(v) => set('includeSrc', v)}
           disabled={isSubmitting}
         />
+        {sourceWarning && (
+          <p role="alert" className="-mt-[8px] text-[12px] leading-relaxed text-error">
+            {sourceWarning}
+          </p>
+        )}
 
         <FormCheckbox
           id="add-repo-trusted"
@@ -250,8 +367,10 @@ export default function AddRepoModal({
                 <strong>exactly</strong> (space/comma separated) and{' '}
                 <strong>dependencies are not pulled in automatically</strong> —
                 list every package you need. Leave blank to mirror everything.
-                Filters apply to every repository with the same base URL, and
-                clients still see the full upstream package list.
+                Filters apply to every repository with the same base URL (apt-mirror2
+                keeps one filter per upstream), so all repositories on one upstream
+                must be filtered or none, with the same kinds of filters (they may
+                differ in one include list). Clients still see the full upstream package list.
               </p>
 
               <FormField label="Architectures">

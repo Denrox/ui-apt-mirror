@@ -54,6 +54,7 @@ export default function Home() {
     title: string;
     revision: string;
   } | null>(null);
+  const [deleteMirrorData, setDeleteMirrorData] = useState(false);
   const [isActionInProgress, setIsActionInProgress] = useState(false);
   const [showRepoModal, setShowRepoModal] = useState(false);
   const [repoModalMode, setRepoModalMode] = useState<'add' | 'edit'>('add');
@@ -65,8 +66,13 @@ export default function Home() {
     useState(false);
   // The real width is set after hydration, so the server HTML still matches.
   const [windowWidth, setWindowWidth] = useState(1024);
-  const { repositoryConfigs, commentedSections, isLockFilePresent, latestLog } =
-    useLoaderData<typeof loader>();
+  const {
+    repositoryConfigs,
+    commentedSections,
+    isLockFilePresent,
+    latestLog,
+    upstreams,
+  } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const revalidator = useRevalidator();
@@ -91,6 +97,9 @@ export default function Home() {
     }
   }, [actionData?.success, actionData?.error, actionData?.message]);
 
+  // Deleting mirrored files is chosen anew for every removal or disable.
+  useEffect(() => setDeleteMirrorData(false), [confirmTarget]);
+
   const handleConfirm = () => {
     if (isActionInProgress || !confirmTarget) return;
 
@@ -99,6 +108,9 @@ export default function Home() {
     formData.append('action', confirmTarget.action);
     formData.append('sectionTitle', confirmTarget.title);
     formData.append('revision', confirmTarget.revision);
+    if (deleteMirrorData) {
+      formData.append('deleteData', 'true');
+    }
     submit(formData, { method: 'post' });
   };
 
@@ -161,6 +173,9 @@ export default function Home() {
     formData.append('includeBinaryPackages', values.includeBinaryPackages);
     formData.append('excludeBinaryPackages', values.excludeBinaryPackages);
     formData.append('includeSections', values.includeSections);
+    if (repoModalMode === 'edit' && values.deleteOldData) {
+      formData.append('deleteData', 'true');
+    }
     submit(formData, { method: 'post' });
   };
 
@@ -337,6 +352,11 @@ export default function Home() {
               </FormButton>
             }
             disabled={isLockFilePresent || isActionInProgress}
+            disabledReason={
+              isLockFilePresent
+                ? 'Repositories can be added once the sync is done'
+                : 'Wait for the current action to finish'
+            }
           >
             <DropdownItem onClick={handleOpenAddRepo}>
               Add repository…
@@ -345,6 +365,7 @@ export default function Home() {
               <DropdownItem
                 key={`${i}:${section.title}`}
                 onClick={() => handleRestoreClick(section)}
+                title={section.title}
               >
                 Enable: {section.title}
               </DropdownItem>
@@ -367,154 +388,166 @@ export default function Home() {
                     key={`${i}:${config.title}`}
                     className="relative flex flex-col gap-3 rounded-xl border border-outline-variant bg-surface-container-low p-4"
                   >
-                    <div className="w-[calc(100%-140px)] shrink-0 truncate font-heading text-base font-semibold text-on-surface">
-                      {config.title}
-                    </div>
-                    <pre className="whitespace-pre-wrap break-all font-mono text-[12px] text-on-surface-variant">
-                      {config.content.join('\n')}
-                    </pre>
-                    <div className="absolute right-3 top-3 flex items-center gap-3">
-                      <button
-                        onClick={() => handleCopyUsage(config)}
-                        className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
-                        title="Copy the sources"
+                    {/* The title takes the room the icons leave; the full title is in its tooltip. */}
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="min-w-0 flex-1 truncate font-heading text-base font-semibold text-on-surface"
+                        title={config.title}
                       >
-                        <FontAwesomeIcon icon={faCopy} />
-                      </button>
-                      {config.hosts.length > 0 && (
-                        <Dropdown
-                          trigger={
-                            <span
-                              className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
-                              title="GPG signing options"
-                            >
-                              <FontAwesomeIcon icon={faKey} />
-                            </span>
-                          }
-                          disabled={isActionInProgress}
+                        {config.title}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <button
+                          onClick={() => handleCopyUsage(config)}
+                          className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
+                          title="Copy the sources"
                         >
-                          {config.hosts.map((h, idx) => (
-                            <div
-                              key={h.host}
-                              className={
-                                idx > 0
-                                  ? 'border-t border-outline-variant/40'
-                                  : ''
-                              }
-                            >
-                              <div
-                                className="px-4 py-2 text-xs"
-                                title={h.gpgKey?.fingerprint ?? h.host}
+                          <FontAwesomeIcon icon={faCopy} />
+                        </button>
+                        {config.hosts.length > 0 && (
+                          <Dropdown
+                            trigger={
+                              <button
+                                type="button"
+                                className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
+                                title="GPG signing options"
+                                aria-label="GPG signing options"
                               >
-                                <div className="truncate font-semibold text-on-surface">
-                                  {h.host}
-                                </div>
+                                <FontAwesomeIcon icon={faKey} />
+                              </button>
+                            }
+                            disabled={isActionInProgress}
+                          >
+                            {config.hosts.map((h, idx) => (
+                              <div
+                                key={h.host}
+                                className={
+                                  idx > 0
+                                    ? 'border-t border-outline-variant/40'
+                                    : ''
+                                }
+                              >
                                 <div
-                                  className={`truncate font-mono text-[10px] ${
-                                    h.gpgKey
-                                      ? 'text-success'
-                                      : 'text-on-surface-variant/60'
-                                  }`}
+                                  className="px-4 py-2 text-xs"
+                                  title={h.gpgKey?.fingerprint ?? h.host}
                                 >
-                                  {h.gpgKey ? h.gpgKey.keyId : 'unsigned'}
+                                  <div className="truncate font-semibold text-on-surface">
+                                    {h.host}
+                                  </div>
+                                  <div
+                                    className={`truncate font-mono text-[10px] ${
+                                      h.gpgKey
+                                        ? 'text-success'
+                                        : 'text-on-surface-variant/60'
+                                    }`}
+                                  >
+                                    {h.gpgKey ? h.gpgKey.keyId : 'unsigned'}
+                                  </div>
                                 </div>
-                              </div>
-                              {h.gpgKey ? (
-                                <>
+                                {h.gpgKey ? (
+                                  <>
+                                    <DropdownItem
+                                      onClick={() =>
+                                        window.open(
+                                          `/api/pubkey/${h.host}`,
+                                          '_blank',
+                                        )
+                                      }
+                                    >
+                                      Download public key
+                                    </DropdownItem>
+                                    <DropdownItem
+                                      onClick={() => handleSignRelease(h.host)}
+                                      disabled={
+                                        isLockFilePresent || isActionInProgress
+                                      }
+                                    >
+                                      Re-sign Release files
+                                    </DropdownItem>
+                                    <DropdownItem
+                                      onClick={() => handleDeleteGpgKey(h.host)}
+                                      disabled={isActionInProgress}
+                                    >
+                                      Delete signing key
+                                    </DropdownItem>
+                                  </>
+                                ) : h.signable ? (
                                   <DropdownItem
-                                    onClick={() =>
-                                      window.open(
-                                        `/api/pubkey/${h.host}`,
-                                        '_blank',
-                                      )
-                                    }
-                                  >
-                                    Download public key
-                                  </DropdownItem>
-                                  <DropdownItem
-                                    onClick={() => handleSignRelease(h.host)}
-                                    disabled={
-                                      isLockFilePresent || isActionInProgress
-                                    }
-                                  >
-                                    Re-sign Release files
-                                  </DropdownItem>
-                                  <DropdownItem
-                                    onClick={() => handleDeleteGpgKey(h.host)}
+                                    onClick={() => handleGenerateGpgKey(h.host)}
                                     disabled={isActionInProgress}
                                   >
-                                    Delete signing key
+                                    Generate signing key
                                   </DropdownItem>
-                                </>
-                              ) : (
-                                <DropdownItem
-                                  onClick={() => handleGenerateGpgKey(h.host)}
-                                  disabled={isActionInProgress}
-                                >
-                                  Generate signing key
-                                </DropdownItem>
-                              )}
-                            </div>
-                          ))}
-                        </Dropdown>
-                      )}
-                      {config.editable && (
+                                ) : (
+                                  <p className="px-4 pb-2 text-xs text-on-surface-variant">
+                                    Hosts given as an IPv6 address can't be signed. Use a host name in the base URL to sign it.
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </Dropdown>
+                        )}
+                        {config.editable && (
+                          <button
+                            onClick={() => handleOpenEditRepo(config)}
+                            className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                            title={
+                              isActionInProgress
+                                ? 'Action in progress...'
+                                : isLockFilePresent
+                                  ? 'Cannot edit while sync is running'
+                                  : 'Edit repository configuration'
+                            }
+                            disabled={isLockFilePresent || isActionInProgress}
+                          >
+                            <FontAwesomeIcon icon={faPen} />
+                          </button>
+                        )}
                         <button
-                          onClick={() => handleOpenEditRepo(config)}
+                          onClick={() =>
+                            setConfirmTarget({
+                              action: 'deleteRepository',
+                              title: config.title,
+                              revision: config.revision,
+                            })
+                          }
                           className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                           title={
                             isActionInProgress
                               ? 'Action in progress...'
                               : isLockFilePresent
-                                ? 'Cannot edit while sync is running'
-                                : 'Edit repository configuration'
+                                ? 'Cannot disable while sync is running'
+                                : 'Disable repository'
                           }
                           disabled={isLockFilePresent || isActionInProgress}
                         >
-                          <FontAwesomeIcon icon={faPen} />
+                          <FontAwesomeIcon icon={faPowerOff} />
                         </button>
-                      )}
-                      <button
-                        onClick={() =>
-                          setConfirmTarget({
-                            action: 'deleteRepository',
-                            title: config.title,
-                            revision: config.revision,
-                          })
-                        }
-                        className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                        title={
-                          isActionInProgress
-                            ? 'Action in progress...'
-                            : isLockFilePresent
-                              ? 'Cannot disable while sync is running'
-                              : 'Disable repository'
-                        }
-                        disabled={isLockFilePresent || isActionInProgress}
-                      >
-                        <FontAwesomeIcon icon={faPowerOff} />
-                      </button>
-                      <button
-                        onClick={() =>
-                          setConfirmTarget({
-                            action: 'removeRepository',
-                            title: config.title,
-                            revision: config.revision,
-                          })
-                        }
-                        className="cursor-pointer text-on-surface-variant transition-colors hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
-                        title={
-                          isActionInProgress
-                            ? 'Action in progress...'
-                            : isLockFilePresent
-                              ? 'Cannot remove while sync is running'
-                              : 'Remove repository'
-                        }
-                        disabled={isLockFilePresent || isActionInProgress}
-                      >
-                        <FontAwesomeIcon icon={faTrash} />
-                      </button>
+                        <button
+                          onClick={() =>
+                            setConfirmTarget({
+                              action: 'removeRepository',
+                              title: config.title,
+                              revision: config.revision,
+                            })
+                          }
+                          className="cursor-pointer text-on-surface-variant transition-colors hover:text-error disabled:cursor-not-allowed disabled:opacity-50"
+                          title={
+                            isActionInProgress
+                              ? 'Action in progress...'
+                              : isLockFilePresent
+                                ? 'Cannot remove while sync is running'
+                                : 'Remove repository'
+                          }
+                          disabled={isLockFilePresent || isActionInProgress}
+                        >
+                          <FontAwesomeIcon icon={faTrash} />
+                        </button>
+                      </div>
                     </div>
+                    <pre className="whitespace-pre-wrap break-all font-mono text-[12px] text-on-surface-variant">
+                      {config.content.join('\n')}
+                    </pre>
                   </div>
                 ))
               ) : (
@@ -568,7 +601,7 @@ export default function Home() {
                 key={`${i}:${section.title}`}
                 className="flex items-center justify-between gap-3 px-4 py-2"
               >
-                <span className="truncate text-sm text-on-surface-variant">
+                <span className="min-w-0 truncate text-sm text-on-surface-variant" title={section.title}>
                   {section.title}
                 </span>
                 <div className="flex shrink-0 items-center gap-3">
@@ -624,6 +657,7 @@ export default function Home() {
           </div>
           <LogPanel
             content={latestLog.content}
+            firstLine={latestLog.firstLine}
             title={latestLog.name}
             bodyClassName="max-h-[320px] min-h-[200px]"
           />
@@ -635,7 +669,7 @@ export default function Home() {
         <h2 className="mb-3 font-heading text-lg font-semibold text-on-surface">
           Endpoints
         </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {hosts
             .filter((page) => {
               if (page.id === 'npm' && !isNpmProxyEnabled) {
@@ -659,7 +693,7 @@ export default function Home() {
                   >
                     {page.name}
                   </a>
-                  <div className="truncate font-mono text-[11px] text-on-surface-variant">
+                  <div className="break-all font-mono text-[11px] text-on-surface-variant">
                     {getHostAddress(page.address)}
                   </div>
                   <div className="text-xs text-on-surface-variant/80">
@@ -689,6 +723,7 @@ export default function Home() {
         onSubmit={handleRepoSubmit}
         isSubmitting={isActionInProgress}
         initialValues={repoInitialValues}
+        upstreams={upstreams}
         title={repoModalMode === 'edit' ? 'Edit Repository' : 'Add Repository'}
         submitLabel={
           repoModalMode === 'edit' ? 'Save Changes' : 'Add Repository'
@@ -715,7 +750,24 @@ export default function Home() {
           confirmTarget?.action === 'removeRepository' ? 'Remove' : 'Disable'
         }
         isLoading={isActionInProgress}
-      />
+      >
+        {confirmTarget && (
+          <label className="flex items-start gap-2 mb-6 text-sm text-on-surface-variant">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={deleteMirrorData}
+              onChange={(e) => setDeleteMirrorData(e.target.checked)}
+            />
+            <span>
+              {confirmTarget.action === 'removeRepository'
+                ? 'Also delete its mirrored files. Syncs never clean an upstream that is no longer configured.'
+                : 'Also delete its mirrored files, so clients stop getting them. Syncs never clean a disabled repository; enabling it again downloads everything anew.'}{' '}
+              Files still used by another enabled repository are kept.
+            </span>
+          </label>
+        )}
+      </DeleteConfirmationModal>
     </PageLayoutFull>
   );
 }

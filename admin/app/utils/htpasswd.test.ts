@@ -6,11 +6,16 @@ import {
   checkCredentials,
   hashPassword,
   isTokenCurrent,
+  isTokenRevoked,
+  MAX_REVOKED_PER_USER,
   parseHtpasswd,
+  parseValidAfter,
   readHtpasswd,
+  revokeToken,
   revokeTokens,
   validAfterPath,
   verifyPassword,
+  withAuthFileLock,
   writePrivateFile,
 } from './htpasswd';
 
@@ -107,5 +112,106 @@ describe('token revocation', () => {
     fs.appendFileSync(validAfterPath(file), 'admin 3000\n');
     expect(isTokenCurrent(file, 'admin', 2000)).toBe(false);
     expect(isTokenCurrent(file, 'admin', 3000)).toBe(true);
+  });
+});
+
+describe('hardening', () => {
+  const YEAR = 365 * 24 * 60 * 60 * 1000;
+
+  it('ignores revocation times far in the future', () => {
+    writePrivateFile(file, 'admin:x\nbob:y\n');
+    writePrivateFile(validAfterPath(file), 'x 1\nbob 99999999999999\n');
+    expect(isTokenCurrent(file, 'bob', Date.now())).toBe(true);
+    expect(parseValidAfter('bob 99999999999999\nbob 5\n', 10).get('bob')).toBe(5);
+  });
+
+  it('refuses to write revocation lines for names with whitespace', () => {
+    writePrivateFile(file, 'admin:x\n');
+    expect(() => revokeTokens(file, 'x 1\nadmin 99999999999999', YEAR)).toThrow();
+    expect(() => revokeTokens(file, 'admin ', YEAR)).toThrow();
+  });
+
+  it('does not hash or match passwords openssl would cut short', async () => {
+    await expect(hashPassword('Long\nSecretPart')).rejects.toThrow();
+    const hash = await hashPassword('Long');
+    expect(await verifyPassword('Long', hash)).toBe(true);
+    expect(await verifyPassword('Long\nanything', hash)).toBe(false);
+    const k256 = 'k'.repeat(256);
+    const longHash = await hashPassword(k256);
+    expect(await verifyPassword(`${k256}totally-different`, longHash)).toBe(false);
+  });
+
+  it('runs locked sections one at a time', async () => {
+    const order: string[] = [];
+    await Promise.all([
+      withAuthFileLock(async () => {
+        order.push('a1');
+        await new Promise((r) => setTimeout(r, 20));
+        order.push('a2');
+      }),
+      withAuthFileLock(() => {
+        order.push('b');
+      }),
+      withAuthFileLock(() => {
+        throw new Error('boom');
+      }).catch(() => order.push('c failed')),
+      withAuthFileLock(() => order.push('d')),
+    ]);
+    expect(order).toEqual(['a1', 'a2', 'b', 'c failed', 'd']);
+  });
+});
+
+describe('single token revocation', () => {
+  const revokedFile = () => path.join(dir, '.tokens-revoked');
+  const lines = () => fs.readFileSync(revokedFile(), 'utf-8').split('\n').filter(Boolean);
+
+  it('remembers revoked ids until they expire', () => {
+    revokeToken(file, 'a', 100, 'bob', 50_000);
+    revokeToken(file, 'b', 200, 'bob', 150_000);
+    revokeToken(file, 'c', 100, 'bob', 150_000); // expired already: nothing to do
+    expect(isTokenRevoked(file, 'a')).toBe(true);
+    expect(isTokenRevoked(file, 'b')).toBe(true);
+    expect(isTokenRevoked(file, 'c')).toBe(false);
+    expect(fs.statSync(revokedFile()).mode & 0o777).toBe(0o600);
+    expect(() => revokeToken(file, 'x 1\ny', 300, 'bob')).toThrow();
+    expect(() => revokeToken(file, 'x', 300, 'bob 1\nx')).toThrow();
+  });
+
+  it('appends a line per logout and reads the file again only when someone else changed it', () => {
+    revokeToken(file, 'a', 10_000, 'bob', 0);
+    revokeToken(file, 'b', 10_000, 'bob', 0);
+    expect(lines()).toEqual(['a 10000 bob', 'b 10000 bob']);
+    fs.writeFileSync(revokedFile(), 'other-token 99999999999 carol\n');
+    expect(isTokenRevoked(file, 'a')).toBe(false);
+    expect(isTokenRevoked(file, 'other-token')).toBe(true);
+  });
+
+  it('drops expired lines when the file has doubled', () => {
+    for (let i = 0; i < 1200; i++) revokeToken(file, `old${i}`, 100, `u${i % 10}`, 0);
+    revokeToken(file, 'live', 10_000, 'bob', 0);
+    expect(lines().length).toBe(1201);
+    // The file is rewritten when it doubles (plus 1000 lines), dropping the expired ones.
+    for (let i = 0; i < 2000; i++) revokeToken(file, `new${i}`, 10_000, `v${i % 10}`, 200_000);
+    expect(lines().length).toBe(1 + 2000);
+    expect(lines()).toContain('live 10000 bob');
+    expect(isTokenRevoked(file, 'old0')).toBe(false);
+    expect(isTokenRevoked(file, 'new1999')).toBe(true);
+  });
+
+  it('ends all of a user\'s tokens instead of listing more than the cap', () => {
+    const now = 1_000_000_000;
+    const exp = now / 1000 + 3600;
+    fs.writeFileSync(file, 'bob:x\ncarol:y\n');
+    for (let i = 0; i < MAX_REVOKED_PER_USER; i++) revokeToken(file, `t${i}`, exp, 'bob', now);
+    revokeToken(file, 'carol1', exp, 'carol', now);
+    expect(isTokenCurrent(file, 'bob', now - 1)).toBe(true);
+
+    revokeToken(file, 'one-more', exp, 'bob', now + 5);
+    // bob's tokens up to now are refused by time, so his lines are gone.
+    expect(isTokenCurrent(file, 'bob', now + 4)).toBe(false);
+    expect(isTokenCurrent(file, 'bob', now + 5)).toBe(true);
+    expect(isTokenCurrent(file, 'carol', now)).toBe(true);
+    expect(lines()).toEqual([`carol1 ${exp} carol`]);
+    expect(isTokenRevoked(file, 'carol1')).toBe(true);
   });
 });

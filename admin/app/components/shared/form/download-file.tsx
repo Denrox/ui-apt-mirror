@@ -6,6 +6,7 @@ import Modal from '~/components/shared/modal/modal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
 import { toast } from 'react-toastify';
+import { fileNameFromUrl } from '~/utils/download-name';
 
 interface DownloadFileProps {
   readonly onDownloadInput?: (isDownloading: boolean) => void;
@@ -23,22 +24,17 @@ export default function DownloadFile({
   const submit = useSubmit();
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const extractFileNameFromUrl = useCallback((url: string) => {
-    if (!url.trim()) return;
-
-    try {
-      const urlObj = new URL(url.trim());
-      const pathname = urlObj.pathname;
-      const extractedName = pathname.split('/').pop() ?? 'downloaded-file';
-      setFileName(extractedName);
-    } catch (error) {
-      setFileName('downloaded-file');
-    }
-  }, []);
+  // The name follows the URL until the user edits it.
+  const [fileNameEdited, setFileNameEdited] = useState(false);
 
   useEffect(() => {
-    extractFileNameFromUrl(url);
-  }, [url, extractFileNameFromUrl]);
+    if (!fileNameEdited) setFileName(url.trim() ? fileNameFromUrl(url) : '');
+  }, [url, fileNameEdited]);
+
+  const handleFileNameChange = useCallback((value: string) => {
+    setFileName(value);
+    setFileNameEdited(true);
+  }, []);
 
   const handleDownloadClick = useCallback(() => {
     setShowUrlInput(true);
@@ -55,6 +51,10 @@ export default function DownloadFile({
       toast.error('URL is required');
       return;
     }
+    if (!fileName) {
+      toast.error('File name is required');
+      return;
+    }
 
     abortControllerRef.current = new AbortController();
     setDownloading(true);
@@ -64,7 +64,7 @@ export default function DownloadFile({
         {
           intent: 'downloadFile',
           url: url.trim(),
-          fileName: fileName ?? 'downloaded-file',
+          fileName,
           currentPath: currentPath,
         },
         { action: '', method: 'post' },
@@ -73,6 +73,7 @@ export default function DownloadFile({
       if (!abortControllerRef.current.signal.aborted) {
         setUrl('');
         setFileName('');
+        setFileNameEdited(false);
         setShowUrlInput(false);
       }
     } catch (error) {
@@ -111,6 +112,7 @@ export default function DownloadFile({
     setShowUrlInput(false);
     setUrl('');
     setFileName('');
+    setFileNameEdited(false);
     setDownloading(false);
   }, [downloading, cleanupPartialDownload]);
 
@@ -128,6 +130,7 @@ export default function DownloadFile({
         type="secondary"
         onClick={handleDownloadClick}
         disabled={downloading}
+        ariaLabel="Download from a URL"
       >
         <FontAwesomeIcon icon={faDownload} />
       </FormButton>
@@ -155,9 +158,24 @@ export default function DownloadFile({
                 placeholder="https://example.com/file.zip"
                 disabled={downloading}
               />
+            </div>
+
+            <div>
+              <label
+                htmlFor="download-file-name"
+                className="block text-sm font-medium text-on-surface-variant mb-1"
+              >
+                File name
+              </label>
+              <FormInput
+                id="download-file-name"
+                value={fileName}
+                onChange={handleFileNameChange}
+                placeholder="file.zip"
+                disabled={downloading}
+              />
               <p className="text-xs text-on-surface-variant mt-1">
-                Filename is auto-detected from URL. You can rename after
-                download.
+                Taken from the URL; you can change it.
               </p>
             </div>
 
@@ -171,7 +189,7 @@ export default function DownloadFile({
                   <FormButton type="secondary" onClick={handleCancel}>
                     Cancel
                   </FormButton>
-                  <FormButton onClick={handleDownload} disabled={!url.trim()}>
+                  <FormButton onClick={handleDownload} disabled={!url.trim() || !fileName}>
                     Download
                   </FormButton>
                 </>

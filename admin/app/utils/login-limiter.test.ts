@@ -1,18 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   beginLoginAttempt,
+  loginLimiterKeys,
   loginSucceeded,
   resetLoginLimiter,
   tooManyAttemptsMessage,
 } from './login-limiter';
+import { resetSharedGateways } from './client-address';
 
 const MIN = 60 * 1000;
 
-beforeEach(() => resetLoginLimiter());
+const GATEWAY = '172.18.0.1';
 
-function fail(ip: string, user: string, times: number, now = 0) {
+beforeEach(() => {
+  resetLoginLimiter();
+  resetSharedGateways([GATEWAY]);
+});
+
+function fail(ip: string, user: string, times: number, now = 0, device?: string) {
   for (let i = 0; i < times; i++)
-    expect(beginLoginAttempt(ip, user, now)).toBe(0);
+    expect(beginLoginAttempt(ip, user, now, device)).toBe(0);
 }
 
 describe('login limiter', () => {
@@ -23,16 +30,78 @@ describe('login limiter', () => {
     expect(beginLoginAttempt('1.1.1.1', 'admin', 15 * MIN + 1)).toBe(0);
   });
 
-  it('limits a username across IPs', () => {
-    for (let i = 0; i < 5; i++) fail(`10.0.0.${i}`, 'admin', 1);
-    expect(beginLoginAttempt('10.0.0.9', 'admin', 0)).toBeGreaterThan(0);
-    expect(beginLoginAttempt('10.0.0.9', 'bob', 0)).toBe(0);
+  it('does not let one IP lock a user out on another IP', () => {
+    fail('10.0.0.1', 'admin', 5);
+    expect(beginLoginAttempt('10.0.0.1', 'admin', 0)).toBeGreaterThan(0);
+    expect(beginLoginAttempt('10.0.0.2', 'admin', 0)).toBe(0);
+  });
+
+  it('limits a username guessed from many IPs', () => {
+    for (let i = 0; i < 20; i++) fail(`10.0.0.${i}`, 'admin', 1);
+    expect(beginLoginAttempt('10.0.1.1', 'admin', 0)).toBe(15 * 60);
+    expect(beginLoginAttempt('10.0.1.1', 'bob', 0)).toBe(0);
+  });
+
+  it('never applies the username limit to an IP the user signed in from', () => {
+    expect(beginLoginAttempt('192.168.1.5', 'admin', 0)).toBe(0);
+    loginSucceeded('192.168.1.5', 'admin', 0);
+    for (let i = 0; i < 20; i++) fail(`10.0.${i}.1`, 'admin', 1, MIN);
+    expect(beginLoginAttempt('10.0.99.1', 'admin', MIN)).toBeGreaterThan(0);
+    expect(beginLoginAttempt('192.168.1.5', 'admin', MIN)).toBe(0);
   });
 
   it('resets on success', () => {
     fail('1.1.1.1', 'admin', 4);
-    loginSucceeded('1.1.1.1', 'admin');
+    loginSucceeded('1.1.1.1', 'admin', 0);
     fail('1.1.1.1', 'admin', 5);
+  });
+
+  it('forgives only the signing-in user\'s own failures', () => {
+    fail('1.1.1.1', 'alice', 3);
+    fail('1.1.1.1', 'admin', 1);
+    loginSucceeded('1.1.1.1', 'alice', 0);
+    fail('1.1.1.1', 'admin', 4); // admin's guess stays counted: 5 in all
+    expect(beginLoginAttempt('1.1.1.1', 'alice', 0)).toBeGreaterThan(0);
+  });
+
+  it('does not let an account holder reset their address between guesses', () => {
+    // 4 guesses at the victim, then a correct login to the attacker's own account.
+    fail('10.0.0.1', 'victim', 4);
+    expect(beginLoginAttempt('10.0.0.1', 'attacker', 0)).toBe(0);
+    loginSucceeded('10.0.0.1', 'attacker', 0);
+    expect(beginLoginAttempt('10.0.0.1', 'victim', 0)).toBe(0);
+    expect(beginLoginAttempt('10.0.0.1', 'victim', 0)).toBeGreaterThan(0);
+    expect(beginLoginAttempt('10.0.0.1', 'someone-else', 0)).toBeGreaterThan(0);
+    // The attacker's own login is still fine, and still doesn't reset anything.
+    expect(beginLoginAttempt('10.0.0.1', 'attacker', 0)).toBeGreaterThan(0);
+  });
+
+  it('needs four addresses to lock a user out of addresses they never used', () => {
+    for (const ip of ['10.0.0.1', '10.0.0.2', '10.0.0.3']) {
+      fail(ip, 'victim', 5);
+      expect(beginLoginAttempt(ip, 'victim', 0)).toBeGreaterThan(0);
+    }
+    expect(beginLoginAttempt('10.9.9.9', 'victim', 0)).toBe(0); // 16th failure
+    loginSucceeded('10.9.9.9', 'victim', 0);
+    fail('10.0.0.4', 'victim', 5);
+    for (let i = 5; i < 20; i++) fail(`10.0.1.${i}`, 'victim', 1);
+    expect(beginLoginAttempt('10.0.2.1', 'victim', 0)).toBeGreaterThan(0);
+    // ...and never out of one they signed in from.
+    expect(beginLoginAttempt('10.9.9.9', 'victim', 0)).toBe(0);
+  });
+
+  it('keeps a bucket near its limit when made-up names flood the table', () => {
+    for (let i = 0; i < 19; i++) fail(`10.0.0.${i}`, 'victim', 1);
+    for (let i = 0; i < 60000; i++) beginLoginAttempt(`10.1.${i >> 8}.${i & 255}`, `junk${i}`, 0);
+    expect(beginLoginAttempt('10.0.1.1', 'victim', 0)).toBe(0);
+    expect(beginLoginAttempt('10.0.1.2', 'victim', 0)).toBeGreaterThan(0);
+  });
+
+  it('drops expired buckets without waiting for the table to fill', () => {
+    for (let i = 0; i < 100; i++) fail(`10.1.${i}.1`, `guess${i}`, 1);
+    expect(loginLimiterKeys()).toHaveLength(200);
+    fail('10.2.0.1', 'later', 1, 15 * MIN + 1);
+    expect(loginLimiterKeys().sort()).toEqual(['ip:10.2.0.1', 'user:later']);
   });
 
   it('says how long to wait', () => {
@@ -40,5 +109,56 @@ describe('login limiter', () => {
       'Too many failed login attempts. Try again in 15 minutes.',
     );
     expect(tooManyAttemptsMessage(10)).toContain('in 1 minute.');
+  });
+});
+
+describe('shared addresses', () => {
+  it('does not let one client behind the gateway lock out the others', () => {
+    fail(GATEWAY, 'nobody', 5);
+    expect(beginLoginAttempt(GATEWAY, 'nobody', 0)).toBe(15 * 60);
+    expect(beginLoginAttempt(GATEWAY, 'u3', 0)).toBe(0);
+    expect(beginLoginAttempt('127.0.0.1', 'nobody', 0)).toBe(0);
+  });
+
+  it('still limits guesses at one user through the gateway', () => {
+    fail(GATEWAY, 'admin', 5);
+    expect(beginLoginAttempt(GATEWAY, 'admin', 0)).toBeGreaterThan(0);
+    // Only 5 of the 20 per-username failures: admin can still sign in elsewhere.
+    expect(beginLoginAttempt('10.0.0.1', 'admin', 0)).toBe(0);
+  });
+
+  it('never counts the gateway as an address the user signed in from', () => {
+    expect(beginLoginAttempt(GATEWAY, 'admin', 0)).toBe(0);
+    loginSucceeded(GATEWAY, 'admin', 0);
+    for (let i = 0; i < 20; i++) fail(`10.0.${i}.1`, 'admin', 1);
+    expect(beginLoginAttempt(GATEWAY, 'admin', 0)).toBeGreaterThan(0);
+  });
+
+  it('limits guesses across usernames through the gateway', () => {
+    for (let i = 0; i < 50; i++) fail(GATEWAY, `name${i}`, 1);
+    expect(beginLoginAttempt(GATEWAY, 'name50', 0)).toBe(15 * 60);
+    expect(beginLoginAttempt(GATEWAY, 'admin', MIN)).toBe(14 * 60);
+    // Addresses of their own are not affected.
+    expect(beginLoginAttempt('10.0.0.1', 'admin', MIN)).toBe(0);
+  });
+
+  it('limits a browser that signed in before on its own', () => {
+    fail(GATEWAY, 'admin', 5);
+    for (let i = 0; i < 45; i++) fail(GATEWAY, `name${i}`, 1);
+    expect(beginLoginAttempt(GATEWAY, 'admin', 0)).toBeGreaterThan(0);
+    expect(beginLoginAttempt(GATEWAY, 'bob', 0)).toBeGreaterThan(0);
+    // The owner's browser gets in through the full buckets...
+    expect(beginLoginAttempt(GATEWAY, 'admin', 0, 'dev1')).toBe(0);
+    loginSucceeded(GATEWAY, 'admin', 0, 'dev1');
+    // ...and has five tries of its own, which no other client can use up.
+    fail(GATEWAY, 'admin', 5, MIN);
+    fail('::1', 'admin', 5, MIN, 'dev1');
+    expect(beginLoginAttempt('::1', 'admin', MIN, 'dev1')).toBe(15 * 60);
+    expect(beginLoginAttempt(GATEWAY, 'admin', MIN, 'dev2')).toBe(0);
+  });
+
+  it('ignores the device on an address of its own', () => {
+    fail('10.0.0.1', 'admin', 5);
+    expect(beginLoginAttempt('10.0.0.1', 'admin', 0, 'dev1')).toBe(15 * 60);
   });
 });
