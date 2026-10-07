@@ -12,6 +12,7 @@ import {
 import path from 'path';
 import { giveToDirOwner } from './file-owner';
 import { isHashablePassword } from './password-rules';
+import { serialQueue } from './serial-queue';
 
 const cache = new Map<string, { key: string; value: unknown }>();
 
@@ -71,12 +72,7 @@ export function readHtpasswd(file: string): Map<string, string> {
  * auth files goes through here, so two requests can't both pass a check and
  * then both write (duplicate users, lost updates).
  */
-let authFileQueue: Promise<unknown> = Promise.resolve();
-export function withAuthFileLock<T>(fn: () => T | Promise<T>): Promise<T> {
-  const run = authFileQueue.then(fn, fn);
-  authFileQueue = run.catch(() => {});
-  return run;
-}
+export const withAuthFileLock = serialQueue();
 
 export function hashPassword(password: string, salt?: string): Promise<string> {
   // openssl hashes only the first line, cut at 256 bytes: refuse rather than

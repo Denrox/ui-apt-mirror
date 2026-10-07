@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import fs from 'fs/promises';
 import { giveToDirOwner } from './file-owner';
 import { MirrorConfig, isPathToken, type RepositoryInput } from '~/utils/mirror-config';
+import { serialQueue } from './serial-queue';
 
 /**
  * Thin helpers for the apt-mirror2 `mirror.list` file.
@@ -16,14 +17,8 @@ import { MirrorConfig, isPathToken, type RepositoryInput } from '~/utils/mirror-
 /** Re-exported for callers that predate the {@link MirrorConfig} model. */
 export type NewRepositoryInput = RepositoryInput;
 
-let mirrorListQueue: Promise<unknown> = Promise.resolve();
-
 /** Run read-modify-write cycles on mirror.list one at a time, so none is lost. */
-export function withMirrorListLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = mirrorListQueue.then(fn);
-  mirrorListQueue = run.catch(() => undefined);
-  return run;
-}
+export const withMirrorListLock = serialQueue();
 
 /** Write a file atomically: write to a sibling temp file, then rename. */
 export async function atomicWriteFile(

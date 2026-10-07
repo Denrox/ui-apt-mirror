@@ -3,6 +3,7 @@ import path from 'path';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
+import { serialQueue } from '~/utils/serial-queue';
 
 const execAsync = promisify(exec);
 
@@ -97,14 +98,8 @@ export async function getKey(host: string): Promise<GpgKeyRecord | null> {
   return index[host] ?? null;
 }
 
-let keyQueue: Promise<unknown> = Promise.resolve();
-
 /** Run key generation and deletion one at a time, so a check and the change after it cannot interleave. */
-function withKeyLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = keyQueue.then(fn);
-  keyQueue = run.catch(() => undefined);
-  return run;
-}
+const withKeyLock = serialQueue();
 
 /** Fingerprint of the key `gpg --gen-key --status-fd 1` reports it created. */
 export function createdFingerprint(statusOutput: string): string | null {

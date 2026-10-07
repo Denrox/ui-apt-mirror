@@ -25,6 +25,7 @@ import {
   sourceIdFor,
   type IndexEntry,
 } from './cheatsheets';
+import { serialQueue } from '~/utils/serial-queue';
 
 const execFileAsync = promisify(execFile);
 
@@ -72,7 +73,6 @@ const indexPath = (id: string) => path.join(sourceDir(id), 'index.json');
 
 // 'downloading' in sources.json but not in here means a restart interrupted it.
 const active = new Set<string>();
-let registryLock: Promise<unknown> = Promise.resolve();
 
 async function readRegistry(): Promise<CheatsheetSource[]> {
   try {
@@ -126,11 +126,7 @@ async function removeTree(target: string) {
   }
 }
 
-function withRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = registryLock.then(fn);
-  registryLock = run.catch(() => undefined);
-  return run;
-}
+const withRegistryLock = serialQueue();
 
 function updateRegistry<T>(fn: (sources: CheatsheetSource[]) => T | Promise<T>): Promise<T> {
   return withRegistryLock(async () => {
