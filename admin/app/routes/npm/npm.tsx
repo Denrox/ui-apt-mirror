@@ -13,7 +13,7 @@ import {
   revokeNpmToken,
   validateNpmAuthToken,
 } from '~/utils/server-auth';
-import { clientIp } from '~/utils/client-address';
+import { clientIp, isSharedAddress } from '~/utils/client-address';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 import { BUSY_RETRY_AFTER, SearchLimiter } from '~/lib/search-limiter';
 import { PrivatePackageStore } from '~/utils/npm-private-store';
@@ -823,7 +823,8 @@ const JSON_LIMITS: JsonLimits = { values: 1_000_000, depth: 1000 };
  * few more wait; past that the client is told to try again. An audit keeps its slot while npmjs
  * answers it, which also bounds what clients can have this registry send there.
  */
-const audits = new SearchLimiter(2, 16, 4);
+// Clients behind the Docker gateway share its address, so it gets half the places.
+const audits = new SearchLimiter(2, 16, (client) => (isSharedAddress(client) ? 8 : 4));
 const packageWrites = new SearchLimiter(2, 8, 2);
 
 /**
