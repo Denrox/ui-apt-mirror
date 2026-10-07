@@ -173,6 +173,9 @@ export default function Home() {
     formData.append('includeBinaryPackages', values.includeBinaryPackages);
     formData.append('excludeBinaryPackages', values.excludeBinaryPackages);
     formData.append('includeSections', values.includeSections);
+    if (repoModalMode === 'edit' && values.deleteOldData) {
+      formData.append('deleteData', 'true');
+    }
     submit(formData, { method: 'post' });
   };
 

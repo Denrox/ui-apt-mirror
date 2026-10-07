@@ -309,6 +309,46 @@ describe('source packages with a package filter', () => {
   });
 });
 
+describe('editing the base URL with deleteData', () => {
+  function seedData() {
+    for (const root of ['mirror', 'skel']) {
+      fs.mkdirSync(`${state.dir}/${root}/example.com/debian/dists/stable`, { recursive: true });
+      fs.writeFileSync(`${state.dir}/${root}/example.com/debian/dists/stable/Release`, 'x');
+    }
+  }
+  const moveTo = (baseUrl: string, deleteData: boolean) =>
+    post({
+      ...editFields('Simple', revisionOf('Simple')),
+      baseUrl,
+      ...(deleteData ? { deleteData: 'true' } : {}),
+    });
+
+  it("keeps the old upstream's files by default", async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    expect((await moveTo('http://example.com:8080/debian', false)).message).toMatch(/updated successfully/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
+  });
+
+  it("deletes the old upstream's mirrored and skel files when asked", async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    const result = await moveTo('http://example.com:8080/debian', true);
+    expect(result.message).toMatch(/updated and the old upstream's mirrored files deleted/);
+    expect(readList()).toContain('deb http://example.com:8080/debian stable main');
+    for (const root of ['mirror', 'skel']) expect(fs.existsSync(`${state.dir}/${root}/example.com`)).toBe(false);
+  });
+
+  it('keeps them when another enabled repository uses them, or the folder did not change', async () => {
+    writeList(SIMPLE(true), ['# ---start---Other---', 'deb http://example.com/debian testing main', '# ---end---Other---']);
+    seedData();
+    expect((await moveTo('http://example.com:8080/debian', true)).message).toMatch(/kept because another enabled/);
+    writeList(SIMPLE(true));
+    expect((await moveTo('HTTP://Example.com/debian/', true)).message).toMatch(/updated successfully/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
+  });
+});
+
 describe('disabling a repository with deleteData', () => {
   const OTHER = (enabled: boolean) => [
     '# ---start---Other---',

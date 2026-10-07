@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sharedFilterWarning, sourceFilterWarning, type NewRepoValues } from './add-repo-modal';
+import { movedFromDir, sharedFilterWarning, sourceFilterWarning, type NewRepoValues } from './add-repo-modal';
 
 const values = (over: Partial<NewRepoValues> = {}): NewRepoValues => ({
   title: 'Updates',
@@ -82,5 +82,16 @@ describe('sourceFilterWarning', () => {
   it('is quiet without deb-src or with a source name filter', () => {
     expect(sourceFilterWarning(values({ includeBinaryPackages: 'hello' }))).toBeNull();
     expect(sourceFilterWarning(values({ includeSrc: true, includeSourceName: 'hello' }))).toBeNull();
+  });
+});
+
+describe('movedFromDir', () => {
+  it('names the old folder when an edit changes the mirror folder', () => {
+    const initial = values({ baseUrl: 'http://192.168.0.10:18199/synth' });
+    expect(movedFromDir(values({ baseUrl: 'http://192.168.0.10:18198/synth' }), initial)).toBe('192.168.0.10:18199/synth');
+  });
+  it('is null when adding, or for another spelling of the same folder', () => {
+    expect(movedFromDir(values(), null)).toBeNull();
+    expect(movedFromDir(values({ baseUrl: 'https://deb.debian.org/debian' }), values())).toBeNull();
   });
 });

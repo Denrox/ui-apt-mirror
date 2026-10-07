@@ -27,6 +27,8 @@ export interface NewRepoValues {
   includeBinaryPackages: string;
   excludeBinaryPackages: string;
   includeSections: string;
+  /** Edit only: also delete the mirrored files of the base URL the repository had. */
+  deleteOldData?: boolean;
 }
 
 /** An enabled repository's upstream and package filters. */
@@ -115,6 +117,13 @@ export function sharedFilterWarning(
 export function sourceFilterWarning(values: NewRepoValues): string | null {
   if (!values.includeSrc || !filtersMissSources(formFilters(values))) return null;
   return 'apt-mirror2 applies "Include/Exclude binary packages" to binary packages only, so every source package of the upstream would be downloaded. Untick this, or filter by source package names instead.';
+}
+
+/** The mirror folder an edit moves the repository away from, or null when it stays. */
+export function movedFromDir(values: NewRepoValues, initial?: NewRepoValues | null): string | null {
+  if (!initial) return null;
+  const from = mirrorDirOf(canonicalBaseUrl(initial.baseUrl));
+  return from && from !== mirrorDirOf(canonicalBaseUrl(values.baseUrl)) ? from : null;
 }
 
 const EMPTY: NewRepoValues = {
@@ -242,6 +251,7 @@ export default function AddRepoModal({
 
   const filterWarning = sharedFilterWarning(values, upstreams, initialValues?.title);
   const sourceWarning = sourceFilterWarning(values);
+  const oldDir = movedFromDir(values, initialValues);
 
   const isValid =
     values.title.trim() !== '' &&
@@ -251,7 +261,7 @@ export default function AddRepoModal({
 
   const handleSubmit = () => {
     if (!isValid || isSubmitting) return;
-    onSubmit(values);
+    onSubmit({ ...values, deleteOldData: Boolean(oldDir && values.deleteOldData) });
   };
 
   return (
@@ -277,6 +287,16 @@ export default function AddRepoModal({
             <p role="alert" className="text-[12px] leading-relaxed text-error">
               {filterWarning}
             </p>
+          )}
+          {oldDir && (
+            <FormCheckbox
+              id="edit-repo-delete-old-data"
+              label="Also delete the old upstream's mirrored files"
+              description={`Syncs never clean an upstream that is no longer configured, so ${oldDir} would stay on disk and be served. Files still used by another enabled repository are kept.`}
+              checked={Boolean(values.deleteOldData)}
+              onChange={(v) => set('deleteOldData', v)}
+              disabled={isSubmitting}
+            />
           )}
         </FormField>
 
