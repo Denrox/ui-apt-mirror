@@ -9,7 +9,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { resolveBelow, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
+import { resolveEntry, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
 import { moveFile } from '~/utils/move-path';
 import {
@@ -135,10 +135,8 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
     const dirPath = path.dirname(oldPath);
     const newPath = path.join(dirPath, newName);
 
-    try {
-      await fs.access(newPath);
-      return false;
-    } catch (error) {}
+    // lstat: a dangling symlink still takes the name
+    if (await pathExists(newPath)) return false;
 
     await fs.rename(oldPath, newPath);
     return true;
@@ -531,7 +529,8 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to create folder' };
       }
     } else if (intent === 'deleteFile') {
-      const filePath = resolveBelow(formData.get('filePath'), roots);
+      // The entry itself: deleting a symlink removes the link, never its target.
+      const filePath = resolveEntry(formData.get('filePath'), roots);
       if (!filePath) {
         return { success: false, error: OUTSIDE };
       }
@@ -546,7 +545,7 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to delete file' };
       }
     } else if (intent === 'renameFile') {
-      const filePath = resolveBelow(formData.get('filePath'), roots);
+      const filePath = resolveEntry(formData.get('filePath'), roots);
       const newName = formData.get('newName') as string;
       if (!filePath) {
         return { success: false, error: OUTSIDE };
@@ -579,7 +578,7 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         };
       }
     } else if (intent === 'moveFile') {
-      const sourcePath = resolveBelow(formData.get('sourcePath'), roots);
+      const sourcePath = resolveEntry(formData.get('sourcePath'), roots);
       const destinationPath = resolveInside(formData.get('destinationPath'), roots);
 
       if (!sourcePath || !destinationPath) {
