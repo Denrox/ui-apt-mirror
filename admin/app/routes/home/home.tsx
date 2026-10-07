@@ -349,6 +349,11 @@ export default function Home() {
               </FormButton>
             }
             disabled={isLockFilePresent || isActionInProgress}
+            disabledReason={
+              isLockFilePresent
+                ? 'Repositories can be added once the sync is done'
+                : 'Wait for the current action to finish'
+            }
           >
             <DropdownItem onClick={handleOpenAddRepo}>
               Add repository…
@@ -680,7 +685,7 @@ export default function Home() {
                   >
                     {page.name}
                   </a>
-                  <div className="truncate font-mono text-[11px] text-on-surface-variant">
+                  <div className="break-all font-mono text-[11px] text-on-surface-variant">
                     {getHostAddress(page.address)}
                   </div>
                   <div className="text-xs text-on-surface-variant/80">

@@ -9,7 +9,6 @@ import {
   type FocusEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type ReactElement,
   type ReactNode,
 } from 'react';
 
@@ -17,6 +16,8 @@ interface DropdownProps {
   readonly trigger: ReactNode;
   readonly children: ReactNode;
   readonly disabled?: boolean;
+  /** Shown on the trigger while it is disabled: why it can't be used now. */
+  readonly disabledReason?: string;
 }
 
 const enabledItems = (menu: HTMLElement | null) =>
@@ -26,11 +27,14 @@ const enabledItems = (menu: HTMLElement | null) =>
  * A button that shows a list of actions below it (a disclosure: the trigger
  * says whether it is expanded). Esc, choosing an item, a click outside or
  * moving focus out of it closes the list; arrow keys move between items.
+ * After Esc or an item, focus goes back to the trigger (and a dialog the item
+ * opened returns it there). A disabled dropdown disables its trigger too.
  */
 export default function Dropdown({
   trigger,
   children,
   disabled = false,
+  disabledReason,
 }: DropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({
@@ -133,9 +137,11 @@ export default function Dropdown({
   };
 
   // An item was chosen: it may open a dialog, which must not have the list under it.
+  // The item goes away with the list, so focus on it moves to the trigger; a
+  // dialog opened by the item renders after this and returns focus there.
   const handleMenuClick = (event: ReactMouseEvent<HTMLDivElement>) => {
     const item = (event.target as Element).closest('button');
-    if (item && !item.disabled) setIsOpen(false);
+    if (item && !item.disabled) close(menuRef.current?.contains(document.activeElement) ?? false);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -158,15 +164,17 @@ export default function Dropdown({
   };
 
   const state = { expanded: isOpen && !disabled, controls: isOpen ? menuId : undefined };
-  const triggerElement = isValidElement(trigger)
+  const triggerElement = isValidElement<Record<string, unknown>>(trigger)
     ? typeof trigger.type === 'string'
-      ? cloneElement(trigger as ReactElement<Record<string, unknown>>, {
+      ? cloneElement(trigger, {
           'aria-expanded': state.expanded,
           'aria-controls': state.controls,
+          disabled: disabled || trigger.props.disabled,
         })
-      : cloneElement(trigger as ReactElement<Record<string, unknown>>, {
+      : cloneElement(trigger, {
           ariaExpanded: state.expanded,
           ariaControls: state.controls,
+          disabled: disabled || trigger.props.disabled,
         })
     : trigger;
 
@@ -175,6 +183,7 @@ export default function Dropdown({
       <div
         ref={triggerRef}
         onClick={handleTriggerClick}
+        title={disabled ? disabledReason : undefined}
         className={
           disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
         }

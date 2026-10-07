@@ -98,8 +98,9 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                 title={
                   <div className="flex flex-col min-w-0">
                     {/* Isolated (bdi, dir="ltr") so a name, URL or date in another
-                        direction can't reorder the rest of the line; clipped so
-                        stacked accents can't draw over the rows above. */}
+                        direction can't reorder the rest of the line; the name, URL
+                        and error are clipped so stacked accents can't draw over the
+                        rows above. */}
                     <div className="font-medium text-on-surface break-words overflow-hidden">
                       <bdi>{s.name}</bdi>
                     </div>
@@ -108,7 +109,7 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                       target="_blank"
                       rel="noreferrer"
                       dir="ltr"
-                      className="text-xs text-primary break-all text-left"
+                      className="text-xs text-primary break-all text-left overflow-hidden"
                     >
                       {s.url}
                     </a>
@@ -132,7 +133,7 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                       )}
                     </div>
                     {s.status === 'error' && s.error && (
-                      <div className="text-xs text-error mt-1">
+                      <div className="text-xs text-error mt-1 break-words overflow-hidden">
                         <bdi>{s.error}</bdi>
                         {s.fileCount > 0 ? ' (previous copy is still available)' : ''}
                       </div>

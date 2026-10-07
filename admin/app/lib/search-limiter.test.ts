@@ -45,4 +45,22 @@ describe('SearchLimiter', () => {
     await expect(limiter.acquire(AbortSignal.abort())).rejects.toBeDefined();
     expect(limiter.active).toBe(0);
   });
+
+  it('turns a client away once it has maxPerClient places, and counts its released ones', async () => {
+    const limiter = new SearchLimiter(1, 5, 2);
+    const a = await limiter.acquire(undefined, 'x');
+    const b = limiter.acquire(undefined, 'x');
+    expect(await limiter.acquire(undefined, 'x')).toBeNull();
+    const c = limiter.acquire(undefined, 'y');
+    expect(limiter.queued).toBe(2);
+    a!();
+    (await b)!();
+    const releaseC = await c;
+    // x holds nothing now, so it may queue again.
+    const d = limiter.acquire(undefined, 'x');
+    expect(limiter.queued).toBe(1);
+    releaseC!();
+    (await d)!();
+    expect(limiter.active).toBe(0);
+  });
 });

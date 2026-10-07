@@ -551,6 +551,7 @@ export default function FileManager() {
           <FormSelect
             id="view-selector"
             label=""
+            ariaLabel="View"
             value={view}
             onChange={(value) =>
               setView(value as FileManagerView)
@@ -641,8 +642,9 @@ export default function FileManager() {
                     <FormButton
                       onClick={() => setSearchParams({ path: parentDirName })}
                       disabled={isLoading}
+                      ariaLabel="Parent folder"
                     >
-                      ↑
+                      <span aria-hidden="true">↑</span>
                     </FormButton>
                   </div>
                 )}

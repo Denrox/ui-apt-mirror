@@ -89,8 +89,18 @@ describe('parseGithubUrl folder characters', () => {
     },
   );
 
+  it.each(['%E2%A0%80', '%E3%80%80', '%C2%A0', 'x%20', '%20x', 'x' + '%CC%81'.repeat(4), 'docs/%CC%81x'])(
+    'refuses blank-looking folders, spaces at either end and stacked marks: %s',
+    (segment) => {
+      expect(() => parseGithubUrl(`https://github.com/o/r/tree/main/${segment}`)).toThrow('Invalid folder path');
+    },
+  );
+
   it('accepts accented and non-Latin folder names', () => {
     expect(parseGithubUrl('https://github.com/o/r/tree/main/%C3%BCber/%D0%BF%D1%80%D0%B8').path).toBe('über/при');
+    expect(parseGithubUrl('https://github.com/o/r/tree/main/x%CC%81%CC%82%CC%83/a%20b/.github').path).toBe(
+      'x\u0301\u0302\u0303/a b/.github',
+    );
   });
 });
 

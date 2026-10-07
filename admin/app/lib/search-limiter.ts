@@ -4,16 +4,20 @@
  * the file manager, the npm proxy) waits for all of their slices in turn.
  *
  * `acquire` resolves to a release function once a slot is free, or to null
- * when `maxQueued` callers are already waiting (the caller answers "busy").
- * A caller whose signal aborts while waiting leaves the queue at once.
+ * when `maxQueued` callers are already waiting, or when `client` already has
+ * `maxPerClient` searches running or waiting (the caller answers "busy"), so
+ * one client can't take the whole queue. A caller whose signal aborts while
+ * waiting leaves the queue at once.
  */
 export class SearchLimiter {
   private running = 0;
   private readonly waiting: { grant: () => void }[] = [];
+  private readonly perClient = new Map<string, number>();
 
   constructor(
     readonly maxRunning: number,
     readonly maxQueued: number,
+    readonly maxPerClient = Infinity,
   ) {}
 
   get active(): number {
@@ -24,25 +28,29 @@ export class SearchLimiter {
     return this.waiting.length;
   }
 
-  acquire(signal?: AbortSignal): Promise<(() => void) | null> {
+  acquire(signal?: AbortSignal, client = ''): Promise<(() => void) | null> {
     if (signal?.aborted) return Promise.reject(signal.reason);
+    if ((this.perClient.get(client) ?? 0) >= this.maxPerClient) return Promise.resolve(null);
     if (this.running < this.maxRunning) {
       this.running++;
-      return Promise.resolve(this.releaser());
+      this.count(client, 1);
+      return Promise.resolve(this.releaser(client));
     }
     if (this.waiting.length >= this.maxQueued) return Promise.resolve(null);
+    this.count(client, 1);
 
     return new Promise((resolve, reject) => {
       const entry = {
         grant: () => {
           signal?.removeEventListener('abort', onAbort);
           this.running++;
-          resolve(this.releaser());
+          resolve(this.releaser(client));
         },
       };
       const onAbort = () => {
         const i = this.waiting.indexOf(entry);
         if (i !== -1) this.waiting.splice(i, 1);
+        this.count(client, -1);
         reject(signal!.reason);
       };
       signal?.addEventListener('abort', onAbort, { once: true });
@@ -50,20 +58,28 @@ export class SearchLimiter {
     });
   }
 
-  private releaser(): () => void {
+  private releaser(client: string): () => void {
     let released = false;
     return () => {
       if (released) return;
       released = true;
       this.running--;
+      this.count(client, -1);
       this.waiting.shift()?.grant();
     };
+  }
+
+  private count(client: string, delta: number) {
+    const n = (this.perClient.get(client) ?? 0) + delta;
+    if (n > 0) this.perClient.set(client, n);
+    else this.perClient.delete(client);
   }
 }
 
 // Public (cheatsheets host) and signed-in searches are counted apart, so a
-// burst on the public host can't lock the admin out of searching.
-export const publicSearches = new SearchLimiter(2, 6);
+// burst on the public host can't lock the admin out of searching. A public
+// client gets at most two places, so others still find room in the queue.
+export const publicSearches = new SearchLimiter(2, 6, 2);
 export const adminSearches = new SearchLimiter(2, 6);
 
 /** Seconds a client told "busy" should wait before trying again. */

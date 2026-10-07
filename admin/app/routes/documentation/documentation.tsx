@@ -161,7 +161,8 @@ export default function Documentation() {
               <li>Detects system architecture (amd64/arm64)</li>
               <li>Validates required image files exist in dist/</li>
               <li>
-                Prompts for custom configuration (domain, sync frequency, admin
+                Prompts for custom configuration (domain, sync frequency,
+                whether to enable the caching npm proxy, timezone, admin
                 password)
               </li>
               <li>

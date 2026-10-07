@@ -9,6 +9,8 @@ interface FormSelectProps {
   }[];
   readonly disabled?: boolean;
   readonly placeholder?: string;
+  /** Names the select when no visible label does. */
+  readonly ariaLabel?: string;
 }
 
 export default function FormSelect({
@@ -19,6 +21,7 @@ export default function FormSelect({
   options,
   disabled = false,
   placeholder,
+  ariaLabel,
 }: FormSelectProps) {
   return (
     <div>
@@ -33,6 +36,7 @@ export default function FormSelect({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
+        aria-label={ariaLabel}
         className="w-full px-3 py-2 bg-surface-container-lowest border border-outline-variant text-on-surface rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {placeholder && (

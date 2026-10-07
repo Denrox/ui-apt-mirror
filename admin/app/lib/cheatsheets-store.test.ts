@@ -260,6 +260,40 @@ describe('downloading a source', () => {
     expect(fs.readdirSync(dir).filter((n) => n.startsWith('.tmp-'))).toEqual([]);
   });
 
+  it('gives up on an archive download that stops sending', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let started = false;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init: RequestInit) => {
+          const body = new ReadableStream({
+            start(c) {
+              c.enqueue(new Uint8Array(1024));
+              started = true;
+              init.signal!.addEventListener('abort', () => c.error(init.signal!.reason));
+            },
+          });
+          return new Response(body, { status: 200 });
+        }),
+      );
+      const added = await addSource('https://github.com/o/stalled');
+      await waitFor(() => started);
+      await vi.advanceTimersByTimeAsync(61_000);
+      await waitFor(() =>
+        JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8')).sources.some(
+          (s: { id: string; status: string }) => s.id === added.id && s.status === 'error',
+        ),
+      );
+      expect((await listSources()).find((s) => s.id === added.id)?.error).toBe(
+        'GitHub sent nothing for 60 seconds; try again later',
+      );
+      await waitFor(() => !fs.readdirSync(dir).some((n) => n.startsWith('.tmp-')));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('says so when the folder is not in the repository', async () => {
     const build = path.join(dir, 'build2', 'o-r-0123abc');
     fs.mkdirSync(build, { recursive: true });
