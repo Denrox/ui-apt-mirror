@@ -1,2 +1,6 @@
-# Stock nginx site configs of the previous release: none, 3.0 upgrades no 2.x install.
-# After tagging v3.0.0, run: nginx/sites-setup/update-released-sites.sh v3.0.0
+# Stock nginx site configs of v3.0.0: <sha256> <site>. Written by update-released-sites.sh; do not edit.
+f8b58b5d2000cbaece6f2c5ebafcc6b2f89c301c3c08d94103e38446b79b8fa2 admin.mirror.intra.conf
+9bd461a6030c9c163d1e26af9009b8c328dde3a0e1d9ee621b0789d1fb800c01 cheatsheets.mirror.intra.conf
+66adde8e09ee0666f079412c8f878656736d5e44ac944897806f648a297f6001 files.mirror.intra.conf
+cafd64396ef00b3d2cc6cf9ff2855e45b8ff79ab805968d8f088aa92b70396a3 mirror.intra.conf
+13c62fe3c97890ce33e7513ffded87f91858650f4b9ad8018cae0fbd968c80a5 npm.mirror.intra.conf
