@@ -324,36 +324,66 @@ function tarballUrl(request: Request, packageName: string, tarballFile: string):
   return `${url.protocol}//${request.headers.get('host') ?? url.host}/${packageName}/-/${tarballFile}`;
 }
 
+type NameCheck =
+  | { verdict: 'public' | 'free' }
+  | { verdict: 'unverified'; reason: string };
+
 /**
- * Whether a name already belongs to a public package (upstream, or in our cache when offline).
- * Publishing such a name privately would replace the real package for every client.
+ * Whether a name already belongs to a public package. Publishing such a name privately would
+ * replace the real package for every client, so this fails closed: a name is free only when
+ * npmjs says so clearly (200 without the name, or 404). Any other answer (429, 5xx, …) leaves it
+ * unverified. Only when npmjs cannot be reached at all (an offline mirror) is a name taken as
+ * free without asking, and only if it is clearly private: a scoped name whose scope has no public
+ * package in our cache. An unscoped name could be any public package, so it waits for npmjs.
  *
  * A scoped name is never sent upstream: npmjs is asked only for the packages of its scope, and the
  * name is looked up in that list here. Unscoped names have no such list and are checked directly.
  */
-async function isPublicPackageName(packageName: string): Promise<boolean> {
+async function checkPublicName(packageName: string): Promise<NameCheck> {
   const cached = await publicCacheFile({ kind: 'package', name: packageName });
-  if (cached && (await isCached(cached))) return true;
+  if (cached && (await isCached(cached))) return { verdict: 'public' };
+
+  const scope = packageScope(packageName);
+  const url = scope
+    ? upstreamUrl(NPM_REGISTRY_URL, `-/org/${encodeURIComponent(scope)}/package`)
+    : upstreamUrl(NPM_REGISTRY_URL, packageName);
+  if (!url) return { verdict: 'unverified', reason: 'the name cannot be looked up' };
+
+  let res: Response;
   try {
-    const scope = packageScope(packageName);
-    if (scope) {
-      const res = await fetch(`${NPM_REGISTRY_URL}/-/org/${encodeURIComponent(scope)}/package`, {
-        signal: AbortSignal.timeout(15000),
-      });
-      if (res.status !== 200) {
-        await res.body?.cancel();
-        return false;
-      }
-      return scopeListsPackage(await res.json(), packageName);
-    }
-    const res = await fetch(`${NPM_REGISTRY_URL}/${packageName}`, {
-      method: 'HEAD',
-      signal: AbortSignal.timeout(5000),
-    });
-    return res.status === 200;
+    res = await fetch(url, scope
+      ? { signal: AbortSignal.timeout(15000) }
+      : { method: 'HEAD', signal: AbortSignal.timeout(5000) });
   } catch {
-    return false;
+    if (scope && !(await scopeIsCached(scope))) return { verdict: 'free' };
+    return {
+      verdict: 'unverified',
+      reason: scope
+        ? `npmjs.org cannot be reached, and @${scope} has public packages`
+        : 'npmjs.org cannot be reached, and an unscoped name may be a public package',
+    };
   }
+
+  if (res.status === 404) {
+    await res.body?.cancel().catch(() => {});
+    return { verdict: 'free' };
+  }
+  if (res.status !== 200) {
+    await res.body?.cancel().catch(() => {});
+    return { verdict: 'unverified', reason: `npmjs.org answered HTTP ${res.status}` };
+  }
+  if (!scope) return { verdict: 'public' };
+  const list: unknown = await res.json().catch(() => null);
+  if (!list || typeof list !== 'object' || Array.isArray(list)) {
+    return { verdict: 'unverified', reason: 'npmjs.org sent an unreadable package list' };
+  }
+  return { verdict: scopeListsPackage(list, packageName) ? 'public' : 'free' };
+}
+
+/** Whether any package of the scope is in the public cache. */
+async function scopeIsCached(scope: string): Promise<boolean> {
+  const dir = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, `_packages/@${scope}`));
+  return (await fs.readdir(dir).catch(() => [])).length > 0;
 }
 
 async function loadPrivatePackage(
@@ -607,7 +637,18 @@ async function publishPackage(
     return jsonResponse({ error: 'Invalid package name or version' }, 400);
   }
 
-  if (!(await isPrivatePackage(packageName)) && (await isPublicPackageName(packageName))) {
+  const check = (await isPrivatePackage(packageName)) ? null : await checkPublicName(packageName);
+  if (check?.verdict === 'unverified') {
+    return jsonResponse(
+      {
+        error: 'Service Unavailable',
+        reason: `Cannot check that "${packageName}" is not a public npm package (${check.reason}); try again later`,
+      },
+      503,
+      { 'Retry-After': '60' },
+    );
+  }
+  if (check?.verdict === 'public') {
     return jsonResponse(
       {
         error: 'Forbidden',
