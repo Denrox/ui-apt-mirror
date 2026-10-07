@@ -1,7 +1,6 @@
 import { createHash } from 'crypto';
 import { parse } from './parse';
 import { serialize } from './serialize';
-import { canonicalBaseUrl, normalizeUrl } from './url';
 import {
   FILTER_KEYS,
   type CommentNode,
@@ -14,6 +13,7 @@ import {
   type SectionNode,
   type UsageNode,
 } from './types';
+import { canonicalBaseUrl, filtersCombine, filtersMissSources, mirrorDirOf, mirrorDirsOverlap, normalizeUrl, type PackageFilters } from './upstream';
 
 const PATH_TOKEN_RE = /^[A-Za-z0-9._+~-]+(\/[A-Za-z0-9._+~-]+)*$/;
 
@@ -113,31 +113,125 @@ export class MirrorConfig {
   /**
    * apt-mirror2 keeps one package filter per upstream (base URL): the filters of every enabled
    * section on that URL are combined and restrict all of them. The other enabled sections on
-   * the same upstream as this one, with whether each is filtered.
+   * the same upstream as this one, with whether each is filtered. Sections count as one
+   * upstream when apt-mirror2 stores them in the same (or a nested) mirror folder, whatever
+   * the spelling of their base URLs.
    */
   upstreamNeighbours(section: SectionNode): { title: string; filtered: boolean }[] {
-    const urls = new Set(baseUrlsOf(section, true).map(canonicalBaseUrl));
-    if (!urls.size) return [];
-    return this.sections()
-      .filter(
-        (other) =>
-          other !== section &&
-          this.isSectionEnabled(other) &&
-          baseUrlsOf(other, true).some((u) => urls.has(canonicalBaseUrl(u))),
-      )
-      .map((other) => ({ title: other.title, filtered: this.isSectionFiltered(other) }));
+    return this.neighbourSections(section).map((other) => ({
+      title: other.title,
+      filtered: this.isSectionFiltered(other),
+    }));
+  }
+
+  private neighbourSections(section: SectionNode): SectionNode[] {
+    const dirs = mirrorDirsOf(section);
+    if (!dirs.length) return [];
+    return this.sections().filter(
+      (other) =>
+        other !== section &&
+        this.isSectionEnabled(other) &&
+        mirrorDirsOf(other).some((d) => dirs.some((own) => mirrorDirsOverlap(own, d))),
+    );
+  }
+
+  /** The package filters a section applies while it is enabled. */
+  activeFilters(section: SectionNode): PackageFilters {
+    const filters: PackageFilters = {};
+    for (const child of section.children) {
+      if (child.kind === 'filter' && child.enabled && child.values.length) {
+        filters[child.key] = [...(filters[child.key] ?? []), ...child.values];
+      }
+    }
+    return filters;
   }
 
   /**
-   * Why an enabled section cannot be mirrored as configured: it shares its upstream with an
-   * enabled section that is filtered while it is not (or the other way round), so one
-   * repository's filter would silently restrict the other. Null when there is no such clash.
+   * Why the filters of an enabled, filtered section and those of the other filtered sections
+   * on its upstream would not add up: apt-mirror2 merges them into one filter that a package
+   * must match in every key, so one repository's filter would delete another's packages.
+   * Null when they combine (see {@link filtersCombine}).
    */
-  filterConflict(section: SectionNode): string | null {
+  filterCombineConflict(section: SectionNode): string | null {
+    if (!this.isSectionEnabled(section) || !this.isSectionFiltered(section)) return null;
+    const others = this.neighbourSections(section).filter((o) => this.isSectionFiltered(o));
+    if (!others.length) return null;
+    const own = this.activeFilters(section);
+    if (filtersCombine([own, ...others.map((o) => this.activeFilters(o))])) return null;
+    const clash = others.filter((o) => !filtersCombine([own, this.activeFilters(o)]));
+    const names = (clash.length ? clash : others).map((o) => `"${o.title}"`).join(', ');
+    return (
+      `The package filters of "${section.title}" and ${names} (same upstream) do not add up: apt-mirror2 ` +
+      `merges the filters of one upstream into one and mirrors only the packages that match all of its lines, ` +
+      `so one repository's filter would delete packages the other one selects. Repositories on one upstream ` +
+      `must use the same kinds of filters and may differ in only one include list (for example each lists ` +
+      `only its own "Include binary packages"). Change the filters, or merge them into one repository.`
+    );
+  }
+
+  /**
+   * Why source packages would not be filtered: a section on this upstream mirrors deb-src
+   * while the upstream's filter lists binary packages (or tags), which apt-mirror2 does not
+   * apply to source packages, so every source package of the upstream would be downloaded.
+   */
+  sourceFilterConflict(section: SectionNode): string | null {
     if (!this.isSectionEnabled(section)) return null;
+    const group = [section, ...this.neighbourSections(section)];
+    if (!group.some((s) => filtersMissSources(this.activeFilters(s)))) return null;
+    const withSources = group.find((s) => debChildren(s).some((d) => d.enabled && d.debType === 'deb-src'));
+    if (!withSources) return null;
+    return (
+      `"${withSources.title}" mirrors source packages (deb-src), but its upstream is filtered by binary ` +
+      `package names, which apt-mirror2 does not apply to source packages: every source package of the ` +
+      `upstream would be downloaded. Untick "Also mirror source packages", or filter by source package ` +
+      `names instead.`
+    );
+  }
+
+  /**
+   * Why an enabled section and another enabled one would delete each other's files: their
+   * base URLs differ (e.g. `http://` and `https://`), so apt-mirror2 syncs them as two
+   * repositories, but it stores both in the same (or a nested) mirror folder and each one's
+   * clean removes what the other downloaded. Null when there is no such clash.
+   */
+  mirrorDirConflict(section: SectionNode): string | null {
+    if (!this.isSectionEnabled(section)) return null;
+    for (const own of baseUrlsOf(section, true)) {
+      const ownDir = mirrorDirOf(own);
+      if (!ownDir) continue;
+      for (const other of this.sections()) {
+        if (other === section || !this.isSectionEnabled(other)) continue;
+        for (const url of baseUrlsOf(other, true)) {
+          const dir = mirrorDirOf(url);
+          if (!dir || url === own || !mirrorDirsOverlap(ownDir, dir)) continue;
+          const where =
+            dir === ownDir ? `the same mirror folder (${dir})` : `nested mirror folders (${ownDir} and ${dir})`;
+          const fix = dir === ownDir ? `Use the base URL ${url} for both` : 'Mirror them under one base URL';
+          return (
+            `"${section.title}" (${own}) and "${other.title}" (${url}) are stored in ${where}. ` +
+            `apt-mirror2 syncs different base URLs as separate repositories, so each sync would delete ` +
+            `the other's files. ${fix}, or disable or remove one of them.`
+          );
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Why an enabled section cannot be mirrored as configured: it shares its mirror folder with
+   * another enabled section under a different base URL, or it shares its upstream with an
+   * enabled section that is filtered while it is not (or the other way round), so one
+   * repository's filter would silently restrict the other, or their filters do not add up, or
+   * source packages would escape the filter. Null when there is no such clash.
+   */
+  upstreamConflict(section: SectionNode): string | null {
+    if (!this.isSectionEnabled(section)) return null;
+    const dirConflict = this.mirrorDirConflict(section);
+    if (dirConflict) return dirConflict;
     const filtered = this.isSectionFiltered(section);
     const clash = this.upstreamNeighbours(section).find((n) => n.filtered !== filtered);
-    if (!clash) return null;
+    if (!clash) return this.filterCombineConflict(section) ?? this.sourceFilterConflict(section);
     const [unfiltered, withFilter] = filtered ? [clash.title, section.title] : [section.title, clash.title];
     return (
       `"${unfiltered}" has no package filter but shares its upstream with "${withFilter}", which has one. ` +
@@ -415,6 +509,11 @@ function baseUrlsOf(section: SectionNode, enabledOnly = false): string[] {
   return Array.from(urls);
 }
 
+/** Mirror folders of a section's active deb directives. */
+function mirrorDirsOf(section: SectionNode): string[] {
+  return baseUrlsOf(section, true).flatMap((u) => mirrorDirOf(u) ?? []);
+}
+
 /** Build a complete section node from user input. */
 function buildSection(
   input: RepositoryInput,
@@ -466,9 +565,9 @@ function buildUsage(
   mirrorDomain: string,
 ): UsageNode {
   const comps = input.components.join(' ');
-  const url = new URL(base);
-  // apt-mirror2 keeps a non-default port in the folder name (host:port).
-  const mirrorPath = normalizeUrl(`${url.host}${url.pathname}`);
+  // The folder the sync writes the repository to (host[:port]/path), so the snippet always
+  // points where the files are.
+  const mirrorPath = mirrorDirOf(base) ?? normalizeUrl(base.replace(/^[a-z]+:\/\//i, ''));
   const lines = [
     `#Types: deb${input.includeSrc ? ' deb-src' : ''}`,
     `#URIs: http://${mirrorDomain}/${mirrorPath}`,

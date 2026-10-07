@@ -121,5 +121,16 @@ make_suite deb.example.org.evil:8080/debian trixie nine
 "$SIGN" deb.example.org >/dev/null
 check "another host's folder is not signed" '! signed_by_us "$MIRROR_ROOT/deb.example.org.evil:8080/debian/dists/trixie"'
 
+echo "# a single-label host name"
+APTLY_FPR=$(new_key "$GNUPG_HOME" "apt-mirror+aptly <apt-mirror+aptly@mirror.intra>")
+jq --arg f "$APTLY_FPR" '.aptly = {fingerprint: $f}' "$GPG_KEYS_INDEX" > "$WORK/keys.tmp" && mv "$WORK/keys.tmp" "$GPG_KEYS_INDEX"
+make_suite aptly:8080/debian trixie ten
+make_suite aptly/debian trixie eleven
+"$SIGN" aptly > "$WORK/out"
+aptly_signed() { gpg --homedir "$GNUPG_HOME" --batch --status-fd 1 --verify "$1/InRelease" 2>/dev/null | grep -q "VALIDSIG $APTLY_FPR"; }
+check "aptly and aptly:8080 signed" 'aptly_signed "$MIRROR_ROOT/aptly:8080/debian/dists/trixie" && aptly_signed "$MIRROR_ROOT/aptly/debian/dists/trixie"'
+"$SIGN" --restore aptly >/dev/null
+check "aptly:8080 restored" 'signed_upstream "$MIRROR_ROOT/aptly:8080/debian/dists/trixie"'
+
 echo
 if [ "$failures" -eq 0 ]; then echo "All sign-releases tests passed"; else echo "$failures test(s) failed"; exit 1; fi

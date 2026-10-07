@@ -173,6 +173,9 @@ export default function Home() {
     formData.append('includeBinaryPackages', values.includeBinaryPackages);
     formData.append('excludeBinaryPackages', values.excludeBinaryPackages);
     formData.append('includeSections', values.includeSections);
+    if (repoModalMode === 'edit' && values.deleteOldData) {
+      formData.append('deleteData', 'true');
+    }
     submit(formData, { method: 'post' });
   };
 
@@ -362,6 +365,7 @@ export default function Home() {
               <DropdownItem
                 key={`${i}:${section.title}`}
                 onClick={() => handleRestoreClick(section)}
+                title={section.title}
               >
                 Enable: {section.title}
               </DropdownItem>
@@ -467,13 +471,17 @@ export default function Home() {
                                       Delete signing key
                                     </DropdownItem>
                                   </>
-                                ) : (
+                                ) : h.signable ? (
                                   <DropdownItem
                                     onClick={() => handleGenerateGpgKey(h.host)}
                                     disabled={isActionInProgress}
                                   >
                                     Generate signing key
                                   </DropdownItem>
+                                ) : (
+                                  <p className="px-4 pb-2 text-xs text-on-surface-variant">
+                                    Hosts given as an IPv6 address can't be signed. Use a host name in the base URL to sign it.
+                                  </p>
                                 )}
                               </div>
                             ))}
@@ -593,7 +601,7 @@ export default function Home() {
                 key={`${i}:${section.title}`}
                 className="flex items-center justify-between gap-3 px-4 py-2"
               >
-                <span className="truncate text-sm text-on-surface-variant">
+                <span className="min-w-0 truncate text-sm text-on-surface-variant" title={section.title}>
                   {section.title}
                 </span>
                 <div className="flex shrink-0 items-center gap-3">

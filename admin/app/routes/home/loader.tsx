@@ -4,14 +4,16 @@ import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { hostAddress, withMirrorHost } from '~/utils/hosts';
-import { listKeys, type GpgKeyRecord } from '~/lib/gpg';
-import { MirrorConfig, canonicalBaseUrl, type RepositoryInput } from '~/utils/mirror-config';
+import { isSignableHost, listKeys, type GpgKeyRecord } from '~/lib/gpg';
+import { MirrorConfig, canonicalBaseUrl, type PackageFilters, type RepositoryInput } from '~/utils/mirror-config';
 import { readTail } from '~/utils/read-tail';
 import { SYNC_LOG } from '~/utils/log-files';
 
 export interface RepositoryHost {
   host: string;
   gpgKey: GpgKeyRecord | null;
+  /** False for hosts that cannot have a signing key (IPv6 literals). */
+  signable: boolean;
 }
 
 export interface RepositoryConfig {
@@ -29,6 +31,7 @@ interface RepositoryUpstream {
   url: string;
   title: string;
   filtered: boolean;
+  filters: PackageFilters;
 }
 
 export interface CommentedSection {
@@ -65,11 +68,30 @@ export function filterNote(
   }
   const restricted = neighbours.filter((n) => !n.filtered).map((n) => n.title);
   if (filteredBy.length) {
-    lines.push(`# The filters of ${quoteTitles(filteredBy)} (same upstream) are combined with this one.`);
+    lines.push(
+      `# The filters of ${quoteTitles(filteredBy)} (same upstream) are combined with this one: a package is`,
+      '# mirrored when one of them selects it.',
+    );
   }
   if (restricted.length) {
     lines.push(`# This filter also restricts ${quoteTitles(restricted)} (same upstream, no filter of its own).`);
   }
+  return lines;
+}
+
+/** A message as `# ` comment lines of at most about 95 characters, for a card's snippet. */
+export function commentLines(text: string): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line && line.length + word.length + 1 > 93) {
+      lines.push(`# ${line}`);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(`# ${line}`);
   return lines;
 }
 
@@ -169,12 +191,17 @@ async function parseRepositoryConfigs(): Promise<{
       for (const url of new Set(
         section.children.flatMap((c) => (c.kind === 'deb' && c.enabled ? [canonicalBaseUrl(c.uri)] : [])),
       )) {
-        upstreams.push({ url, title: section.title, filtered: config.isSectionFiltered(section) });
+        upstreams.push({
+          url,
+          title: section.title,
+          filtered: config.isSectionFiltered(section),
+          filters: config.activeFilters(section),
+        });
       }
 
       const hosts: RepositoryHost[] = config
         .sectionHosts(section)
-        .map((host) => ({ host, gpgKey: keysIndex[host] ?? null }));
+        .map((host) => ({ host, gpgKey: keysIndex[host] ?? null, signable: isSignableHost(host) }));
       const signed = hosts.filter((h) => h.gpgKey);
 
       const usage = rewriteSignedByHint(
@@ -188,6 +215,12 @@ async function parseRepositoryConfigs(): Promise<{
         content: [
           ...usage,
           ...filterNote(config.isSectionFiltered(section), config.upstreamNeighbours(section)),
+          ...commentLines(
+            config.mirrorDirConflict(section) ??
+              config.filterCombineConflict(section) ??
+              config.sourceFilterConflict(section) ??
+              '',
+          ),
         ],
         editable: config.sectionToInput(section),
       });

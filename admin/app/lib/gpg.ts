@@ -16,12 +16,23 @@ export interface GpgKeyRecord {
 
 type KeysIndex = Record<string, GpgKeyRecord>;
 
-const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+// A host name or IPv4 address: dot-separated labels of letters, digits and inner hyphens, a
+// single label (a LAN or Docker host such as `aptly`) included. The key's index entry, UID and
+// pubkey URL are named after it. IPv6 literals are not: sign-releases.sh finds a host's mirror
+// folders by `<host>` and `<host>:<port>` names, which `[fd00::10]` breaks.
+const HOST_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i;
+
+/** Whether an upstream host can have a signing key. */
+export function isSignableHost(host: string): boolean {
+  return Boolean(host) && host.length <= 253 && HOST_RE.test(host);
+}
 
 export function assertValidHost(host: string): void {
-  if (!host || host.length > 253 || !HOST_RE.test(host)) {
-    throw new Error(`Invalid host: ${host}`);
+  if (isSignableHost(host)) return;
+  if (/^\[[0-9a-f:.]+\]$/i.test(host ?? '')) {
+    throw new Error(`Signing keys are not supported for IPv6 address hosts (${host}); use a host name instead`);
   }
+  throw new Error(`Invalid host: ${host}`);
 }
 
 function gpgEnv(): NodeJS.ProcessEnv {

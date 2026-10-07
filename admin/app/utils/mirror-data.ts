@@ -1,20 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type { MirrorConfig } from '~/utils/mirror-config';
+import { mirrorDirOf, mirrorDirsOverlap, type MirrorConfig } from '~/utils/mirror-config';
 
-/**
- * Where apt-mirror2 stores a repository, relative to its mirror (and skel) folder: the URL's
- * host[:port] as written, then its path (`url.as_filesystem_path`). Null for a URI that is not
- * http(s) or has no safe path.
- */
-export function mirrorDirOf(uri: string): string | null {
-  const match = /^https?:\/\/([^/]+)(\/[^?#]*)?$/i.exec(uri.trim());
-  if (!match) return null;
-  const host = match[1].slice(match[1].lastIndexOf('@') + 1);
-  const parts = [host, ...(match[2] ?? '').split('/')].filter(Boolean);
-  if (!host || parts.some((p) => p === '.' || p === '..')) return null;
-  return parts.join('/');
-}
+export { mirrorDirOf };
 
 /** Mirror folders of URIs that no enabled deb line in the config still uses (or shares a folder with). */
 export function unusedMirrorDirs(config: MirrorConfig, uris: string[]): string[] {
@@ -30,11 +18,10 @@ export function unusedMirrorDirs(config: MirrorConfig, uris: string[]): string[]
   };
   collect(config.nodes);
 
-  const overlaps = (a: string, b: string) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
   const dirs = new Set<string>();
   for (const uri of uris) {
     const dir = mirrorDirOf(uri);
-    if (dir && !inUse.some((used) => overlaps(used, dir))) dirs.add(dir);
+    if (dir && !inUse.some((used) => mirrorDirsOverlap(used, dir))) dirs.add(dir);
   }
   return [...dirs];
 }

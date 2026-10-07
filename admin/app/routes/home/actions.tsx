@@ -12,7 +12,7 @@ import {
   restoreUpstreamSignatures,
   assertValidHost,
 } from '~/lib/gpg';
-import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
+import { MirrorConfig, canonicalBaseUrl, mirrorDirOf, type RepositoryInput } from '~/utils/mirror-config';
 import { atomicWriteFile, validateRepositoryInput, withMirrorListLock } from '~/utils/mirror-list';
 import { checkLockFile } from '~/utils/sync';
 import { deleteMirrorDirs, unusedMirrorDirs } from '~/utils/mirror-data';
@@ -61,15 +61,15 @@ function revisionError(config: MirrorConfig, title: string, formData: FormData):
  * uses any more: apt-mirror2 never cleans an upstream that is no longer synced, so its files
  * would stay on disk (and served) for good. Returns the end of the message for the user.
  */
-async function deleteUnusedData(config: MirrorConfig, uris: string[]): Promise<string> {
+async function deleteUnusedData(config: MirrorConfig, uris: string[], whose = 'its'): Promise<string> {
   const dirs = unusedMirrorDirs(config, uris);
   const roots = [appConfig.mirrorRoot, path.join(path.dirname(appConfig.mirrorRoot), 'skel')];
   const deleted = dirs.length ? await deleteMirrorDirs(dirs, roots) : [];
   return deleted.length
-    ? ' and its mirrored files deleted'
+    ? ` and ${whose} mirrored files deleted`
     : dirs.length
-      ? '; it had no mirrored files'
-      : '; its mirrored files are kept because another enabled repository uses the same upstream';
+      ? `; ${whose === 'its' ? 'it' : whose.replace(/'s$/, '')} had no mirrored files`
+      : `; ${whose} mirrored files are kept because another enabled repository uses the same upstream`;
 }
 
 function signedMessage(count: number): string {
@@ -198,7 +198,7 @@ export async function action({ request }: { request: Request }) {
         const section = config.getSection(sectionTitle, formRevision(formData))!;
         config.setEnabled(section, enable);
         // Enabling can put an unfiltered and a filtered repository on one upstream.
-        const conflict = config.filterConflict(section);
+        const conflict = config.upstreamConflict(section);
         if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
@@ -241,7 +241,7 @@ export async function action({ request }: { request: Request }) {
 
         config.addSection(input, mirrorDomain());
         const added = config.sections().filter((s) => s.title === input.title.trim()).pop();
-        const conflict = added && config.filterConflict(added);
+        const conflict = added && config.upstreamConflict(added);
         if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
@@ -279,6 +279,7 @@ export async function action({ request }: { request: Request }) {
         // other sources (e.g. Debian's security.debian.org lines).
         const section = config.getSection(originalTitle, formRevision(formData))!;
         if (!config.sectionToInput(section)) return { error: NOT_EDITABLE_ERROR };
+        const oldUris = section.children.flatMap((c) => (c.kind === 'deb' ? [c.uri] : []));
         const wasEnabled = config.isSectionEnabled(section);
 
         // A rename to the same title is fine; only collisions with *other*
@@ -292,10 +293,20 @@ export async function action({ request }: { request: Request }) {
         config.editSection(originalTitle, input, mirrorDomain(), formRevision(formData));
         // Editing never enables a disabled repository (the next sync would download it).
         if (!wasEnabled) config.setEnabled(section, false);
-        const conflict = config.filterConflict(section);
+        const conflict = config.upstreamConflict(section);
         if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
+        // A new base URL leaves the old upstream's files on disk (and served): no sync cleans
+        // an upstream that is no longer configured. Deleted only when asked, like on remove.
+        const newDir = mirrorDirOf(canonicalBaseUrl(input.baseUrl));
+        const movedUris = oldUris.filter((uri) => mirrorDirOf(uri) !== newDir);
+        if (formData.get('deleteData') === 'true' && movedUris.length) {
+          return {
+            success: true,
+            message: `Repository "${input.title}" updated${await deleteUnusedData(config, movedUris, "the old upstream's")}`,
+          };
+        }
         return {
           success: true,
           message: `Repository "${input.title}" updated successfully`,

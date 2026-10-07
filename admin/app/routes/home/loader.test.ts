@@ -26,3 +26,14 @@ describe('filterNote', () => {
     expect(note).toContain('The filters of "Tools" (same upstream) are combined');
   });
 });
+
+describe('commentLines', () => {
+  it('wraps a message into short comment lines', async () => {
+    const { commentLines } = await import('./loader');
+    const lines = commentLines(`${'word '.repeat(40)}end`);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.every((l) => l.startsWith('# ') && l.length <= 95)).toBe(true);
+    expect(lines.join(' ').replace(/# /g, '')).toBe(`${'word '.repeat(40)}end`);
+    expect(commentLines('')).toEqual([]);
+  });
+});

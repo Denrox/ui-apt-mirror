@@ -134,3 +134,44 @@ describe('titles with characters that do not show', () => {
     expect(validateRepositoryInput({ ...valid, title: 'Дебіан Trixie é 日本' }, [])).toBeNull();
   });
 });
+
+describe('titles with default-ignorable characters, stray marks and look-alike letters', () => {
+  it.each([
+    ['U+034F combining grapheme joiner at the end', 'Debian Trixie\u034F'],
+    ['U+034F combining grapheme joiner inside', 'Debian\u034F Trixie'],
+    ['U+FE0F variation selector 16', 'Debian Trixie\uFE0F'],
+    ['U+E0100 variation selector 17', 'Debian Trixie\u{E0100}'],
+    ['U+17B4 Khmer inherent vowel', 'Trixie hello\u17B4'],
+    ['U+180B Mongolian variation selector', 'Trixie\u180B'],
+  ])('rejects a title with %s', (_name, title) => {
+    expect(validateRepositoryInput({ ...valid, title }, [])).toMatch(/invisible, bidirectional or private-use/);
+  });
+
+  it.each([
+    ['only a combining accent', '\u0301'],
+    ['a leading combining accent', '\u0301Debian'],
+    ['a combining accent after a space', 'Debian \u0301Trixie'],
+    ['the same accent twice', 'Debie\u0301\u0301n'],
+    ['three stacked marks', 'Debia\u0300\u0301\u0302n'],
+  ])('rejects a title with %s', (_name, title) => {
+    expect(validateRepositoryInput({ ...valid, title }, [])).toMatch(/combining mark/);
+  });
+
+  it.each([
+    ['a Cyrillic e', 'D\u0435bian Trixie'],
+    ['a Cyrillic e at the end', 'Debian Trixi\u0435'],
+    ['a Greek omicron', 'D\u03BFcker Debian 13'],
+    ['an added accent', 'De\u0301bian Trixie'],
+    ['Greek capitals', '\u0395\u03A7AMPLE'],
+  ])('counts a title with %s as a duplicate', (_name, title) => {
+    expect(validateRepositoryInput({ ...valid, title }, ['Debian Trixie', 'Docker Debian 13', 'Example'])).toMatch(
+      /already exists/,
+    );
+  });
+
+  it('still accepts accented, Vietnamese and Indic titles', () => {
+    expect(validateRepositoryInput({ ...valid, title: 'Tiếng Việt kho' }, ['Debian Trixie'])).toBeNull();
+    expect(validateRepositoryInput({ ...valid, title: 'क्षि हिन्दी' }, [])).toBeNull();
+    expect(validateRepositoryInput({ ...valid, title: 'Café repo' }, ['Debian Trixie'])).toBeNull();
+  });
+});

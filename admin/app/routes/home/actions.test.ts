@@ -225,6 +225,13 @@ describe('package filters shared through one upstream', () => {
     expect((await post(addFields({ includeBinaryPackages: 'sl' }))).success).toBe(true);
   });
 
+  it('refuses a second filtered repository whose filter is of another kind', async () => {
+    writeList(FILTERED(true));
+    const result = await post(addFields({ includeSourceName: 'hello' }));
+    expect(result.error).toMatch(/filters of "Updates" and "Hello" \(same upstream\) do not add up/);
+    expect(readList()).not.toContain('Updates');
+  });
+
   it('refuses to enable a repository into such a clash', async () => {
     writeList(SIMPLE(true), FILTERED(false));
     const result = await post({ action: 'restoreRepository', sectionTitle: 'Hello', revision: revisionOf('Hello') });
@@ -242,6 +249,103 @@ describe('package filters shared through one upstream', () => {
       includeBinaryPackages: '',
     });
     expect(result.error).toMatch(/"Updates" has no package filter/);
+  });
+});
+
+describe('base URLs that share a mirror folder', () => {
+  it('refuses an https repository next to the same http upstream', async () => {
+    writeList(SIMPLE(true));
+    const result = await post({
+      action: 'addRepository',
+      title: 'Secure',
+      baseUrl: 'https://example.com/debian',
+      suites: 'testing',
+      components: 'main',
+    });
+    expect(result.error).toMatch(/same mirror folder \(example\.com\/debian\).*Use the base URL http:\/\/example\.com\/debian/);
+    expect(readList()).not.toContain('Secure');
+  });
+
+  it('refuses to enable a repository into such a clash, and accepts the same spelling', async () => {
+    writeList(SIMPLE(false), [
+      '# ---start---Secure---',
+      'deb https://example.com/debian testing main',
+      '# ---end---Secure---',
+    ]);
+    const result = await post({ action: 'restoreRepository', sectionTitle: 'Simple', revision: revisionOf('Simple') });
+    expect(result.error).toMatch(/same mirror folder/);
+    const ok = await post({
+      action: 'addRepository',
+      title: 'Backports',
+      baseUrl: 'HTTPS://Example.com:443/debian/',
+      suites: 'testing-backports',
+      components: 'main',
+    });
+    expect(ok.success).toBe(true);
+  });
+});
+
+describe('source packages with a package filter', () => {
+  const addFields = (over: Record<string, string> = {}) => ({
+    action: 'addRepository',
+    title: 'Synth',
+    baseUrl: 'http://example.org/synth',
+    suites: 'r4synth',
+    components: 'main',
+    includeSrc: 'true',
+    ...over,
+  });
+
+  it('refuses deb-src with an include binary packages filter', async () => {
+    writeList();
+    const result = await post(addFields({ includeBinaryPackages: 'hello' }));
+    expect(result.error).toMatch(/mirrors source packages \(deb-src\)/);
+    expect(readList()).not.toContain('Synth');
+  });
+
+  it('accepts deb-src with a source package filter', async () => {
+    writeList();
+    expect((await post(addFields({ includeSourceName: 'srca' }))).success).toBe(true);
+  });
+});
+
+describe('editing the base URL with deleteData', () => {
+  function seedData() {
+    for (const root of ['mirror', 'skel']) {
+      fs.mkdirSync(`${state.dir}/${root}/example.com/debian/dists/stable`, { recursive: true });
+      fs.writeFileSync(`${state.dir}/${root}/example.com/debian/dists/stable/Release`, 'x');
+    }
+  }
+  const moveTo = (baseUrl: string, deleteData: boolean) =>
+    post({
+      ...editFields('Simple', revisionOf('Simple')),
+      baseUrl,
+      ...(deleteData ? { deleteData: 'true' } : {}),
+    });
+
+  it("keeps the old upstream's files by default", async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    expect((await moveTo('http://example.com:8080/debian', false)).message).toMatch(/updated successfully/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
+  });
+
+  it("deletes the old upstream's mirrored and skel files when asked", async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    const result = await moveTo('http://example.com:8080/debian', true);
+    expect(result.message).toMatch(/updated and the old upstream's mirrored files deleted/);
+    expect(readList()).toContain('deb http://example.com:8080/debian stable main');
+    for (const root of ['mirror', 'skel']) expect(fs.existsSync(`${state.dir}/${root}/example.com`)).toBe(false);
+  });
+
+  it('keeps them when another enabled repository uses them, or the folder did not change', async () => {
+    writeList(SIMPLE(true), ['# ---start---Other---', 'deb http://example.com/debian testing main', '# ---end---Other---']);
+    seedData();
+    expect((await moveTo('http://example.com:8080/debian', true)).message).toMatch(/kept because another enabled/);
+    writeList(SIMPLE(true));
+    expect((await moveTo('HTTP://Example.com/debian/', true)).message).toMatch(/updated successfully/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
   });
 });
 
