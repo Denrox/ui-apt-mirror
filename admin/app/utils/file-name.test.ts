@@ -66,6 +66,24 @@ describe('getValidationError', () => {
     expect(getValidationError('\u2764\uFE0F\uFE0F.txt')).toMatch(/invisible/);
   });
 
+  it.each([
+    ['joined emoji', '\u{1F468}\u200D\u{1F4BB} notes.txt'],
+    ['flag with a joiner', '\u{1F3F3}\uFE0F\u200D\u{1F308}.png'],
+    ['family', '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}'],
+    ['skin tone with a joiner', '\u{1F469}\u{1F3FD}\u200D\u{1F52C}.md'],
+    ['keycap', '1\uFE0F\u20E3 first.txt'],
+  ])('accepts a name with an emoji sequence: %s', (_kind, name) => {
+    expect(getValidationError(name)).toBeNull();
+  });
+
+  it.each([
+    ['joiner after a letter', 'a\u200D\u{1F4BB}.txt'],
+    ['joiner at the end of an emoji', '\u{1F468}\u200D.txt'],
+    ['joiner between letters', 'a\u200Db.txt'],
+  ])('still refuses a joiner outside an emoji sequence: %s', (_kind, name) => {
+    expect(getValidationError(name)).toMatch(/invisible/);
+  });
+
   it('rejects a name starting with a combining mark, but keeps accents on letters', () => {
     expect(getValidationError('\u0301name')).toMatch(/invisible/);
     expect(getValidationError('Cafe\u0301.txt')).toBeNull();
