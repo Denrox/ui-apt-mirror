@@ -56,7 +56,7 @@ describe('attemptLogin', () => {
   const request = (ip: string) =>
     new Request('http://admin/login', { headers: { 'X-Real-IP': ip } });
 
-  it('returns 429 data after five failures and lets a later success through', async () => {
+  it('returns 429 data after five failures from one IP, but not to other IPs', async () => {
     writePrivateFile(htpasswdPath, `carol:${await hashPassword('right')}\n`);
     for (let i = 0; i < 5; i++) {
       expect(
@@ -66,12 +66,16 @@ describe('attemptLogin', () => {
         }),
       ).toEqual({ ok: false });
     }
-    const blocked = await attemptLogin(request('9.9.9.8'), {
+    const blocked = await attemptLogin(request('9.9.9.9'), {
       username: 'carol',
       password: 'right',
     });
     expect(blocked.ok).toBe(false);
     expect(blocked.retryAfter).toBeGreaterThan(0);
+    // The owner on another machine still gets in.
+    expect(
+      await attemptLogin(request('9.9.9.8'), { username: 'carol', password: 'right' }),
+    ).toEqual({ ok: true });
   });
 
   it('clears the counters on success', async () => {

@@ -1,8 +1,16 @@
+// Per client IP: a few guesses, then wait.
 const MAX_FAILURES = 5;
+// Per username across all IPs: slows guessing spread over many addresses.
+// It never applies to an IP that has signed in as that user before, so a
+// stranger can't lock the owner out of their own account.
+const MAX_USER_FAILURES = 20;
 const WINDOW_MS = 15 * 60 * 1000;
+const KNOWN_IP_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_KEYS = 10000;
 
 const attempts = new Map<string, number[]>();
+// "<user>@<ip>" -> time of the last successful login from there.
+const knownIps = new Map<string, number>();
 
 function recent(key: string, now: number): number[] {
   const list = (attempts.get(key) ?? []).filter((t) => t > now - WINDOW_MS);
@@ -13,6 +21,16 @@ function recent(key: string, now: number): number[] {
 
 function keys(ip: string, username: string): string[] {
   return [`ip:${ip}`, `user:${username}`];
+}
+
+function isKnownIp(ip: string, username: string, now: number): boolean {
+  const last = knownIps.get(`${username}@${ip}`);
+  return last !== undefined && last > now - KNOWN_IP_MS;
+}
+
+function limitFor(key: string, ip: string, username: string, now: number): number {
+  if (key.startsWith('ip:')) return MAX_FAILURES;
+  return isKnownIp(ip, username, now) ? Infinity : MAX_USER_FAILURES;
 }
 
 /**
@@ -27,10 +45,11 @@ export function beginLoginAttempt(
   let retryAfter = 0;
   for (const key of keys(ip, username)) {
     const list = recent(key, now);
-    if (list.length >= MAX_FAILURES) {
+    const limit = limitFor(key, ip, username, now);
+    if (list.length >= limit) {
       retryAfter = Math.max(
         retryAfter,
-        Math.ceil((list[0] + WINDOW_MS - now) / 1000),
+        Math.ceil((list[list.length - limit] + WINDOW_MS - now) / 1000),
       );
     }
   }
@@ -47,8 +66,16 @@ export function beginLoginAttempt(
   return 0;
 }
 
-export function loginSucceeded(ip: string, username: string): void {
+export function loginSucceeded(
+  ip: string,
+  username: string,
+  now = Date.now(),
+): void {
   for (const key of keys(ip, username)) attempts.delete(key);
+  const known = `${username}@${ip}`;
+  knownIps.delete(known);
+  if (knownIps.size >= MAX_KEYS) knownIps.delete(knownIps.keys().next().value!);
+  knownIps.set(known, now);
 }
 
 export function tooManyAttemptsMessage(retryAfter: number): string {
@@ -63,4 +90,5 @@ export function clientIp(request: Request): string {
 
 export function resetLoginLimiter(): void {
   attempts.clear();
+  knownIps.clear();
 }

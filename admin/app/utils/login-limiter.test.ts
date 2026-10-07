@@ -23,10 +23,24 @@ describe('login limiter', () => {
     expect(beginLoginAttempt('1.1.1.1', 'admin', 15 * MIN + 1)).toBe(0);
   });
 
-  it('limits a username across IPs', () => {
-    for (let i = 0; i < 5; i++) fail(`10.0.0.${i}`, 'admin', 1);
-    expect(beginLoginAttempt('10.0.0.9', 'admin', 0)).toBeGreaterThan(0);
-    expect(beginLoginAttempt('10.0.0.9', 'bob', 0)).toBe(0);
+  it('does not let one IP lock a user out on another IP', () => {
+    fail('10.0.0.1', 'admin', 5);
+    expect(beginLoginAttempt('10.0.0.1', 'admin', 0)).toBeGreaterThan(0);
+    expect(beginLoginAttempt('10.0.0.2', 'admin', 0)).toBe(0);
+  });
+
+  it('limits a username guessed from many IPs', () => {
+    for (let i = 0; i < 20; i++) fail(`10.0.0.${i}`, 'admin', 1);
+    expect(beginLoginAttempt('10.0.1.1', 'admin', 0)).toBe(15 * 60);
+    expect(beginLoginAttempt('10.0.1.1', 'bob', 0)).toBe(0);
+  });
+
+  it('never applies the username limit to an IP the user signed in from', () => {
+    expect(beginLoginAttempt('192.168.1.5', 'admin', 0)).toBe(0);
+    loginSucceeded('192.168.1.5', 'admin', 0);
+    for (let i = 0; i < 20; i++) fail(`10.0.${i}.1`, 'admin', 1, MIN);
+    expect(beginLoginAttempt('10.0.99.1', 'admin', MIN)).toBeGreaterThan(0);
+    expect(beginLoginAttempt('192.168.1.5', 'admin', MIN)).toBe(0);
   });
 
   it('resets on success', () => {
