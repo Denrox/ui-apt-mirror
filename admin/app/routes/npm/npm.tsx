@@ -26,6 +26,7 @@ import {
   isValidName,
   isValidVersion,
   isWebLoginPath,
+  type JsonLimits,
   logoutPathToken,
   matchesDist,
   mergePublish,
@@ -803,6 +804,15 @@ async function changeDistTag(
 
 // A login is a name and a password; npm sends a few more fields, nothing near this.
 const MAX_LOGIN_BODY_BYTES = 64 * 1024;
+/**
+ * Bytes alone do not bound a parsed body (a few MB of `[{},{},…]` are millions of objects). This
+ * takes an audit of 20,000 packages, or a packument of thousands of versions.
+ */
+const JSON_LIMITS: JsonLimits = { values: 1_000_000, depth: 1000 };
+
+function payloadTooLarge(reason: string): Response {
+  return jsonResponse({ error: 'Payload Too Large', reason }, 413);
+}
 
 /**
  * The request body, or null once it is longer than maxBytes (nothing more is read). The rest of a
@@ -850,25 +860,52 @@ async function npmLogout(request: Request, pathToken: string): Promise<Response>
 // An audit names each installed package and its version: a few MB even for a large monorepo.
 // The limit holds for the body as sent and once it is decompressed.
 const MAX_AUDIT_BODY_BYTES = 16 * 1024 * 1024;
+/**
+ * An audit names each package of a lockfile once, and real lockfiles have a few thousand. Every
+ * name is looked up in the private store, so this, not the size of the body, bounds the work.
+ */
+const MAX_AUDIT_PACKAGES = 20_000;
+// A bulk audit lists the installed versions of each name: a few, in a large monorepo dozens.
+const MAX_AUDIT_VERSIONS = 200;
+// Private store lookups at once while an audit is filtered.
+const PRIVATE_LOOKUPS_AT_ONCE = 32;
+
+/** The names that are private packages, looked up PRIVATE_LOOKUPS_AT_ONCE at a time. */
+async function privateNames(names: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  const candidates = names.filter(isValidName);
+  for (let i = 0; i < candidates.length; i += PRIVATE_LOOKUPS_AT_ONCE) {
+    const batch = candidates.slice(i, i + PRIVATE_LOOKUPS_AT_ONCE);
+    const isPrivate = await Promise.all(batch.map(isPrivatePackage));
+    batch.forEach((name, j) => isPrivate[j] && found.add(name));
+  }
+  return found;
+}
 
 /**
  * The audit request body without locally published packages, as plain JSON; null if unreadable.
- * Throws a PayloadTooLargeError when it decompresses to more than MAX_AUDIT_BODY_BYTES.
+ * Throws a PayloadTooLargeError when it decompresses to more than MAX_AUDIT_BODY_BYTES, or is
+ * over JSON_LIMITS, MAX_AUDIT_PACKAGES or MAX_AUDIT_VERSIONS.
  */
 async function publicAuditBody(body: Buffer, encoding: string | undefined, bulk: boolean): Promise<Buffer | null> {
-  let payload: unknown;
+  let payload: Record<string, any> | null;
   try {
     const raw = await decodeBody(body, encoding, MAX_AUDIT_BODY_BYTES);
-    payload = JSON.parse(raw.toString('utf-8'));
+    payload = parseJsonObject(raw.toString('utf-8'), JSON_LIMITS);
   } catch (error) {
     if (error instanceof PayloadTooLargeError) throw error;
     return null;
   }
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  if (!payload) return null;
   const names = auditPackageNames(payload, bulk);
-  const isPrivate = await Promise.all(names.map((name) => isValidName(name) && isPrivatePackage(name)));
-  const drop = new Set(names.filter((_, i) => isPrivate[i]));
-  return Buffer.from(JSON.stringify(withoutAuditPackages(payload as Record<string, any>, bulk, drop)));
+  if (names.length > MAX_AUDIT_PACKAGES) {
+    throw new PayloadTooLargeError(`The audit names more than ${MAX_AUDIT_PACKAGES} packages`);
+  }
+  if (bulk && Object.values(payload).some((versions) => Array.isArray(versions) && versions.length > MAX_AUDIT_VERSIONS)) {
+    throw new PayloadTooLargeError(`The audit names more than ${MAX_AUDIT_VERSIONS} versions of a package`);
+  }
+  const drop = await privateNames(names);
+  return Buffer.from(JSON.stringify(withoutAuditPackages(payload, bulk, drop)));
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -891,9 +928,7 @@ export async function action({ request }: ActionFunctionArgs) {
       } catch {}
 
       const text = await readBodyText(request, MAX_LOGIN_BODY_BYTES);
-      if (text === null) {
-        return jsonResponse({ error: 'Payload Too Large', reason: 'The login request is too large' }, 413);
-      }
+      if (text === null) return payloadTooLarge('The login request is too large');
       const body = parseJsonObject(text);
       if (!body) {
         return jsonResponse({ error: 'Bad request', reason: 'Request body must be a JSON object' }, 400);
@@ -1054,17 +1089,14 @@ export async function action({ request }: ActionFunctionArgs) {
       ? jsonResponse({})
       : new Response(message, { status, headers: { 'Content-Type': 'text/plain' } });
 
-  const tooLarge = () =>
-    jsonResponse({ error: 'Payload Too Large', reason: 'The audit request is too large' }, 413);
-
   try {
     const sent = await readBody(request, MAX_AUDIT_BODY_BYTES);
-    if (!sent) return tooLarge();
+    if (!sent) return payloadTooLarge('The audit request is too large');
     const body = await publicAuditBody(sent, originalHeaders['content-encoding'], isBulkAudit).catch((error) => {
-      if (error instanceof PayloadTooLargeError) return 'too large' as const;
+      if (error instanceof PayloadTooLargeError) return error;
       throw error;
     });
-    if (body === 'too large') return tooLarge();
+    if (body instanceof PayloadTooLargeError) return payloadTooLarge(body.message);
     if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
     delete originalHeaders['content-encoding'];
     originalHeaders['content-type'] = 'application/json';

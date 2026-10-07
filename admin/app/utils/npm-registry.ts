@@ -279,8 +279,54 @@ export function publicCachePath(route: NpmPath): string | null {
   return null;
 }
 
-/** A JSON object from a request body, or null for anything else. */
-export function parseJsonObject(text: string): Record<string, any> | null {
+/** How large a JSON body may be once parsed, beyond its bytes. */
+export interface JsonLimits {
+  /** Most values, counted as the objects and arrays plus the commas between items or members. */
+  values: number;
+  /** Most levels of objects and arrays inside each other. */
+  depth: number;
+}
+
+/**
+ * Throws a PayloadTooLargeError when JSON text is over the limits. Bytes alone do not bound the
+ * parsed result: a few MB of `[{},{},…]` parse to millions of objects. Each character is looked
+ * at once, and nothing is parsed.
+ */
+function checkJsonLimits(text: string, limits: JsonLimits): void {
+  let values = 0;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x22) {
+      i = stringEnd(text, i);
+    } else if (c === 0x7b || c === 0x5b) {
+      if (++depth > limits.depth) throw new PayloadTooLargeError(`The request nests JSON deeper than ${limits.depth} levels`);
+      values++;
+    } else if (c === 0x7d || c === 0x5d) {
+      depth--;
+    } else if (c === 0x2c) {
+      values++;
+    }
+    if (values > limits.values) throw new PayloadTooLargeError(`The request has more than ${limits.values} JSON values`);
+  }
+}
+
+/** The index of the quote that ends the JSON string starting at `start`, or the end of the text. */
+function stringEnd(text: string, start: number): number {
+  for (let end = text.indexOf('"', start + 1); end !== -1; end = text.indexOf('"', end + 1)) {
+    let backslash = end - 1;
+    while (text.charCodeAt(backslash) === 0x5c) backslash--;
+    if ((end - 1 - backslash) % 2 === 0) return end;
+  }
+  return text.length;
+}
+
+/**
+ * A JSON object from a request body, or null for anything else. With limits, a body over them is
+ * a PayloadTooLargeError, before it is parsed.
+ */
+export function parseJsonObject(text: string, limits?: JsonLimits): Record<string, any> | null {
+  if (limits) checkJsonLimits(text, limits);
   try {
     const value = JSON.parse(text);
     return isObject(value) ? value : null;
@@ -370,8 +416,8 @@ export function scopeListsPackage(list: unknown, name: string): boolean {
 }
 
 export class PayloadTooLargeError extends Error {
-  constructor() {
-    super('Payload too large');
+  constructor(message = 'The request is too large') {
+    super(message);
   }
 }
 

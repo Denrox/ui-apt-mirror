@@ -213,6 +213,67 @@ describe('npm registry route', () => {
     expect(upstream.calls).toHaveLength(1);
   });
 
+  it('refuses an audit of too many packages, versions or JSON values, under the size limit', async () => {
+    const post = (payload: string, path = 'advisories/bulk') =>
+      call(
+        request(`/-/npm/v1/security/${path}`, {
+          method: 'POST',
+          body: payload,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    const bulk = (names: number, versions = 1) =>
+      JSON.stringify(Object.fromEntries(Array.from({ length: names }, (_, i) => [`p${i}`, Array(versions).fill('1.0.0')])));
+    let res = await post(bulk(20_001));
+    expect(res.status).toBe(413);
+    expect((await res.json()).reason).toBe('The audit names more than 20000 packages');
+    const tree = { name: 'app', dependencies: Object.fromEntries(Array.from({ length: 20_001 }, (_, i) => [`p${i}`, { version: '1.0.0' }])) };
+    expect((await post(JSON.stringify(tree), 'audits/quick')).status).toBe(413);
+    res = await post(bulk(1, 201));
+    expect(res.status).toBe(413);
+    expect((await res.json()).reason).toBe('The audit names more than 200 versions of a package');
+    // A few MB of empty objects.
+    res = await post(`{"p":[${Array(500_000).fill('{}').join(',')}]}`);
+    expect(res.status).toBe(413);
+    expect((await res.json()).reason).toMatch(/more than 1000000 JSON values/);
+    expect(upstream.calls).toEqual([]);
+
+    expect((await post(bulk(20_000))).status).toBe(200);
+    expect((await post(bulk(1, 200))).status).toBe(200);
+    expect(upstream.calls).toHaveLength(2);
+  });
+
+  it('looks the names of an audit up in the private store a few at a time', async () => {
+    expect((await publish('@acme/in-audit')).status).toBe(200);
+    let inFlight = 0;
+    let most = 0;
+    const stat = fs.stat;
+    const spy = vi.spyOn(fs, 'stat').mockImplementation(async (...args: Parameters<typeof fs.stat>) => {
+      most = Math.max(most, ++inFlight);
+      try {
+        return await stat(...args);
+      } finally {
+        inFlight--;
+      }
+    });
+    try {
+      const names = Array.from({ length: 5000 }, (_, i) => [`p${i}`, ['1.0.0']]);
+      names.splice(2500, 0, ['@acme/in-audit', ['1.0.0']]);
+      const res = await call(
+        request('/-/npm/v1/security/advisories/bulk', {
+          method: 'POST',
+          body: JSON.stringify(Object.fromEntries(names)),
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      expect(res.status).toBe(200);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(most).toBeGreaterThan(1);
+    expect(most).toBeLessThanOrEqual(32);
+  });
+
   it('logs out locally: revokes the token and never sends it upstream', async () => {
     const del = (p: string, headers: Record<string, string> = {}) => call(request(p, { method: 'DELETE', headers }));
     const token = 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFsaWNlIn0.sig';

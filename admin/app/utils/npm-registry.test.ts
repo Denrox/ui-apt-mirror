@@ -407,6 +407,25 @@ describe('parseJsonObject', () => {
     expect(parseJsonObject('{"name":"x"}')).toEqual({ name: 'x' });
     for (const text of ['not json', '', 'null', '[]', '"x"', '1']) expect(parseJsonObject(text)).toBeNull();
   });
+
+  it('refuses a body with more values or deeper nesting than the limits, before parsing it', () => {
+    const limits = { values: 1000, depth: 10 };
+    const items = (n: number) => `{"a":[${Array(n).fill('{}').join(',')}]}`;
+    // The object, its array, the items and the commas between them.
+    expect(parseJsonObject(items(499), limits)?.a).toHaveLength(499);
+    expect(() => parseJsonObject(items(500), limits)).toThrow(PayloadTooLargeError);
+    expect(() => parseJsonObject(items(500), limits)).toThrow('more than 1000 JSON values');
+    const nested = (n: number) => `{"a":${'['.repeat(n - 1)}${']'.repeat(n - 1)}}`;
+    expect(parseJsonObject(nested(10), limits)).not.toBeNull();
+    expect(() => parseJsonObject(nested(11), limits)).toThrow('deeper than 10 levels');
+    // Not even an invalid body is parsed once it is over the limits.
+    expect(() => parseJsonObject(`${items(2000)}garbage`, limits)).toThrow(PayloadTooLargeError);
+
+    // Brackets and commas in strings, also after escaped quotes and backslashes, are not counted.
+    const text = JSON.stringify({ s: `\\"${'[{,'.repeat(5000)}\\`, t: '\\', u: '[,]' });
+    expect(parseJsonObject(text, limits)).toEqual(JSON.parse(text));
+    expect(parseJsonObject('{"a":"unterminated [[[[[[[[[[[[', limits)).toBeNull();
+  });
 });
 
 describe('private package routing', () => {
