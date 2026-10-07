@@ -37,6 +37,7 @@ import {
   publicCachePath,
   revMatches,
   scopeListsPackage,
+  tarballsAt,
   type DocResult,
   type NpmPath,
   upstreamHeaders,
@@ -316,9 +317,14 @@ function docError(result: Extract<DocResult, { status: number }>): Response {
   return jsonResponse({ error: result.reason, reason: result.reason }, result.status);
 }
 
-function tarballUrl(request: Request, packageName: string, tarballFile: string): string {
+/** This registry's origin as the client addressed it. */
+function registryOrigin(request: Request): string {
   const url = new URL(request.url);
-  return `${url.protocol}//${request.headers.get('host') ?? url.host}/${packageName}/-/${tarballFile}`;
+  return `${url.protocol}//${request.headers.get('host') ?? url.host}`;
+}
+
+function tarballUrl(request: Request, packageName: string, tarballFile: string): string {
+  return `${registryOrigin(request)}/${packageName}/-/${tarballFile}`;
 }
 
 type NameCheck =
@@ -583,6 +589,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
         ? await loadPublicPackage(packagePath, cachePath, originalHeaders)
         : await fetchFromNpm(packagePath, url.search));
       headers['x-cache'] ??= 'BYPASS';
+      // Tarballs are fetched through this registry too (Yarn 1 does not rewrite npmjs URLs).
+      // Packuments and /<name>/<version|tag> documents: what names a tarball.
+      const isPackageDoc = route.kind === 'package' || (route.kind === 'other' && !!target && !packagePath.startsWith('-/'));
+      if (status === 200 && isPackageDoc) {
+        data = Buffer.from(tarballsAt(data.toString('utf-8'), registryOrigin(request)));
+      }
     }
 
     const contentType = headers['content-type'] || 'application/octet-stream';

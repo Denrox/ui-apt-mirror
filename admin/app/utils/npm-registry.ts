@@ -343,6 +343,15 @@ export function upstreamUrl(registry: string, packagePath: string, search = ''):
 }
 
 /**
+ * An upstream response (packument, version) with its npmjs tarball URLs pointed at `origin`, so
+ * that every client fetches tarballs through this registry and its cache. npmjs serves a tarball
+ * at the same path, so only the origin changes.
+ */
+export function tarballsAt(json: string, origin: string): string {
+  return json.replace(/("tarball"\s*:\s*")https?:\/\/registry\.npmjs\.org\//g, (_, key) => `${key}${origin}/`);
+}
+
+/**
  * `npm logout` sends `DELETE /-/user/token/<token>`. For such a path (also percent-encoded), the
  * token in it ('' if there is none); null for other paths.
  */
