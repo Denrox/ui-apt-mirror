@@ -20,6 +20,18 @@ describe('crossOriginError', () => {
     expect(crossOriginError(post({ Origin: 'http://ADMIN.mirror.intra:8080' }))).toBeNull();
   });
 
+  it('treats a fully qualified host (trailing dot) as the same host', () => {
+    // nginx's $host drops the root dot; the browser keeps it in Origin.
+    const fqdn = { Origin: 'http://admin.mirror.intra.', 'Sec-Fetch-Site': 'same-origin' };
+    expect(crossOriginError(post(fqdn))).toBeNull();
+    expect(crossOriginError(post(fqdn, 'http://admin.mirror.intra./users'))).toBeNull();
+    expect(
+      crossOriginError(post({ Origin: 'http://admin.mirror.intra' }, 'http://admin.mirror.intra./users')),
+    ).toBeNull();
+    expect(crossOriginError(post({ Origin: 'http://files.mirror.intra.' }))).toMatch(/Origin/);
+    expect(crossOriginError(post({ Origin: 'http://admin.mirror.intra..' }))).toMatch(/Origin/);
+  });
+
   it('accepts clients that send no browser headers', () => {
     expect(crossOriginError(post({}))).toBeNull();
   });
