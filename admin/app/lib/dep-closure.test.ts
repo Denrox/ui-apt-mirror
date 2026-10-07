@@ -124,6 +124,39 @@ describe('resource limits (r3-repos-7)', () => {
     expect(graph.provides).toEqual(whole.provides);
   });
 
+  it('reads a long line in small chunks in linear time', async () => {
+    const { PackagesParser } = await import('./dep-closure');
+    const names = Array.from({ length: 60_000 }, (_, i) => `lib${i}`);
+    const bytes = Buffer.from(`Package: big\nDepends: ${names.join(', ')}\n\nPackage: lib0\n`);
+    expect(bytes.length).toBeGreaterThan(512 * 1024);
+    const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
+    const parser = new PackagesParser(graph, false);
+    const started = Date.now();
+    // Joined again for every chunk, as before, this took minutes.
+    for (let i = 0; i < bytes.length; i += 8) parser.push(bytes.subarray(i, i + 8));
+    parser.end();
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(graph.pkgs.get('big')!.deps).toEqual(names);
+    expect(graph.pkgs.has('lib0')).toBe(true);
+  });
+
+  it('refuses a line or field longer than the limit', async () => {
+    const { IndexLimitError, MAX_LINE_BYTES, PackagesParser } = await import('./dep-closure');
+    const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
+    const long = 'a'.repeat(MAX_LINE_BYTES);
+    const parser = new PackagesParser(graph, false);
+    parser.push(Buffer.from('Package: x\nDepends: '));
+    expect(() => {
+      for (let i = 0; i < long.length; i += 64 * 1024) parser.push(Buffer.from(long.slice(i, i + 64 * 1024)));
+    }).toThrow(IndexLimitError);
+    // The same length folded over continuation lines.
+    const folded = `Package: y\nDepends: a\n${` ${'b'.repeat(1023)}\n`.repeat(MAX_LINE_BYTES / 1024)}`;
+    expect(() => parsePackages(folded, graph, false)).toThrow(IndexLimitError);
+    // Up to the limit is fine.
+    parsePackages(`Package: z\nDepends: ${'c'.repeat(MAX_LINE_BYTES - 20)}\n`, graph, false);
+    expect(graph.pkgs.get('z')!.deps).toHaveLength(1);
+  });
+
   it('keeps only the dependency fields', () => {
     const { pkgs } = graphFrom('Package: a\nDescription: long\n text\nDepends: b\n');
     expect(pkgs.get('a')).toEqual({ deps: ['b'] });

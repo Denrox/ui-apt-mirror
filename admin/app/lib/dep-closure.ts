@@ -81,14 +81,25 @@ export const MAX_INDEX_COMBINATIONS = 6;
 // Only these fields of a stanza matter for the closure; the rest is skipped unread.
 const WANTED_FIELDS = new Set(['package', 'depends', 'pre-depends', 'recommends', 'provides']);
 const NEWLINE = 0x0a;
+/**
+ * Longest line, and longest kept field with its continuation lines, of an index. Real ones are a
+ * few KB at most (the Provides of some Rust library packages: tens of KB).
+ */
+export const MAX_LINE_BYTES = 1024 * 1024;
+
+/** An index that is too large, or has a line that is too long, to be read. */
+export class IndexLimitError extends UpstreamFetchError {}
 
 /**
  * Parses a Packages index chunk by chunk, keeping only the fields the closure needs. The
  * decompressed index (hundreds of MB for Debian main) is never held in memory as a whole,
  * and every kept value is a new string, not a slice that would keep a whole chunk alive.
+ * Every byte is looked at once: the unfinished line at the end of a chunk is kept as a list of
+ * parts and joined only when its newline arrives.
  */
 export class PackagesParser {
-  private rest: Buffer | null = null;
+  private partial: Buffer[] = [];
+  private partialBytes = 0;
   private fields: Record<string, string> = {};
   private current: string | null = null;
 
@@ -97,20 +108,43 @@ export class PackagesParser {
     private readonly includeRecommends: boolean,
   ) {}
 
+  /** Parse the next chunk; throws an IndexLimitError on a line longer than MAX_LINE_BYTES. */
   push(chunk: Buffer): void {
-    const buf = this.rest ? Buffer.concat([this.rest, chunk]) : chunk;
     let start = 0;
-    for (let nl = buf.indexOf(NEWLINE, start); nl !== -1; nl = buf.indexOf(NEWLINE, start)) {
-      this.line(buf, start, nl);
+    let nl = chunk.indexOf(NEWLINE);
+    if (this.partialBytes > 0 && nl !== -1) {
+      this.keep(chunk.subarray(0, nl));
+      const line = this.takePartial();
+      this.line(line, 0, line.length);
+      start = nl + 1;
+      nl = chunk.indexOf(NEWLINE, start);
+    }
+    for (; nl !== -1; nl = chunk.indexOf(NEWLINE, start)) {
+      this.line(chunk, start, nl);
       start = nl + 1;
     }
-    this.rest = start < buf.length ? Buffer.from(buf.subarray(start)) : null;
+    if (start < chunk.length) this.keep(chunk.subarray(start));
   }
 
   end(): void {
-    if (this.rest) this.line(this.rest, 0, this.rest.length);
-    this.rest = null;
+    if (this.partialBytes > 0) {
+      const line = this.takePartial();
+      this.line(line, 0, line.length);
+    }
     this.finish();
+  }
+
+  private keep(part: Buffer): void {
+    this.partialBytes += part.length;
+    if (this.partialBytes > MAX_LINE_BYTES) throw new IndexLimitError('A line of the package index is too long');
+    this.partial.push(Buffer.from(part));
+  }
+
+  private takePartial(): Buffer {
+    const line = Buffer.concat(this.partial, this.partialBytes);
+    this.partial = [];
+    this.partialBytes = 0;
+    return line;
   }
 
   private line(buf: Buffer, start: number, end: number): void {
@@ -121,7 +155,10 @@ export class PackagesParser {
     }
     const first = buf[start];
     if (first === 0x20 || first === 0x09) {
-      if (this.current) this.fields[this.current] += ' ' + buf.toString('utf8', start, end).trim();
+      if (!this.current) return;
+      const value = this.fields[this.current] + ' ' + buf.toString('utf8', start, end).trim();
+      if (value.length > MAX_LINE_BYTES) throw new IndexLimitError('A field of the package index is too long');
+      this.fields[this.current] = value;
       return;
     }
     const colon = buf.indexOf(0x3a, start);
@@ -168,8 +205,12 @@ function gunzipInto(buf: Buffer, parser: PackagesParser): Promise<void> {
     let size = 0;
     gunzip.on('data', (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_INDEX_BYTES) gunzip.destroy(new Error('Package index is too large'));
-      else parser.push(chunk);
+      try {
+        if (size > MAX_INDEX_BYTES) throw new IndexLimitError('A package index is too large');
+        parser.push(chunk);
+      } catch (err) {
+        gunzip.destroy(err as Error);
+      }
     });
     gunzip.on('error', reject);
     gunzip.on('end', resolve);
@@ -182,13 +223,24 @@ function unxzInto(buf: Buffer, parser: PackagesParser): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('xz', ['-dc']);
     let size = 0;
+    let failed: Error | null = null;
     child.stdout.on('data', (chunk: Buffer) => {
+      if (failed) return;
       size += chunk.length;
-      if (size > MAX_INDEX_BYTES) child.kill();
-      else parser.push(chunk);
+      try {
+        if (size > MAX_INDEX_BYTES) throw new IndexLimitError('A package index is too large');
+        parser.push(chunk);
+      } catch (err) {
+        failed = err as Error;
+        child.kill();
+      }
     });
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`xz exited with ${code}`))));
+    child.on('close', (code) => {
+      if (failed) reject(failed);
+      else if (code === 0) resolve();
+      else reject(new Error(`xz exited with ${code}`));
+    });
     child.stdin.on('error', () => {});
     child.stdin.end(buf);
   });
@@ -223,7 +275,7 @@ async function loadIndex(
       parser.end();
       return true;
     } catch (err) {
-      // A refused address, timeout or oversized answer would repeat for every variant
+      // A refused address, timeout or oversized answer or index would repeat for every variant
       if (err instanceof UpstreamFetchError) throw err;
     }
   }
