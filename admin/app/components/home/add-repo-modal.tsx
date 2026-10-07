@@ -4,6 +4,7 @@ import FormButton from '~/components/shared/form/form-button';
 import FormField from '~/components/shared/form/form-field';
 import FormInput from '~/components/shared/form/form-input';
 import FormCheckbox from '~/components/shared/form/form-checkbox';
+import { canonicalBaseUrl } from '~/utils/mirror-config/url';
 
 export interface NewRepoValues {
   title: string;
@@ -36,16 +37,6 @@ interface AddRepoModalProps {
   readonly upstreams?: readonly { url: string; title: string; filtered: boolean }[];
 }
 
-/** Base URL as the server writes it (lower-case scheme and host, no trailing slash). */
-function canonicalUrl(url: string): string {
-  try {
-    const u = new URL(url.trim());
-    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, '');
-  } catch {
-    return url.trim().replace(/\/+$/, '');
-  }
-}
-
 /** Package filters as the server counts them (architectures are not a filter). */
 const hasPackageFilter = (v: NewRepoValues): boolean =>
   Boolean(
@@ -65,7 +56,7 @@ export function sharedFilterWarning(
   ownTitle?: string,
 ): string | null {
   if (!values.baseUrl.trim()) return null;
-  const url = canonicalUrl(values.baseUrl);
+  const url = canonicalBaseUrl(values.baseUrl);
   const filtered = hasPackageFilter(values);
   const others = upstreams.filter((u) => u.url === url && u.title !== ownTitle && u.filtered !== filtered);
   if (!others.length) return null;
