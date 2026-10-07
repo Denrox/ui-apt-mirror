@@ -48,6 +48,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 const { action } = await import('./action');
 const { loader } = await import('./loader');
+const { MAX_FORM_BYTES } = await import('~/utils/limited-form-data');
 
 async function post(fields: Record<string, string | Blob>) {
   const body = new FormData();
@@ -164,6 +165,47 @@ describe('uploads', () => {
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/too long/);
     expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+});
+
+describe('request body size (r3-files-3)', () => {
+  it('stores a plain upload', async () => {
+    const res = await post({ intent: 'uploadFile', filePath: dirs.files, file: new File(['hello'], 'plain.txt') });
+    expect(res).toEqual({ success: true, message: 'File uploaded successfully' });
+    expect(fs.readFileSync(path.join(dirs.files, 'plain.txt'), 'utf-8')).toBe('hello');
+  });
+
+  it('refuses a plain upload or a chunk larger than the limit without storing it', async () => {
+    const big = new Uint8Array(MAX_FORM_BYTES + 1);
+    const plain = await post({ intent: 'uploadFile', filePath: dirs.files, file: new File([big], 'big.bin') });
+    expect(plain.success).toBe(false);
+    expect(plain.error).toMatch(/too large/);
+    const chunk = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([big]),
+      chunkIndex: '0',
+      totalChunks: '2',
+      fileName: 'big.bin',
+      fileId: 'big1',
+    });
+    expect(chunk.success).toBe(false);
+    expect(chunk.error).toMatch(/too large/);
+    expect(fs.readdirSync(dirs.files).filter((n) => !n.startsWith('link-') && n !== 'dangling')).toEqual([]);
+  });
+
+  it('accepts a full 10 MB chunk', async () => {
+    const res = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([new Uint8Array(10240 * 1024)]),
+      chunkIndex: '0',
+      totalChunks: '1',
+      fileName: 'ten.bin',
+      fileId: 'ten1',
+    });
+    expect(res.success).toBe(true);
+    expect(fs.statSync(path.join(dirs.files, 'ten.bin')).size).toBe(10240 * 1024);
   });
 });
 

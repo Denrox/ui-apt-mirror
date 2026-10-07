@@ -23,6 +23,7 @@ import { searchFiles } from '~/utils/search-files';
 import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 import { getValidationError } from '~/utils/file-name';
 import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
+import { BodyTooLargeError, readFormData } from '~/utils/limited-form-data';
 
 const execFileAsync = promisify(execFile);
 
@@ -111,20 +112,9 @@ async function uploadFile(filePath: string, file: any): Promise<boolean> {
 
     await mkdirOwned(path.dirname(destPath));
 
-    if (file && typeof file?.arrayBuffer === 'function') {
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      await fs.writeFile(destPath, buffer, { flag: 'wx' });
-    } else if (file?.stream) {
-      const stream = file.stream();
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        chunks.push(Buffer.from(chunk));
-      }
-      const buffer = Buffer.concat(chunks);
-      await fs.writeFile(destPath, buffer, { flag: 'wx' });
-    } else if (file && file.buffer) {
-      await fs.writeFile(destPath, file.buffer, { flag: 'wx' });
+    // Written as it is read; the body itself is capped by readFormData.
+    if (typeof file?.stream === 'function') {
+      await fs.writeFile(destPath, file.stream(), { flag: 'wx' });
     } else {
       throw new Error('Unsupported file type');
     }
@@ -359,8 +349,14 @@ export async function action({ request }: Route.ActionArgs): Promise<{
 }> {
   await requireAuthMiddleware(request);
   const roots = storageRoots();
+  let formData: FormData;
   try {
-    const formData = await request.formData();
+    formData = await readFormData(request);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) return { success: false, error: error.message };
+    return { success: false, error: 'An unexpected error occurred' };
+  }
+  try {
     const intent = formData.get('intent') as string;
 
     if (intent === 'test') {
