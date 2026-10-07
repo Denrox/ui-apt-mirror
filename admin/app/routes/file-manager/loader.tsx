@@ -86,7 +86,11 @@ function isPathAllowed(requestedPath: string, isPublicRoute: boolean): boolean {
 export async function loader({ request }: { request: Request }) {
   const url = new URL(request.url);
   const isPublicRoute = url.hostname.startsWith('files');
-  
+  // The files host lists files at / only, never inside the admin shell (/File-manager).
+  if (isPublicRoute && url.pathname !== '/') {
+    throw new Response(null, { status: 302, headers: { Location: '/' } });
+  }
+
   if (!isPublicRoute) {
     await requireAuthMiddleware(request);
   }

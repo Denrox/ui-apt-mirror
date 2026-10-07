@@ -10,6 +10,7 @@ import {
 } from 'fs';
 import path from 'path';
 import { giveToDirOwner } from './file-owner';
+import { isHashablePassword } from './password-rules';
 
 const cache = new Map<string, { key: string; value: unknown }>();
 
@@ -64,7 +65,24 @@ export function readHtpasswd(file: string): Map<string, string> {
   return readCached(file, parseHtpasswd, new Map());
 }
 
+/**
+ * Runs `fn` after every earlier call has finished. Read-modify-write of the
+ * auth files goes through here, so two requests can't both pass a check and
+ * then both write (duplicate users, lost updates).
+ */
+let authFileQueue: Promise<unknown> = Promise.resolve();
+export function withAuthFileLock<T>(fn: () => T | Promise<T>): Promise<T> {
+  const run = authFileQueue.then(fn, fn);
+  authFileQueue = run.catch(() => {});
+  return run;
+}
+
 export function hashPassword(password: string, salt?: string): Promise<string> {
+  // openssl hashes only the first line, cut at 256 bytes: refuse rather than
+  // store (or check) something other than what was typed.
+  if (!isHashablePassword(password)) {
+    return Promise.reject(new Error('Password cannot be hashed as typed'));
+  }
   const args = ['passwd', '-6', '-stdin'];
   if (salt) args.push('-salt', salt);
   return new Promise((resolve, reject) => {
@@ -88,6 +106,7 @@ export async function verifyPassword(
 ): Promise<boolean> {
   const parts = hash.split('$');
   if (!hash.startsWith('$6$') || parts.length !== 4) return false;
+  if (!isHashablePassword(password)) return false;
   const computed = Buffer.from(await hashPassword(password, parts[2]));
   const expected = Buffer.from(hash);
   return (
@@ -113,19 +132,24 @@ export function validAfterPath(htpasswdFile: string): string {
   return path.join(path.dirname(htpasswdFile), '.tokens-valid-after');
 }
 
-export function parseValidAfter(content: string): Map<string, number> {
+// A time this far ahead can't have come from revokeTokens; such a line would
+// refuse every token of the user, fresh logins included, until then.
+const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
+
+export function parseValidAfter(content: string, now = Date.now()): Map<string, number> {
   const entries = new Map<string, number>();
   for (const line of content.split('\n')) {
-    const [user, ms] = line.trim().split(/\s+/);
-    if (user && /^\d+$/.test(ms ?? '')) {
-      entries.set(user, Math.max(Number(ms), entries.get(user) ?? 0));
-    }
+    const [user, ms, ...rest] = line.trim().split(/\s+/);
+    if (!user || rest.length || !/^\d+$/.test(ms ?? '')) continue;
+    const since = Number(ms);
+    if (since > now + MAX_FUTURE_SKEW_MS) continue;
+    entries.set(user, Math.max(since, entries.get(user) ?? 0));
   }
   return entries;
 }
 
 export function readValidAfter(htpasswdFile: string): Map<string, number> {
-  return readCached(validAfterPath(htpasswdFile), parseValidAfter, new Map());
+  return readCached(validAfterPath(htpasswdFile), (c) => parseValidAfter(c), new Map());
 }
 
 export function revokeTokens(
@@ -134,6 +158,10 @@ export function revokeTokens(
   maxTokenAgeMs: number,
   now = Date.now(),
 ): void {
+  // One "<user> <ms>" per line: a name with whitespace would add lines of its own.
+  if (!username || /[\s:]/.test(username)) {
+    throw new Error(`Refusing to revoke tokens of invalid username ${JSON.stringify(username)}`);
+  }
   const entries = new Map(readValidAfter(htpasswdFile)).set(username, now);
   const lines = [...entries]
     .filter(([, since]) => since >= now - maxTokenAgeMs)
@@ -150,4 +178,40 @@ export function isTokenCurrent(
   const validAfter = readValidAfter(htpasswdFile).get(username);
   if (validAfter === undefined) return true;
   return issuedAtMs !== undefined && issuedAtMs >= validAfter;
+}
+
+// Single tokens ended by logout: "<token id> <exp seconds>" lines, dropped
+// once the token would have expired anyway.
+export function revokedTokensPath(htpasswdFile: string): string {
+  return path.join(path.dirname(htpasswdFile), '.tokens-revoked');
+}
+
+export function parseRevokedTokens(content: string): Map<string, number> {
+  const entries = new Map<string, number>();
+  for (const line of content.split('\n')) {
+    const [id, exp, ...rest] = line.trim().split(/\s+/);
+    if (id && !rest.length && /^\d+$/.test(exp ?? '')) entries.set(id, Number(exp));
+  }
+  return entries;
+}
+
+export function isTokenRevoked(htpasswdFile: string, id: string): boolean {
+  return readCached(revokedTokensPath(htpasswdFile), parseRevokedTokens, new Map()).has(id);
+}
+
+export function revokeToken(
+  htpasswdFile: string,
+  id: string,
+  expSeconds: number,
+  now = Date.now(),
+): void {
+  if (!id || /\s/.test(id)) throw new Error('Invalid token id');
+  const nowSeconds = Math.floor(now / 1000);
+  const entries = new Map(
+    readCached(revokedTokensPath(htpasswdFile), parseRevokedTokens, new Map()),
+  ).set(id, expSeconds);
+  const lines = [...entries]
+    .filter(([, exp]) => exp >= nowSeconds)
+    .map(([tokenId, exp]) => `${tokenId} ${exp}\n`);
+  writePrivateFile(revokedTokensPath(htpasswdFile), lines.join(''));
 }

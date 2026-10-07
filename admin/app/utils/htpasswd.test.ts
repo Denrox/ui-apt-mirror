@@ -6,11 +6,15 @@ import {
   checkCredentials,
   hashPassword,
   isTokenCurrent,
+  isTokenRevoked,
   parseHtpasswd,
+  parseValidAfter,
   readHtpasswd,
+  revokeToken,
   revokeTokens,
   validAfterPath,
   verifyPassword,
+  withAuthFileLock,
   writePrivateFile,
 } from './htpasswd';
 
@@ -107,5 +111,61 @@ describe('token revocation', () => {
     fs.appendFileSync(validAfterPath(file), 'admin 3000\n');
     expect(isTokenCurrent(file, 'admin', 2000)).toBe(false);
     expect(isTokenCurrent(file, 'admin', 3000)).toBe(true);
+  });
+});
+
+describe('hardening', () => {
+  const YEAR = 365 * 24 * 60 * 60 * 1000;
+
+  it('ignores revocation times far in the future', () => {
+    writePrivateFile(file, 'admin:x\nbob:y\n');
+    writePrivateFile(validAfterPath(file), 'x 1\nbob 99999999999999\n');
+    expect(isTokenCurrent(file, 'bob', Date.now())).toBe(true);
+    expect(parseValidAfter('bob 99999999999999\nbob 5\n', 10).get('bob')).toBe(5);
+  });
+
+  it('refuses to write revocation lines for names with whitespace', () => {
+    writePrivateFile(file, 'admin:x\n');
+    expect(() => revokeTokens(file, 'x 1\nadmin 99999999999999', YEAR)).toThrow();
+    expect(() => revokeTokens(file, 'admin ', YEAR)).toThrow();
+  });
+
+  it('does not hash or match passwords openssl would cut short', async () => {
+    await expect(hashPassword('Long\nSecretPart')).rejects.toThrow();
+    const hash = await hashPassword('Long');
+    expect(await verifyPassword('Long', hash)).toBe(true);
+    expect(await verifyPassword('Long\nanything', hash)).toBe(false);
+    const k256 = 'k'.repeat(256);
+    const longHash = await hashPassword(k256);
+    expect(await verifyPassword(`${k256}totally-different`, longHash)).toBe(false);
+  });
+
+  it('runs locked sections one at a time', async () => {
+    const order: string[] = [];
+    await Promise.all([
+      withAuthFileLock(async () => {
+        order.push('a1');
+        await new Promise((r) => setTimeout(r, 20));
+        order.push('a2');
+      }),
+      withAuthFileLock(() => {
+        order.push('b');
+      }),
+      withAuthFileLock(() => {
+        throw new Error('boom');
+      }).catch(() => order.push('c failed')),
+      withAuthFileLock(() => order.push('d')),
+    ]);
+    expect(order).toEqual(['a1', 'a2', 'b', 'c failed', 'd']);
+  });
+});
+
+describe('single token revocation', () => {
+  it('remembers revoked ids until they expire', () => {
+    revokeToken(file, 'a', 100, 50_000);
+    revokeToken(file, 'b', 200, 150_000);
+    expect(isTokenRevoked(file, 'a')).toBe(false); // expired at 100 s, pruned
+    expect(isTokenRevoked(file, 'b')).toBe(true);
+    expect(() => revokeToken(file, 'x 1\ny', 300)).toThrow();
   });
 });

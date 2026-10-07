@@ -268,12 +268,60 @@ prompt_user_config() {
     print_success "Configuration completed."
 }
 
+# Same rules as the admin panel: 4+ characters, at most 256 bytes (openssl
+# ignores the rest), no control characters (openssl hashes only the first line).
+admin_password_error() {
+    local pass=$1 bytes
+    bytes=$(printf '%s' "$pass" | LC_ALL=C wc -c)
+    if [ "${#pass}" -lt 4 ]; then
+        echo "The password must be at least 4 characters long."
+    elif [ "$bytes" -gt 256 ]; then
+        echo "The password must be at most 256 bytes long."
+    elif [[ "$pass" == *[[:cntrl:]]* ]]; then
+        echo "The password must not contain tabs or other control characters."
+    fi
+}
+
+# Sets ADMIN_PASSWORD. There is no default: an empty answer asks again.
+# Without a terminal, ADMIN_PASSWORD must already be set in the environment.
 prompt_admin_password() {
-    local default_admin_pass="admin"
-    echo ""
-    read -s -p "Enter admin password (default: $default_admin_pass): " admin_pass
-    echo ""
-    ADMIN_PASSWORD=${admin_pass:-$default_admin_pass}
+    local pass confirm error
+    if [ -n "${ADMIN_PASSWORD:-}" ]; then
+        error=$(admin_password_error "$ADMIN_PASSWORD")
+        if [ -n "$error" ]; then
+            print_error "ADMIN_PASSWORD: $error"
+            exit 1
+        fi
+        print_status "Using the admin password from ADMIN_PASSWORD."
+        return
+    fi
+    if [ ! -t 0 ]; then
+        print_error "No terminal to ask for the admin password: set ADMIN_PASSWORD, or run setup.sh interactively."
+        exit 1
+    fi
+    while true; do
+        echo ""
+        # -r and an empty IFS keep backslashes and leading/trailing spaces as typed
+        if ! IFS= read -r -s -p "Enter admin password (at least 4 characters): " pass; then
+            echo ""
+            print_error "No admin password entered."
+            exit 1
+        fi
+        echo ""
+        error=$(admin_password_error "$pass")
+        if [ -n "$error" ]; then
+            print_warning "$error"
+            continue
+        fi
+        IFS= read -r -s -p "Repeat admin password: " confirm || confirm=
+        echo ""
+        if [ "$pass" != "$confirm" ]; then
+            print_warning "The passwords do not match. Try again."
+            continue
+        fi
+        ADMIN_PASSWORD=$pass
+        return
+    done
 }
 
 resolve_user_config() {
@@ -762,6 +810,9 @@ show_usage() {
     echo "  --config-only           Only write configuration, don't start the container"
     echo "  --no-cleanup            Skip cleanup of previous installation"
     echo "  --help                  Show this help message"
+    echo ""
+    echo "The admin password is asked for (twice) when it is set. To run without a"
+    echo "terminal, pass it as ADMIN_PASSWORD=... in the environment."
     echo ""
     echo "On a fresh install this asks for the domain, sync frequency, npm proxy,"
     echo "timezone and admin password. On an existing install it keeps what is"

@@ -17,6 +17,8 @@ import {
   attemptLogin,
   createAuthToken,
   createNpmAuthToken,
+  requireAuth,
+  revokeSession,
   revokeUserTokens,
   validateAuthToken,
   validateNpmAuthToken,
@@ -55,7 +57,7 @@ describe('attemptLogin', () => {
   const request = (ip: string) =>
     new Request('http://admin/login', { headers: { 'X-Real-IP': ip } });
 
-  it('returns 429 data after five failures and lets a later success through', async () => {
+  it('returns 429 data after five failures from one IP, but not to other IPs', async () => {
     writePrivateFile(htpasswdPath, `carol:${await hashPassword('right')}\n`);
     for (let i = 0; i < 5; i++) {
       expect(
@@ -65,12 +67,16 @@ describe('attemptLogin', () => {
         }),
       ).toEqual({ ok: false });
     }
-    const blocked = await attemptLogin(request('9.9.9.8'), {
+    const blocked = await attemptLogin(request('9.9.9.9'), {
       username: 'carol',
       password: 'right',
     });
     expect(blocked.ok).toBe(false);
     expect(blocked.retryAfter).toBeGreaterThan(0);
+    // The owner on another machine still gets in.
+    expect(
+      await attemptLogin(request('9.9.9.8'), { username: 'carol', password: 'right' }),
+    ).toEqual({ ok: true });
   });
 
   it('clears the counters on success', async () => {
@@ -99,5 +105,79 @@ describe('attemptLogin', () => {
         ).retryAfter,
       ).toBeUndefined();
     }
+  });
+});
+
+describe('requireAuth', () => {
+  const withCookie = async (init: RequestInit & { url?: string }) => {
+    writePrivateFile(htpasswdPath, 'admin:x\n');
+    const token = await createAuthToken('admin');
+    const headers = new Headers(init.headers);
+    headers.set('Cookie', `auth_token=${token}`);
+    return new Request(init.url ?? 'http://admin.mirror.intra/users', { ...init, headers });
+  };
+
+  it('refuses a post from a page on another mirror host with the admin cookie', async () => {
+    const request = await withCookie({
+      method: 'POST',
+      headers: { Origin: 'http://files.mirror.intra', 'Sec-Fetch-Site': 'same-site' },
+      body: new URLSearchParams({ intent: 'addUser' }),
+    });
+    await expect(requireAuth(request)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('ignores the session cookie on the public hosts', async () => {
+    for (const url of ['http://files.mirror.intra/Users', 'http://cheatsheets.mirror.intra/Home']) {
+      expect(await requireAuth(await withCookie({ url }))).toBeNull();
+    }
+  });
+
+  it('accepts same-origin posts and plain gets', async () => {
+    const post = await withCookie({
+      method: 'POST',
+      headers: { Origin: 'http://admin.mirror.intra', 'Sec-Fetch-Site': 'same-origin' },
+    });
+    expect((await requireAuth(post))?.username).toBe('admin');
+    const get = await withCookie({ headers: { 'Sec-Fetch-Site': 'same-site' } });
+    expect((await requireAuth(get))?.username).toBe('admin');
+  });
+});
+
+describe('revokeSession (logout)', () => {
+  const cookieRequest = (token: string) =>
+    new Request('http://admin.mirror.intra/logout', {
+      method: 'POST',
+      headers: { Cookie: `auth_token=${token}` },
+    });
+
+  it('refuses the logged-out token but keeps the user\'s other sessions', async () => {
+    writePrivateFile(htpasswdPath, 'admin:x\nerin:y\n');
+    const loggedOut = await createAuthToken('erin');
+    const other = await createAuthToken('erin');
+    await revokeSession(cookieRequest(loggedOut));
+    expect(await validateAuthToken(loggedOut)).toBeNull();
+    expect(await validateAuthToken(other)).not.toBeNull();
+    const file = path.join(path.dirname(htpasswdPath), '.tokens-revoked');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it('revokes tokens issued before jti existed', async () => {
+    writePrivateFile(htpasswdPath, 'admin:x\nfrank:y\n');
+    const { default: jwt } = await import('jsonwebtoken');
+    const { getJwtSecret } = await import('./server-auth');
+    const legacy = jwt.sign(
+      { username: 'frank', type: 'web', iatMs: Date.now(), exp: Math.floor(Date.now() / 1000) + 3600 },
+      getJwtSecret(),
+    );
+    expect(await validateAuthToken(legacy)).not.toBeNull();
+    await revokeSession(cookieRequest(legacy));
+    expect(await validateAuthToken(legacy)).toBeNull();
+  });
+
+  it('ignores requests without a valid cookie', async () => {
+    await expect(revokeSession(cookieRequest('garbage'))).resolves.toBeUndefined();
+    await expect(
+      revokeSession(new Request('http://admin.mirror.intra/logout', { method: 'POST' })),
+    ).resolves.toBeUndefined();
   });
 });
