@@ -89,10 +89,17 @@ Failed logins (web and `npm login`) are limited per client address and per
 username. The container has no IPv6 address, so Docker's userland proxy
 connects IPv6 clients and clients on the Docker host itself (`127.0.0.1`,
 `::1`) from the network gateway, and they all reach the mirror with that one
-address. The limit for the gateway is per username, so one of those clients
-can't lock the others out, but they can't be told apart either. The same goes
-for a reverse proxy in front of the mirror: its clients share its address, and
-the mirror ignores `X-Forwarded-For` because any client can send one.
+address, so the mirror can't tell them apart. For that address the limits are 5
+failures per username (so a client guessing at one user doesn't lock that
+user out for the others), 50 failures in all (so no client can try a password
+on every username), and the usual per-username limit, all per 15 minutes.
+Any of those clients can still fill these limits, and then a user signing in
+from there waits up to 15 minutes, as often as the attacker repeats it. A
+browser that has signed in as the user before (in the last 30 days, and since
+the last password change) is exempt: it has a limit of its own. `npm login`
+from those clients has no such exemption. A reverse proxy in front of the
+mirror has the same problem: its clients share its address, and the mirror
+ignores `X-Forwarded-For` because any client can send one.
 
 ### File Repository (files.mirror.intra)
 

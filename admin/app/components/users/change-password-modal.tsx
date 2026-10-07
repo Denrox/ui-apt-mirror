@@ -9,6 +9,7 @@ import { passwordError } from '~/utils/password-rules';
 interface ChangePasswordModalProps {
   readonly isOpen: boolean;
   readonly username: string;
+  readonly requireCurrentPassword: boolean;
   readonly onClose: () => void;
   readonly onSuccess?: () => void;
 }
@@ -16,9 +17,11 @@ interface ChangePasswordModalProps {
 export default function ChangePasswordModal({
   isOpen,
   username,
+  requireCurrentPassword,
   onClose,
   onSuccess,
 }: ChangePasswordModalProps) {
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
@@ -28,6 +31,11 @@ export default function ChangePasswordModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (requireCurrentPassword && !currentPassword) {
+      setError('Current password is required');
+      return;
+    }
 
     if (!newPassword.trim() || !confirmPassword.trim()) {
       setError('Both password fields are required');
@@ -49,10 +57,16 @@ export default function ChangePasswordModal({
 
     try {
       await submit(
-        { intent: 'changePassword', username, newPassword },
+        {
+          intent: 'changePassword',
+          username,
+          newPassword,
+          ...(requireCurrentPassword ? { currentPassword } : {}),
+        },
         { action: '/users', method: 'post' },
       );
 
+      setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setError('');
@@ -70,6 +84,7 @@ export default function ChangePasswordModal({
   };
 
   const handleClose = () => {
+    setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
     setError('');
@@ -88,6 +103,19 @@ export default function ChangePasswordModal({
           <div className="p-3 bg-error/10 text-error border border-error/20 rounded-lg text-sm">
             {error}
           </div>
+        )}
+
+        {requireCurrentPassword && (
+          <FormField label="Current Password" required>
+            <FormInput
+              type="password"
+              name="currentPassword"
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              placeholder="Enter current password"
+              disabled={isSubmitting}
+            />
+          </FormField>
         )}
 
         <FormField label="New Password" required>
@@ -124,7 +152,10 @@ export default function ChangePasswordModal({
             type="primary"
             buttonType="submit"
             disabled={
-              !newPassword.trim() || !confirmPassword.trim() || isSubmitting
+              (requireCurrentPassword && !currentPassword) ||
+              !newPassword.trim() ||
+              !confirmPassword.trim() ||
+              isSubmitting
             }
           >
             {isSubmitting ? 'Changing...' : 'Change Password'}

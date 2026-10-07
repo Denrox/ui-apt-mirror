@@ -13,15 +13,25 @@ import { readFileSync } from 'fs';
 //
 // Some addresses are shared by many clients the app can't tell apart: the
 // Docker gateway (every IPv6 client and every client on the Docker host
-// reaches nginx through docker-proxy from there) and loopback. A per-address
-// limit there would let one of them lock out all the others, so on a shared
-// address the limit is per address *and* username instead, and a login from
-// there never makes the address "known" for the user.
+// reaches nginx through docker-proxy from there) and loopback. A login from
+// there never makes the address "known" for the user, and it is limited:
+//
+// - Per address and username (5), so one of those clients guessing at a
+//   user doesn't lock the user out for all the others.
+// - Per address (50), so none of them can spray guesses across usernames.
+// - Per username, as above (20).
+//
+// Those buckets can still be filled by anyone behind the address, so a
+// browser that has signed in as the user before (it holds a device cookie
+// for that name) is limited on its own instead (5), and never by them.
 const MAX_FAILURES = 5;
 const MAX_USER_FAILURES = 20;
+const MAX_SHARED_FAILURES = 50;
 const WINDOW_MS = 15 * 60 * 1000;
 const KNOWN_IP_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_KEYS = 50000;
+// No limit is higher than this, so older failures in a bucket never matter.
+const MAX_KEPT_FAILURES = Math.max(MAX_USER_FAILURES, MAX_SHARED_FAILURES);
 
 interface Failure {
   t: number;
@@ -31,6 +41,7 @@ interface Failure {
 const attempts = new Map<string, Failure[]>();
 // "<user>@<ip>" -> time of the last successful login from there.
 const knownIps = new Map<string, number>();
+let lastSweep = -Infinity;
 
 function recent(key: string, now: number): Failure[] {
   const list = (attempts.get(key) ?? []).filter((f) => f.t > now - WINDOW_MS);
@@ -39,12 +50,10 @@ function recent(key: string, now: number): Failure[] {
   return list;
 }
 
-function addressKey(ip: string, username: string): string {
-  return isSharedAddress(ip) ? `pair:${ip} ${username}` : `ip:${ip}`;
-}
-
-function keys(ip: string, username: string): string[] {
-  return [addressKey(ip, username), `user:${username}`];
+function keys(ip: string, username: string, device?: string): string[] {
+  if (!isSharedAddress(ip)) return [`ip:${ip}`, `user:${username}`];
+  if (device) return [`device:${device}`];
+  return [`pair:${ip} ${username}`, `ip:${ip}`, `user:${username}`];
 }
 
 function isKnownIp(ip: string, username: string, now: number): boolean {
@@ -54,8 +63,22 @@ function isKnownIp(ip: string, username: string, now: number): boolean {
 }
 
 function limitFor(key: string, ip: string, username: string, now: number): number {
-  if (!key.startsWith('user:')) return MAX_FAILURES;
-  return isKnownIp(ip, username, now) ? Infinity : MAX_USER_FAILURES;
+  if (key.startsWith('user:')) {
+    return isKnownIp(ip, username, now) ? Infinity : MAX_USER_FAILURES;
+  }
+  if (key.startsWith('ip:') && isSharedAddress(ip)) return MAX_SHARED_FAILURES;
+  return MAX_FAILURES;
+}
+
+/** Drops expired buckets and known addresses, so idle entries don't pile up. */
+function sweep(now: number): void {
+  for (const key of [...attempts.keys()]) recent(key, now);
+  // Oldest first: loginSucceeded() re-inserts an address it refreshes.
+  for (const [known, last] of knownIps) {
+    if (last > now - KNOWN_IP_MS) break;
+    knownIps.delete(known);
+  }
+  lastSweep = now;
 }
 
 /**
@@ -64,7 +87,7 @@ function limitFor(key: string, ip: string, username: string, now: number): numbe
  * can't push out a bucket that is close to its limit.
  */
 function makeRoom(now: number): void {
-  for (const key of [...attempts.keys()]) recent(key, now);
+  sweep(now);
   if (attempts.size < MAX_KEYS) return;
   const byCount = [...attempts].map(([key, list], order) => ({ key, n: list.length, order }));
   byCount.sort((a, b) => a.n - b.n || a.order - b.order);
@@ -78,14 +101,16 @@ function makeRoom(now: number): void {
 /**
  * Counts an attempt as failed up front, so parallel guesses can't slip past the
  * limit; call loginSucceeded() on success. Returns seconds to wait, 0 if allowed.
+ * `device` identifies a browser that has signed in as `username` before.
  */
 export function beginLoginAttempt(
   ip: string,
   username: string,
   now = Date.now(),
+  device?: string,
 ): number {
   let retryAfter = 0;
-  for (const key of keys(ip, username)) {
+  for (const key of keys(ip, username, device)) {
     const list = recent(key, now);
     const limit = limitFor(key, ip, username, now);
     if (list.length >= limit) {
@@ -97,9 +122,10 @@ export function beginLoginAttempt(
   }
   if (retryAfter > 0) return retryAfter;
 
+  if (now - lastSweep >= WINDOW_MS) sweep(now);
   if (attempts.size >= MAX_KEYS) makeRoom(now);
-  for (const key of keys(ip, username)) {
-    attempts.set(key, [...recent(key, now), { t: now, user: username }]);
+  for (const key of keys(ip, username, device)) {
+    attempts.set(key, [...recent(key, now), { t: now, user: username }].slice(-MAX_KEPT_FAILURES));
   }
   return 0;
 }
@@ -108,13 +134,15 @@ export function loginSucceeded(
   ip: string,
   username: string,
   now = Date.now(),
+  device?: string,
 ): void {
   // The user's own mistakes from here are forgiven; guesses at other names stay.
-  const key = addressKey(ip, username);
-  const others = recent(key, now).filter((f) => f.user !== username);
-  if (others.length) attempts.set(key, others);
-  else attempts.delete(key);
-  attempts.delete(`user:${username}`);
+  const own = [...keys(ip, username), ...(device ? [`device:${device}`] : [])];
+  for (const key of own) {
+    const others = recent(key, now).filter((f) => f.user !== username);
+    if (others.length) attempts.set(key, others);
+    else attempts.delete(key);
+  }
 
   if (isSharedAddress(ip)) return;
   const known = `${username}@${ip}`;
@@ -177,8 +205,14 @@ export function isSharedAddress(ip: string): boolean {
   );
 }
 
+/** The buckets held right now (for tests). */
+export function loginLimiterKeys(): string[] {
+  return [...attempts.keys()];
+}
+
 export function resetLoginLimiter(sharedGateways?: string[]): void {
   attempts.clear();
   knownIps.clear();
+  lastSweep = -Infinity;
   gateways = sharedGateways ? new Set(sharedGateways) : null;
 }

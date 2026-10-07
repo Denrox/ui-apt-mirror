@@ -13,6 +13,7 @@ import {
   TOKEN_MAX_AGE_MS,
 } from './htpasswd';
 import { beginLoginAttempt, clientIp, loginSucceeded } from './login-limiter';
+import { usernameError } from './password-rules';
 import { assertSameOrigin, isPublicHostRequest } from './request-guard';
 
 // Per-install secret, created on first use next to .htpasswd. Never ship one
@@ -38,11 +39,16 @@ export function getJwtSecret(): string {
 }
 const COOKIE_NAME = 'auth_token';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
+// Marks a browser that has signed in as the user, for the login limiter.
+const DEVICE_COOKIE_NAME = 'login_device';
+const DEVICE_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+
+type TokenType = 'web' | 'npm' | 'device';
 
 export interface AuthUser {
   username: string;
   exp: number;
-  type: 'web' | 'npm';
+  type: TokenType;
   iatMs: number;
   jti: string;
 }
@@ -65,16 +71,29 @@ export function validateCredentials(
   });
 }
 
+// Not a valid username, so it can't clash with an account.
+const INVALID_USERNAME = '<invalid>';
+
 /** validateCredentials behind the per-IP and per-user failure limit. */
 export async function attemptLogin(
   request: Request,
   credentials: LoginCredentials,
 ): Promise<{ ok: boolean; retryAfter?: number }> {
   const ip = clientIp(request);
-  const retryAfter = beginLoginAttempt(ip, credentials.username);
+  // A name no account can have is counted under one fixed name, so the
+  // limiter never keeps what a client typed there (up to the body size).
+  const valid = !usernameError(credentials.username);
+  const device = valid ? await signedInDevice(request, credentials.username) : undefined;
+  const retryAfter = beginLoginAttempt(
+    ip,
+    valid ? credentials.username : INVALID_USERNAME,
+    Date.now(),
+    device,
+  );
   if (retryAfter > 0) return { ok: false, retryAfter };
+  if (!valid) return { ok: false };
   const ok = await validateCredentials(credentials);
-  if (ok) loginSucceeded(ip, credentials.username);
+  if (ok) loginSucceeded(ip, credentials.username, Date.now(), device);
   return { ok };
 }
 
@@ -97,6 +116,27 @@ export async function createAuthToken(username: string): Promise<string> {
   return jwt.sign(payload, getJwtSecret());
 }
 
+/** Cookie that lets this browser past limits others can fill (see login-limiter). */
+export async function createDeviceCookie(username: string): Promise<string> {
+  const payload: AuthUser = {
+    username,
+    exp: Math.floor(Date.now() / 1000) + DEVICE_COOKIE_MAX_AGE / 1000,
+    type: 'device',
+    iatMs: Date.now(),
+    jti: randomBytes(16).toString('base64url'),
+  };
+  const token = jwt.sign(payload, getJwtSecret());
+  return `${DEVICE_COOKIE_NAME}=${token}; HttpOnly; Path=/; Max-Age=${DEVICE_COOKIE_MAX_AGE / 1000}; SameSite=Strict`;
+}
+
+/** The id of the request's device cookie if it was issued for `username`. */
+async function signedInDevice(request: Request, username: string): Promise<string | undefined> {
+  const token = extractCookie(request.headers.get('Cookie'), DEVICE_COOKIE_NAME);
+  if (!token) return undefined;
+  const device = await validateAuthToken(token, 'device');
+  return device?.username === username ? device.jti : undefined;
+}
+
 export async function createNpmAuthToken(username: string): Promise<string> {
   const payload: AuthUser = {
     username,
@@ -111,7 +151,7 @@ export async function createNpmAuthToken(username: string): Promise<string> {
 
 export async function validateAuthToken(
   token: string,
-  type: 'web' | 'npm' = 'web',
+  type: TokenType = 'web',
 ): Promise<AuthUser | null> {
   try {
     const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as AuthUser;
@@ -157,13 +197,17 @@ export function createLogoutCookie(): string {
 }
 
 export function extractAuthToken(cookieHeader: string | null): string | null {
+  return extractCookie(cookieHeader, COOKIE_NAME);
+}
+
+function extractCookie(cookieHeader: string | null, cookieName: string): string | null {
   if (!cookieHeader) return null;
 
   const cookies = cookieHeader.split(';').map((cookie) => cookie.trim());
 
   for (const cookie of cookies) {
     const [name, value] = cookie.split('=');
-    if (name === COOKIE_NAME) {
+    if (name === cookieName) {
       return value;
     }
   }

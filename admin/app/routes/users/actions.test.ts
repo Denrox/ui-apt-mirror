@@ -66,6 +66,43 @@ describe('changePassword', () => {
     expect(r.error).toMatch(/control characters/);
     expect(await checkCredentials(htpasswdPath, 'bob', 'bobpass')).toBe(true);
   });
+
+  it('asks for the current password when users change their own', async () => {
+    const change = (fields: Record<string, string>, as: string) =>
+      post({ intent: 'changePassword', newPassword: 'newpass1', ...fields }, as);
+    expect(await change({ username: 'bob' }, 'bob')).toEqual({
+      success: false,
+      error: 'Current password is required',
+    });
+    expect(await change({ username: 'bob', currentPassword: 'wrong' }, 'bob')).toEqual({
+      success: false,
+      error: 'Current password is incorrect',
+    });
+    expect(await change({ username: 'admin' }, 'admin')).toEqual({
+      success: false,
+      error: 'Current password is required',
+    });
+    expect(await checkCredentials(htpasswdPath, 'bob', 'bobpass')).toBe(true);
+    expect(await checkCredentials(htpasswdPath, 'admin', 'adminpass')).toBe(true);
+
+    expect((await change({ username: 'bob', currentPassword: 'bobpass' }, 'bob')).success).toBe(true);
+    expect(await checkCredentials(htpasswdPath, 'bob', 'newpass1')).toBe(true);
+  });
+
+  it('limits guesses at the current password like logins', async () => {
+    writePrivateFile(htpasswdPath, `admin:${await hashPassword('adminpass')}\ncarl:${await hashPassword('carlpass')}\n`);
+    const guess = (currentPassword: string) =>
+      post({ intent: 'changePassword', username: 'carl', newPassword: 'newpass1', currentPassword }, 'carl');
+    for (let i = 0; i < 5; i++) expect((await guess(`guess${i}`)).error).toBe('Current password is incorrect');
+    expect((await guess('carlpass')).error).toMatch(/Too many failed login attempts/);
+    expect(await checkCredentials(htpasswdPath, 'carl', 'carlpass')).toBe(true);
+  });
+
+  it('lets the admin reset another user\'s password without it', async () => {
+    const r = await post({ intent: 'changePassword', username: 'bob', newPassword: 'reset123' });
+    expect(r.success).toBe(true);
+    expect(await checkCredentials(htpasswdPath, 'bob', 'reset123')).toBe(true);
+  });
 });
 
 describe('deleteUser', () => {

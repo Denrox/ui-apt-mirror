@@ -112,7 +112,9 @@ if [ -n "$MIRROR_PID" ]; then
 fi
 echo "   - health check (PID: $HEALTH_PID)"
 
-wait
+# Without the admin app or nginx no host works: end the container so its
+# restart policy starts it again.
+wait -n "$ADMIN_PID" "$NGINX_PID" || true
 
 echo "❌ One of the services exited unexpectedly"
 exit 1 

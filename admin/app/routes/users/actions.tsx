@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { data } from 'react-router';
 import appConfig from '~/config/config.json';
 import { hashPassword, withAuthFileLock, writePrivateFile } from '~/utils/htpasswd';
+import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 import { passwordError, usernameError } from '~/utils/password-rules';
 
 function lineUsername(line: string): string | null {
@@ -20,8 +21,13 @@ export async function action({
 }: {
   request: Request;
 }): Promise<ActionResult | ReturnType<typeof data<ActionResult>>> {
-  const { requireAuth, revokeUserTokens, createAuthToken, createAuthCookie } =
-    await import('~/utils/server-auth');
+  const {
+    attemptLogin,
+    requireAuth,
+    revokeUserTokens,
+    createAuthToken,
+    createAuthCookie,
+  } = await import('~/utils/server-auth');
   const user = await requireAuth(request);
 
   if (!user) {
@@ -57,6 +63,28 @@ export async function action({
     const newPasswordError = passwordError(newPassword);
     if (newPasswordError) {
       return { success: false, error: newPasswordError };
+    }
+
+    // A session alone must not be enough to take the account over for good.
+    // The admin resetting someone else's password is not asked for theirs.
+    if (username === user.username) {
+      const currentPassword = formData.get('currentPassword');
+      if (typeof currentPassword !== 'string' || !currentPassword) {
+        return { success: false, error: 'Current password is required' };
+      }
+      const { ok, retryAfter } = await attemptLogin(request, {
+        username,
+        password: currentPassword,
+      });
+      if (retryAfter) {
+        return data(
+          { success: false, error: tooManyAttemptsMessage(retryAfter) },
+          { status: 429, headers: { 'Retry-After': String(retryAfter) } },
+        );
+      }
+      if (!ok) {
+        return { success: false, error: 'Current password is incorrect' };
+      }
     }
 
     try {
