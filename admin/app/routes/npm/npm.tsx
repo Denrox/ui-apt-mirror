@@ -28,12 +28,14 @@ import {
   isWebLoginPath,
   mergePublish,
   nextRev,
+  packageScope,
   parseJsonObject,
   parseNpmPath,
   pathPackage,
   privateVersion,
   publicCachePath,
   revMatches,
+  scopeListsPackage,
   type DocResult,
   upstreamHeaders,
   withoutAuditPackages,
@@ -318,13 +320,26 @@ function tarballUrl(request: Request, packageName: string, tarballFile: string):
 }
 
 /**
- * Whether an unscoped name already belongs to a public package (upstream, or in our cache when
- * offline). Publishing such a name privately would replace the real package for every client.
+ * Whether a name already belongs to a public package (upstream, or in our cache when offline).
+ * Publishing such a name privately would replace the real package for every client.
+ *
+ * A scoped name is never sent upstream: npmjs is asked only for the packages of its scope, and the
+ * name is looked up in that list here. Unscoped names have no such list and are checked directly.
  */
 async function isPublicPackageName(packageName: string): Promise<boolean> {
-  if (packageName.startsWith('@')) return false;
   if (await isCached(path.join(PUBLIC_PACKAGES_DIR, packageName))) return true;
   try {
+    const scope = packageScope(packageName);
+    if (scope) {
+      const res = await fetch(`${NPM_REGISTRY_URL}/-/org/${encodeURIComponent(scope)}/package`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.status !== 200) {
+        await res.body?.cancel();
+        return false;
+      }
+      return scopeListsPackage(await res.json(), packageName);
+    }
     const res = await fetch(`${NPM_REGISTRY_URL}/${packageName}`, {
       method: 'HEAD',
       signal: AbortSignal.timeout(5000),
@@ -552,7 +567,9 @@ async function publishPackage(
     return jsonResponse(
       {
         error: 'Forbidden',
-        reason: `"${packageName}" is a public npm package; publish private packages under a scope (e.g. @yourorg/${packageName})`,
+        reason: packageName.startsWith('@')
+          ? `"${packageName}" is a public npm package; publish private packages under a scope of your own`
+          : `"${packageName}" is a public npm package; publish private packages under a scope (e.g. @yourorg/${packageName})`,
       },
       403,
     );

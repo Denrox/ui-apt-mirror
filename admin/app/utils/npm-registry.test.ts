@@ -8,12 +8,14 @@ import {
   isWebLoginPath,
   mergePublish,
   nextRev,
+  packageScope,
   parseJsonObject,
   parseNpmPath,
   pathPackage,
   privateVersion,
   publicCachePath,
   revMatches,
+  scopeListsPackage,
   upstreamHeaders,
   withoutAuditPackages,
   type PackageDoc,
@@ -332,5 +334,21 @@ describe('private package routing', () => {
     expect(isWebLoginPath('-/v1/done/abc')).toBe(true);
     expect(isWebLoginPath('-/v1/search')).toBe(false);
     expect(isWebLoginPath('-/v1/loginx')).toBe(false);
+  });
+});
+
+describe('scoped public names', () => {
+  it('takes the scope from a scoped name only', () => {
+    expect(packageScope('@types/node')).toBe('types');
+    expect(packageScope('@sindresorhus/slugify')).toBe('sindresorhus');
+    expect(packageScope('left-pad')).toBeNull();
+  });
+
+  it('looks a name up in the package list of its scope', () => {
+    const list = { '@types/node': 'write', '@types/react': 'write', 'env-paths': 'write' };
+    expect(scopeListsPackage(list, '@types/node')).toBe(true);
+    expect(scopeListsPackage(list, '@types/not-there')).toBe(false);
+    expect(scopeListsPackage(list, 'constructor')).toBe(false);
+    for (const bad of [null, [], 'x', 1]) expect(scopeListsPackage(bad, '@types/node')).toBe(false);
   });
 });

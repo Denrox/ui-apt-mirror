@@ -283,3 +283,13 @@ export function privateVersion(doc: PackageDoc, spec: string): Record<string, an
 export function isWebLoginPath(packagePath: string): boolean {
   return /^-\/v1\/(login|done)(\/|$)/.test(packagePath);
 }
+
+/** The scope of a scoped package name without the `@` (`types` for `@types/node`), else null. */
+export function packageScope(name: string): string | null {
+  return /^@([^/]+)\//.exec(name)?.[1] ?? null;
+}
+
+/** Whether npmjs' package list of a scope (`GET /-/org/<scope>/package`, name → access) has the name. */
+export function scopeListsPackage(list: unknown, name: string): boolean {
+  return isObject(list) && Object.hasOwn(list, name);
+}
