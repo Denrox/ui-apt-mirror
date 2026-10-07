@@ -1,5 +1,11 @@
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { closureOptionsError, resolveClosure, ResolveBusyError, runResolveExclusive } from '~/lib/dep-closure';
+import {
+  closureOptionsError,
+  resolveClosure,
+  ResolveBusyError,
+  ResolveTooLargeError,
+  runResolveExclusive,
+} from '~/lib/dep-closure';
 import { UpstreamFetchError } from '~/lib/upstream-fetch';
 
 const tokens = (v: FormDataEntryValue | null): string[] =>
@@ -67,6 +73,9 @@ export async function action({ request }: { request: Request }) {
   } catch (error) {
     if (error instanceof ResolveBusyError) {
       return Response.json({ error: error.message }, { status: 429 });
+    }
+    if (error instanceof ResolveTooLargeError) {
+      return Response.json({ error: error.message }, { status: 400 });
     }
     if (error instanceof UpstreamFetchError) {
       return Response.json({ error: error.message }, { status: 502 });

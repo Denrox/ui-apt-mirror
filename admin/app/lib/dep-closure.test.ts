@@ -171,10 +171,29 @@ describe('resource limits (r3-repos-7)', () => {
       arches,
       seeds: ['sl'],
     });
-    expect(closureOptionsError(opts(['main', 'contrib', 'non-free'], ['amd64', 'i386']))).toBeNull();
-    expect(closureOptionsError(opts(['main', 'contrib', 'non-free'], ['amd64', 'i386', 'arm64']))).toMatch(
-      /at most 6/,
-    );
+    const stock = ['main', 'contrib', 'non-free', 'non-free-firmware'];
+    expect(closureOptionsError(opts(stock, ['amd64', 'i386']))).toBeNull();
+    expect(closureOptionsError(opts(stock, ['amd64', 'i386', 'arm64', 'armhf']))).toBeNull();
+    expect(closureOptionsError(opts(stock, ['amd64', 'i386', 'arm64', 'armhf', 'riscv64']))).toMatch(/at most 16/);
+  });
+
+  it('bounds the entries of the graph, counting a package of several indices once', async () => {
+    const { PackagesParser, ResolveTooLargeError } = await import('./dep-closure');
+    const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
+    const budget = { entries: 0, max: 12 };
+    const index = 'Package: a\nDepends: b, c | d\nProvides: v\n\nPackage: b\nProvides: v\n';
+    // a + 3 names, b, v and its 2 providers.
+    for (let i = 0; i < 3; i++) {
+      const parser = new PackagesParser(graph, false, budget);
+      parser.push(Buffer.from(index));
+      parser.end();
+      expect(budget.entries).toBe(8);
+    }
+    const parser = new PackagesParser(graph, false, budget);
+    expect(() => {
+      parser.push(Buffer.from('Package: e\nDepends: f, g, h, i\n'));
+      parser.end();
+    }).toThrow(ResolveTooLargeError);
   });
 
   it('runs resolves one at a time and turns away a crowd', async () => {
