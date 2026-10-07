@@ -27,11 +27,22 @@ export function uploadTempDir(dir: string, fileId: string): string {
   return path.join(dir, `${UPLOAD_TEMP_PREFIX}${fileId}`);
 }
 
-/**
- * Stores one chunk. Chunk 0 (re)starts the upload, a repeated chunk is acknowledged
- * without writing it again, and a gap or unknown upload is refused.
- */
-export async function writeChunk(opts: {
+// Per-upload queue: a chunk resent while the first copy is still being written must wait
+// for it, then see it as already stored, instead of being appended a second time.
+const queues = new Map<string, Promise<unknown>>();
+
+function serialized<T>(fileId: string, work: () => Promise<T>): Promise<T> {
+  const previous = queues.get(fileId) ?? Promise.resolve();
+  const result = previous.then(work, work);
+  const tail = result.catch(() => undefined);
+  queues.set(fileId, tail);
+  tail.then(() => {
+    if (queues.get(fileId) === tail) queues.delete(fileId);
+  });
+  return result;
+}
+
+interface ChunkOptions {
   fileId: string;
   dir: string;
   fileName: string;
@@ -39,7 +50,18 @@ export async function writeChunk(opts: {
   totalChunks: number;
   data: Buffer;
   now?: number;
-}): Promise<'chunk' | 'done'> {
+}
+
+/**
+ * Stores one chunk. Chunk 0 (re)starts the upload, a repeated chunk is acknowledged
+ * without writing it again, and a gap or unknown upload is refused. Chunks of one upload
+ * are handled one at a time, in the order they arrive.
+ */
+export function writeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
+  return serialized(opts.fileId, () => storeChunk(opts));
+}
+
+async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
   const { fileId, dir, fileName, chunkIndex, totalChunks, data, now = Date.now() } = opts;
   if (
     !Number.isInteger(totalChunks) ||
@@ -61,7 +83,8 @@ export async function writeChunk(opts: {
     await fs.mkdir(tempDir, { recursive: true });
     upload = {
       tempDir,
-      tempFile: path.join(tempDir, `${fileName}.temp`),
+      // Fixed short name: `<fileName>.temp` exceeded NAME_MAX for valid 251-255 byte names.
+      tempFile: path.join(tempDir, 'part'),
       destPath,
       totalChunks,
       nextIndex: 0,
@@ -69,20 +92,25 @@ export async function writeChunk(opts: {
     };
     uploads.set(fileId, upload);
   } else if (!upload || upload.destPath !== destPath || upload.totalChunks !== totalChunks) {
-    await abortUpload(fileId, dir);
+    await dropUpload(fileId, dir);
     throw new UploadError('Upload was interrupted; start it again');
   } else if (chunkIndex < upload.nextIndex) {
     upload.touchedAt = now;
     return 'chunk';
   } else if (chunkIndex > upload.nextIndex) {
-    await abortUpload(fileId, dir);
+    await dropUpload(fileId, dir);
     throw new UploadError(`Missing chunk ${upload.nextIndex + 1}; start the upload again`);
   }
 
-  if (chunkIndex === 0) {
-    await fs.writeFile(upload.tempFile, data);
-  } else {
-    await fs.appendFile(upload.tempFile, data);
+  try {
+    if (chunkIndex === 0) {
+      await fs.writeFile(upload.tempFile, data);
+    } else {
+      await fs.appendFile(upload.tempFile, data);
+    }
+  } catch (error) {
+    await dropUpload(fileId, dir);
+    throw error;
   }
   upload.nextIndex = chunkIndex + 1;
   upload.touchedAt = now;
@@ -93,13 +121,21 @@ export async function writeChunk(opts: {
     await fs.rm(upload.tempDir, { recursive: true, force: true });
     throw new UploadError(nameTakenError(fileName));
   }
-  await fs.rename(upload.tempFile, destPath);
-  await fs.rm(upload.tempDir, { recursive: true, force: true });
+  try {
+    await fs.rename(upload.tempFile, destPath);
+  } finally {
+    await fs.rm(upload.tempDir, { recursive: true, force: true });
+  }
   giveToDirOwner(destPath);
   return 'done';
 }
 
-export async function abortUpload(fileId: string, dir: string): Promise<void> {
+/** Cancels an upload, after any chunk of it that is still being written. */
+export function abortUpload(fileId: string, dir: string): Promise<void> {
+  return serialized(fileId, () => dropUpload(fileId, dir));
+}
+
+async function dropUpload(fileId: string, dir: string): Promise<void> {
   const upload = uploads.get(fileId);
   uploads.delete(fileId);
   if (upload) await fs.rm(upload.tempDir, { recursive: true, force: true });
