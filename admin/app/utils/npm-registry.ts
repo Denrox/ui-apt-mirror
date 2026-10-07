@@ -39,9 +39,15 @@ export function isValidVersion(version: string): boolean {
   return version.length <= 256 && SEMVER_RE.test(version);
 }
 
-/** A tag may not look like a version or range, or `npm install pkg@tag` becomes ambiguous. */
+// Names every plain object inherits (`constructor`, `toString`, …): npmjs refuses them as tags.
+const RESERVED_DIST_TAGS = new Set(Object.getOwnPropertyNames(Object.prototype));
+
+/**
+ * A tag may not look like a version or range, or `npm install pkg@tag` becomes ambiguous, nor be
+ * the name of an Object.prototype property.
+ */
 export function isValidDistTag(tag: string): boolean {
-  return DIST_TAG_RE.test(tag) && !/^v\d/i.test(tag);
+  return DIST_TAG_RE.test(tag) && !/^v\d/i.test(tag) && !RESERVED_DIST_TAGS.has(tag);
 }
 
 function splitName(segments: string[]): { name: string; rest: string[] } | null {

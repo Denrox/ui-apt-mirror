@@ -556,7 +556,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
     if (isPrivate && route.kind === 'distTags') {
       const doc = await readPrivateDoc(route.name);
-      return jsonResponse(route.tag ? doc?.['dist-tags']?.[route.tag] : doc?.['dist-tags'] ?? {});
+      const tags = doc?.['dist-tags'] ?? {};
+      if (!route.tag) return jsonResponse(tags);
+      return Object.hasOwn(tags, route.tag) ? jsonResponse(tags[route.tag]) : notFound();
     } else if (isPrivate && (route.kind === 'package' || route.kind === 'tarball')) {
       const privatePackage = await loadPrivatePackage(
         request,
@@ -770,7 +772,7 @@ async function changeDistTag(
       }
       tags[tag] = version;
     } else {
-      if (!(tag in tags)) return jsonResponse({ error: `Tag not found: ${tag}` }, 404);
+      if (!Object.hasOwn(tags, tag)) return jsonResponse({ error: `Tag not found: ${tag}` }, 404);
       delete tags[tag];
     }
 
