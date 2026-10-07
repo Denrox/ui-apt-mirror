@@ -59,8 +59,9 @@ describe('validateRepositoryInput', () => {
   it.each([
     ['fragment', 'http://example.com/debian#frag'],
     ['query', 'http://example.com/debian?x=1'],
+    ['";" parameter', 'http://example.com/debian;x'],
   ])('rejects a base URL with a %s', (_name, baseUrl) => {
-    expect(validateRepositoryInput({ ...valid, baseUrl }, [])).toMatch(/query or fragment/);
+    expect(validateRepositoryInput({ ...valid, baseUrl }, [])).toMatch(/query, ";" parameters or fragment/);
   });
 
   it('rejects a title that differs from an existing one only in case', () => {
