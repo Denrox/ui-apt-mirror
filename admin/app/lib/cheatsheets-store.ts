@@ -115,7 +115,7 @@ export async function giveTreeToOwner(target: string, owner?: { uid: number; gid
 
 /**
  * rm -rf in a child process: fs.rm of a 40,000-page source runs one
- * callback per file on the event loop, back to back, and held every other
+ * callback per file on the event loop, back to back, and holds every other
  * request for half a second.
  */
 async function removeTree(target: string) {
@@ -559,7 +559,7 @@ const yieldToOthers = () => new Promise<void>((resolve) => setImmediate(resolve)
 /**
  * index.json is a JSON array with one page per line, written and read a few
  * pages at a time: one JSON.stringify or JSON.parse of a 40,000-page index
- * blocked every request for a second or more.
+ * blocks every request for a second or more.
  */
 export async function writeIndex(file: string, entries: IndexEntry[]) {
   const handle = await fs.open(file, 'w');

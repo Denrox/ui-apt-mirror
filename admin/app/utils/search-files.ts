@@ -10,7 +10,7 @@ export interface SearchResult {
   isDirectory: boolean;
 }
 
-/** Most matches a search returns; a broad term in a large tree matched tens of thousands. */
+/** Most matches a search returns; a broad term in a large tree can match tens of thousands. */
 export const MAX_SEARCH_RESULTS = 500;
 
 /**

@@ -51,7 +51,7 @@ runner_pids() {
     done
 }
 
-# The apt-mirror python process itself (TERM goes there first, as before).
+# The apt-mirror python process itself (TERM goes there first).
 apt_mirror_pid() {
     local pid
     for pid in $(runner_pids); do

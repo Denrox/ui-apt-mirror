@@ -61,7 +61,7 @@ MIRROR_DOMAIN=e.test
 SYNC_FREQUENCY=3600
 NPM_PROXY_ENABLED=true
 TZ=UTC
-# Added by the admin (r3 upgrade test): used by docker-compose.override.yml
+# Added by the admin: used by docker-compose.override.yml
 R3_UPGRADE_VAR=keepme
 ENV
     chmod 640 "$1/.env"
@@ -75,7 +75,7 @@ inode=$(stat -c %i "$d/.env")
 run_setup "$d" upgrade
 check "upgrade: .env byte-identical" 'cmp -s "$d/before" "$d/.env"'
 check "upgrade: custom variable kept" 'grep -qx R3_UPGRADE_VAR=keepme "$d/.env"'
-check "upgrade: comment kept" 'grep -qx "# Added by the admin (r3 upgrade test): used by docker-compose.override.yml" "$d/.env"'
+check "upgrade: comment kept" 'grep -qx "# Added by the admin: used by docker-compose.override.yml" "$d/.env"'
 check "upgrade: hand-changed key kept" 'grep -qx SYNC_FREQUENCY=3600 "$d/.env"'
 check "upgrade: same file" '[ "$(stat -c %i "$d/.env")" = "$inode" ]'
 check "upgrade: mode kept" '[ "$(stat -c %a "$d/.env")" = 640 ]'

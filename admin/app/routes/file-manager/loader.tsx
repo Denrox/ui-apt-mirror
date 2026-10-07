@@ -5,7 +5,7 @@ import appConfig from '~/config/config.json';
 import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
-/** Entries per page: a whole large folder (npm cache, mirror pool) made the page unusable. */
+/** Entries per page: a whole large folder (npm cache, mirror pool) makes the page unusable. */
 export const PAGE_SIZE = 200;
 
 /** One page of `items`; a page past the end shows the last one. */
@@ -104,7 +104,7 @@ export async function loader({ request }: { request: Request }) {
   const searchParams = url.searchParams;
   const requestedPath = searchParams.get('path');
   // The page lists a folder's entries by their path below currentPath; another spelling of
-  // the same folder (a trailing slash, `//`, `/./`) showed it as empty.
+  // the same folder (a trailing slash, `//`, `/./`) would show it as empty.
   if (requestedPath && canonicalPath(requestedPath) !== requestedPath) {
     searchParams.set('path', canonicalPath(requestedPath));
     throw new Response(null, { status: 302, headers: { Location: `${url.pathname}?${searchParams}` } });

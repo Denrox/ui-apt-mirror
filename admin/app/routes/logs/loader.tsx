@@ -4,7 +4,7 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { readTail } from '~/utils/read-tail';
 import { listLogs, pickLog } from '~/utils/log-files';
 
-// Logs grow with every sync; sending them whole made the page tens of MB.
+// Logs grow with every sync; sending them whole makes the page tens of MB.
 const LOG_TAIL_BYTES = 512 * 1024;
 
 export async function loader({ request }: Route.LoaderArgs) {
