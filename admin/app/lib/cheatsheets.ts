@@ -1,3 +1,5 @@
+import { getCharactersError } from '~/utils/file-name';
+
 export interface GithubSource {
   owner: string;
   repo: string;
@@ -61,10 +63,13 @@ export function parseGithubUrl(input: string): GithubSource {
     ref = parts[3];
     if (!REF_RE.test(ref)) throw new Error('Invalid branch or tag name');
     const folder = parts.slice(4);
-    // Only-dots names ("..."), control characters (%00), and invisible or
-    // bidi characters (%E2%80%AE), which would make the URL display as
-    // another folder, are refused too.
-    if (folder.some((s) => /^\.+$/.test(s) || /[\\/]/.test(s) || INVISIBLE_RE.test(s))) {
+    // Only-dots names ("..."), and what file names may not have: control
+    // characters (%00), invisible, blank or bidi characters (%E2%80%AE) and
+    // spaces at either end, which would make the URL display as another
+    // folder. Marks stacked past MAX_MARKS would draw over other rows.
+    const badSegment = (s: string) =>
+      /^\.+$/.test(s) || /[\\/]/.test(s) || getCharactersError(s) !== null || MARK_STACK_RE.test(s);
+    if (folder.some(badSegment)) {
       throw new Error('Invalid folder path');
     }
     path = folder.join('/');
@@ -73,11 +78,10 @@ export function parseGithubUrl(input: string): GithubSource {
   return { owner, repo, ref, path };
 }
 
-const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
-
 const MAX_SOURCE_NAME = 100;
 /** Combining marks kept on one character; more only stack into a line drawn over other rows. */
 const MAX_MARKS = 3;
+const MARK_STACK_RE = new RegExp(`\\p{M}{${MAX_MARKS + 1}}`, 'u');
 
 /**
  * A source name on one line: no control, bidi or invisible characters, at

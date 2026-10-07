@@ -28,6 +28,23 @@ export function getValidationError(name: string): string | null {
     return "Name cannot contain './', '../', or other path traversal characters";
   }
 
+  const charactersError = getCharactersError(name);
+  if (charactersError) {
+    return charactersError;
+  }
+
+  if (Buffer.byteLength(name, 'utf8') > MAX_NAME_BYTES) {
+    return `Name is too long (at most ${MAX_NAME_BYTES} bytes)`;
+  }
+
+  return null;
+}
+
+/**
+ * Why the characters of `name` are not acceptable, or null: spaces at either end, characters
+ * that are invalid in names, and characters that make it display as something else.
+ */
+export function getCharactersError(name: string): string | null {
   if (name !== name.trim()) {
     return 'Name cannot start or end with a space';
   }
@@ -39,10 +56,6 @@ export function getValidationError(name: string): string | null {
 
   if (SPOOFING_CHARS.test(name.replace(EMOJI_PRESENTATION, '$1')) || LEADING_MARK.test(name)) {
     return 'Name contains invisible or text-direction characters';
-  }
-
-  if (Buffer.byteLength(name, 'utf8') > MAX_NAME_BYTES) {
-    return `Name is too long (at most ${MAX_NAME_BYTES} bytes)`;
   }
 
   return null;
