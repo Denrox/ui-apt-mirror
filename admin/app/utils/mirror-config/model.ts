@@ -204,7 +204,11 @@ export class MirrorConfig {
    */
   setSectionEnabled(title: string, enabled: boolean, revision?: string): boolean {
     const section = this.getSection(title, revision);
-    if (!section) return false;
+    return section ? this.setEnabled(section, enabled) : false;
+  }
+
+  /** {@link setSectionEnabled} for a section node already in hand. */
+  setEnabled(section: SectionNode, enabled: boolean): boolean {
     let changed = false;
     for (const child of section.children) {
       if ((child.kind === 'deb' || child.kind === 'filter') && child.enabled !== enabled) {
