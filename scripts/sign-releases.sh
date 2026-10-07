@@ -4,6 +4,8 @@
 # (single-host mode via $1), and by apt-mirror-signed.py for each repository's new
 # dists folder as apt-mirror2 publishes it (`--dir <path>`, signs only what our key
 # has not signed yet).
+# A key belongs to a host name; it signs every mirror folder of that host, `<host>` and
+# `<host>:<port>` (apt-mirror2 keeps the port of a base URL in the folder name).
 # The upstream InRelease / Release.gpg are saved before they are replaced, under
 # $UPSTREAM_SIGNATURES_DIR (outside the mirror tree, where apt-mirror2's autoclean would
 # delete them), keyed by the checksum of the Release file they sign. `--restore <host>` puts
@@ -63,9 +65,20 @@ host_fingerprint() {
     jq -r --arg h "$1" '.[$h].fingerprint // empty' "$KEYS_INDEX"
 }
 
-# Mirror folder of a host.
+# The host a mirror folder name belongs to: `deb.example.org:8080` -> `deb.example.org`.
+folder_host() {
+    case "$1" in
+        *:[0-9]*) echo "${1%:*}" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Mirror folders of a host: `<host>` and every `<host>:<port>`.
 host_roots() {
-    [ -d "$ROOT_REAL/$1" ] && printf '%s\n' "$ROOT_REAL/$1"
+    local dir
+    for dir in "$ROOT_REAL/$1" "$ROOT_REAL/$1":[0-9]*; do
+        [ -d "$dir" ] && printf '%s\n' "$dir"
+    done
 }
 
 # A dists folder's path below the mirror root as it is once published (dists.apt_mirror_new -> dists).
@@ -232,7 +245,7 @@ sign_dir() {
     dir=$(realpath -e "$1" 2>/dev/null) || return 0
     case "$dir" in "$ROOT_REAL"/?*) ;; *) log "Not under $MIRROR_ROOT: $1, skipping."; return 0 ;; esac
     rel=${dir#"$ROOT_REAL"/}
-    host=${rel%%/*}
+    host=$(folder_host "${rel%%/*}")
     fingerprint=$(host_fingerprint "$host")
     [ -n "$fingerprint" ] || return 0
 

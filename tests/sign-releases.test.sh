@@ -106,5 +106,20 @@ rm -rf "$SKEL/deb.example.org"
 "$SIGN" --restore deb.example.org >/dev/null
 check "published folder restores" 'signed_upstream "$D"'
 
+echo "# r3-repos-2: a base URL with a port"
+make_suite deb.example.org:8080/debian trixie seven
+P="$MIRROR_ROOT/deb.example.org:8080/debian/dists/trixie"
+"$SIGN" deb.example.org > "$WORK/out"
+check "host:port folder signed by the host's key" 'signed_by_us "$P"'
+check "both folders counted" 'grep -q "Signed 2 Release file" "$WORK/out"'
+make_suite deb.example.org:8080/debian trixie eight
+"$SIGN" --dir "$MIRROR_ROOT/deb.example.org:8080/debian/dists" >/dev/null
+check "--dir signs a host:port folder" 'signed_by_us "$P"'
+"$SIGN" --restore deb.example.org >/dev/null
+check "host:port folder restored" 'signed_upstream "$P"'
+make_suite deb.example.org.evil:8080/debian trixie nine
+"$SIGN" deb.example.org >/dev/null
+check "another host's folder is not signed" '! signed_by_us "$MIRROR_ROOT/deb.example.org.evil:8080/debian/dists/trixie"'
+
 echo
 if [ "$failures" -eq 0 ]; then echo "All sign-releases tests passed"; else echo "$failures test(s) failed"; exit 1; fi

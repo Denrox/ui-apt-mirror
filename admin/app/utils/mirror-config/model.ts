@@ -442,7 +442,8 @@ function buildUsage(
 ): UsageNode {
   const comps = input.components.join(' ');
   const url = new URL(base);
-  const mirrorPath = normalizeUrl(`${url.hostname}${url.pathname}`);
+  // apt-mirror2 keeps a non-default port in the folder name (host:port).
+  const mirrorPath = normalizeUrl(`${url.host}${url.pathname}`);
   const lines = [
     `#Types: deb${input.includeSrc ? ' deb-src' : ''}`,
     `#URIs: http://${mirrorDomain}/${mirrorPath}`,

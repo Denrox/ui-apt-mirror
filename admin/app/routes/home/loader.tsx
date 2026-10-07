@@ -75,7 +75,8 @@ function rewriteSignedByHint(
     let upstreamHost: string | null = null;
     try {
       const parsed = new URL(url);
-      const firstSegment = parsed.pathname.split('/').filter(Boolean)[0];
+      // The mirror folder of an upstream with a port is `host:port`; the key belongs to the host.
+      const firstSegment = parsed.pathname.split('/').filter(Boolean)[0]?.replace(/:\d+$/, '');
       if (firstSegment && signedHosts.some((h) => h.host === firstSegment)) {
         upstreamHost = firstSegment;
       } else if (signedHosts.some((h) => h.host === parsed.hostname)) {

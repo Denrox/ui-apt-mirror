@@ -530,3 +530,26 @@ describe('enabledHosts', () => {
     expect(cfg.enabledHosts()).toEqual(['archive.ubuntu.com']);
   });
 });
+
+describe('base URLs with a port (r3-repos-2)', () => {
+  it('points the Usage snippet at the host:port folder apt-mirror2 uses', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ title: 'LAN', baseUrl: 'http://aptly.lan:8080/debian', trusted: false }), 'mirror.intra');
+    const section = cfg.getSection('LAN')!;
+    expect(cfg.sectionUsageLines(section)).toContain('URIs: http://mirror.intra/aptly.lan:8080/debian');
+  });
+
+  it('keeps the key host without the port', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ title: 'LAN', baseUrl: 'http://192.168.0.10:18099/', trusted: false }), 'mirror.intra');
+    expect(cfg.sectionHosts(cfg.getSection('LAN')!)).toEqual(['192.168.0.10']);
+  });
+
+  it('leaves snippets of upstreams without a port alone', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    expect(cfg.sectionUsageLines(cfg.getSection('Ubuntu Noble')!)).toContain(
+      'URIs: http://mirror.intra/archive.ubuntu.com/ubuntu',
+    );
+  });
+});
+
