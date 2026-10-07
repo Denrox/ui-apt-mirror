@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import appConfig from '~/config/config.json';
 import {
   addSource,
   cleanLeftovers,
+  giveTreeToOwner,
   isPublicCheatsheetsRequest,
   listSources,
   loadIndex,
@@ -96,6 +98,29 @@ describe('addSource', () => {
     const [s] = await listSources();
     expect(s.name).toHaveLength(100);
     expect(s.name.startsWith('Old name y')).toBe(true);
+  });
+});
+
+describe('giveTreeToOwner', () => {
+  it("gives every file and folder of a source to the data directory's owner", async () => {
+    const src = path.join(dir, 'sources', 'a');
+    fs.mkdirSync(path.join(src, 'files', 'common'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'files', 'common', 'tar.md'), '# tar');
+    fs.writeFileSync(path.join(src, 'index.json'), '[]');
+    const lchown = vi.spyOn(fsp, 'lchown').mockResolvedValue(undefined);
+    try {
+      const me = fs.statSync(dir);
+      await giveTreeToOwner(src);
+      expect(lchown).not.toHaveBeenCalled();
+
+      await giveTreeToOwner(src, { uid: me.uid + 1, gid: me.gid + 1 });
+      expect(lchown.mock.calls.map(([p]) => path.relative(src, String(p))).sort()).toEqual(
+        ['', 'files', 'files/common', 'files/common/tar.md', 'index.json'].sort(),
+      );
+      expect(lchown).toHaveBeenCalledWith(src, me.uid + 1, me.gid + 1);
+    } finally {
+      lchown.mockRestore();
+    }
   });
 });
 

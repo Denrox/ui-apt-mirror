@@ -9,6 +9,7 @@ import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
+import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 import {
   categoriesFor,
   cleanSourceName,
@@ -80,10 +81,32 @@ async function readRegistry(): Promise<CheatsheetSource[]> {
 }
 
 async function writeRegistry(sources: CheatsheetSource[]) {
-  await fs.mkdir(root(), { recursive: true });
+  await mkdirOwned(root());
   const tmp = `${registryPath()}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify({ sources }, null, 2));
+  giveToDirOwner(tmp);
   await fs.rename(tmp, registryPath());
+}
+
+/**
+ * The app runs as root, but the data directory belongs to the host user, who
+ * must be able to remove a source without sudo. Gives `target` and everything
+ * in it to the owner of the cheatsheets directory, as mirror.list and uploads do.
+ */
+export async function giveTreeToOwner(target: string, owner?: { uid: number; gid: number }) {
+  try {
+    const { uid, gid } = owner ?? (await fs.stat(root()));
+    const walk = async (p: string) => {
+      const st = await fs.lstat(p);
+      if (st.uid !== uid || st.gid !== gid) await fs.lchown(p, uid, gid);
+      if (st.isDirectory()) {
+        for (const name of await fs.readdir(p)) await walk(path.join(p, name));
+      }
+    };
+    await walk(target);
+  } catch (error) {
+    console.error(`cheatsheets: could not change the owner of ${target}:`, error);
+  }
 }
 
 function withRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -348,9 +371,10 @@ async function downloadSource(id: string) {
       });
     }
     await fs.writeFile(path.join(staged, 'index.json'), JSON.stringify(index));
+    await giveTreeToOwner(staged);
 
     // Swap only once complete, so a failed update keeps the old copy.
-    await fs.mkdir(path.join(root(), 'sources'), { recursive: true });
+    await mkdirOwned(path.join(root(), 'sources'));
     const old = path.join(work, 'old');
     await updateRegistry(async (sources) => {
       if (!sources.some((x) => x.id === id)) throw new Error('Source was removed');
