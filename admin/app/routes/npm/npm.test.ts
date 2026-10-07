@@ -320,6 +320,34 @@ describe('npm registry route', () => {
     expect((await publish('@acme/tags', '1.1.0', { latest: '1.1.0', constructor: '1.1.0' })).status).toBe(400);
     const tags = await (await call(request('/-/package/@acme%2ftags/dist-tags'))).json();
     expect(tags).toEqual({ latest: '1.0.0' });
+  });
+
+  it('takes only published semver versions as the target of a dist-tag or a document update', async () => {
+    expect((await publish('@acme/proto')).status).toBe(200);
+    const auth = { authorization: 'Bearer alice-token', 'content-type': 'application/json' };
+    for (const version of ['constructor', '__proto__', 'toString', 'hasOwnProperty', '2.0.0']) {
+      const res = await call(
+        request('/-/package/@acme%2fproto/dist-tags/latest', { method: 'PUT', body: JSON.stringify(version), headers: auth }),
+      );
+      expect(res.status, version).toBe(400);
+    }
+    const tags = await (await call(request('/-/package/@acme%2fproto/dist-tags'))).json();
+    expect(tags).toEqual({ latest: '1.0.0' });
+
+    const doc = await (await call(request('/@acme%2fproto'))).json();
+    const update = (versions: string) =>
+      call(
+        request(`/@acme%2fproto/-rev/${doc._rev}`, {
+          method: 'PUT',
+          headers: auth,
+          body: `{"name":"@acme/proto","versions":${versions}}`,
+        }),
+      );
+    expect((await update('{"1.0.0":{},"constructor":{},"toString":{}}')).status).toBe(400);
+    expect((await update('{"1.0.0":{},"__proto__":{}}')).status).toBe(400);
+    const after = await (await call(request('/@acme%2fproto'))).json();
+    expect(Object.keys(after.versions)).toEqual(['1.0.0']);
+    expect(after._rev).toBe(doc._rev);
 
   });
 });

@@ -194,6 +194,20 @@ describe('applyDocUpdate', () => {
     expect(applyDocUpdate(doc, { versions: { ...doc.versions, '9.9.9': {} } })).toMatchObject({ status: 400 });
     expect(applyDocUpdate(doc, { versions: {} })).toMatchObject({ status: 400 });
   });
+
+  it('takes no Object.prototype name for a version, nor a tag pointing at one', () => {
+    const doc = published('1.0.0');
+    for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      const versions = JSON.parse(`{"1.0.0": {}, ${JSON.stringify(name)}: {}}`);
+      expect(applyDocUpdate(doc, { versions }), name).toMatchObject({ status: 400 });
+    }
+    const result = applyDocUpdate(doc, {
+      versions: { '1.0.0': {} },
+      'dist-tags': { latest: '1.0.0', beta: 'constructor', next: 'toString' },
+    });
+    if ('status' in result) throw new Error(result.reason);
+    expect(result.doc['dist-tags']).toEqual({ latest: '1.0.0' });
+  });
 });
 
 describe('revisions', () => {

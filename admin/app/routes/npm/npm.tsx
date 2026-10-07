@@ -787,7 +787,7 @@ async function changeDistTag(
 
     const tags = { ...doc['dist-tags'] };
     if (request.method === 'PUT') {
-      if (typeof version !== 'string' || !doc.versions?.[version]) {
+      if (typeof version !== 'string' || !isValidVersion(version) || !Object.hasOwn(doc.versions ?? {}, version)) {
         return jsonResponse({ error: `Version not found: ${String(version)}` }, 400);
       }
       tags[tag] = version;

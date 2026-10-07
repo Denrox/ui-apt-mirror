@@ -111,7 +111,7 @@ export function mergePublish(
 
   if (added.some((v) => !isValidVersion(v))) return { status: 400, reason: 'Versions must be valid semver' };
 
-  const taken = added.filter((v) => existing?.versions?.[v]);
+  const taken = added.filter((v) => Object.hasOwn(existing?.versions ?? {}, v));
   if (taken.length) {
     return {
       status: 403,
@@ -159,9 +159,10 @@ export function applyDocUpdate(
   incoming: any,
   now = new Date().toISOString(),
 ): DocResult {
-  const incomingVersions: Record<string, any> = incoming.versions ?? {};
+  const incomingVersions: Record<string, any> = isObject(incoming.versions) ? incoming.versions : {};
   const keep = Object.keys(incomingVersions);
-  if (keep.some((v) => !existing.versions[v])) {
+  // Only own keys count as versions: `constructor` or `toString` would otherwise look published.
+  if (keep.some((v) => !isValidVersion(v) || !Object.hasOwn(existing.versions ?? {}, v))) {
     return { status: 400, reason: 'New versions must be published with their tarball' };
   }
   if (keep.length === 0) return { status: 400, reason: 'Use npm unpublish to remove the package' };
@@ -176,14 +177,14 @@ export function applyDocUpdate(
   }
 
   const tags = Object.entries<unknown>(incoming['dist-tags'] ?? existing['dist-tags']).filter(
-    ([tag, version]) => typeof version === 'string' && versions[version] && isValidDistTag(tag),
+    ([tag, version]) => typeof version === 'string' && Object.hasOwn(versions, version) && isValidDistTag(tag),
   ) as [string, string][];
   const distTags = Object.fromEntries(tags);
   distTags.latest ??= keep[keep.length - 1];
 
   const time: Record<string, string> = {};
   for (const [key, value] of Object.entries(existing.time ?? {})) {
-    if (versions[key] || !existing.versions[key]) time[key] = value;
+    if (Object.hasOwn(versions, key) || !Object.hasOwn(existing.versions ?? {}, key)) time[key] = value;
   }
   time.modified = now;
 
