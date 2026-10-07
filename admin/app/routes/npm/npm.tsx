@@ -776,8 +776,10 @@ async function changeDistTag(
 
   let version: unknown;
   if (request.method === 'PUT') {
+    const text = await readBodyText(request, MAX_DIST_TAG_BODY_BYTES);
+    if (text === null) return payloadTooLarge('The dist-tag request is too large');
     try {
-      version = JSON.parse(await request.text());
+      version = JSON.parse(text);
     } catch {
       version = undefined;
     }
@@ -805,6 +807,10 @@ async function changeDistTag(
 
 // A login is a name and a password; npm sends a few more fields, nothing near this.
 const MAX_LOGIN_BODY_BYTES = 64 * 1024;
+// The body of a dist-tag change is one version number as JSON.
+const MAX_DIST_TAG_BODY_BYTES = 4 * 1024;
+// A publish carries its tarballs base64-encoded; nginx lets 100 MB through to the registry.
+const MAX_PACKAGE_BODY_BYTES = 100 * 1024 * 1024;
 /**
  * Bytes alone do not bound a parsed body (a few MB of `[{},{},…]` are millions of objects). This
  * takes an audit of 20,000 packages, or a packument of thousands of versions.
@@ -812,11 +818,12 @@ const MAX_LOGIN_BODY_BYTES = 64 * 1024;
 const JSON_LIMITS: JsonLimits = { values: 1_000_000, depth: 1000 };
 
 /**
- * Audits hold their body, parsed, in memory, so only a few run at a time and a few more wait;
- * past that the client is told to try again. An audit keeps its slot while npmjs answers it,
- * which also bounds what clients can have this registry send there.
+ * Audits and package writes hold their body, parsed, in memory, so only a few run at a time and a
+ * few more wait; past that the client is told to try again. An audit keeps its slot while npmjs
+ * answers it, which also bounds what clients can have this registry send there.
  */
 const audits = new SearchLimiter(2, 16, 4);
+const packageWrites = new SearchLimiter(2, 8, 2);
 
 /**
  * A slot of the limiter for this request: the function that releases it, or the answer to give
@@ -1074,13 +1081,24 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       if (request.method === 'PUT' && route.kind === 'package') {
-        const body = parseJsonObject(await request.text());
-        if (!body) return jsonResponse({ error: 'Request body must be a JSON object' }, 400);
-        const hasTarballs = Object.keys(body._attachments ?? {}).length > 0;
-        if (hasTarballs && route.rev === undefined) {
-          return await publishPackage(request, route.name, body, auth.username);
+        const release = await takeSlot(packageWrites, request, auth.username);
+        if (release instanceof Response) return release;
+        try {
+          const sent = await readBody(request, MAX_PACKAGE_BODY_BYTES);
+          if (!sent) return payloadTooLarge('The package document is too large');
+          const body = parseJsonObject(sent.toString('utf-8'), JSON_LIMITS);
+          if (!body) return jsonResponse({ error: 'Request body must be a JSON object' }, 400);
+          const hasTarballs = Object.keys(body._attachments ?? {}).length > 0;
+          if (hasTarballs && route.rev === undefined) {
+            return await publishPackage(request, route.name, body, auth.username);
+          }
+          return await updatePackage(route.name, route.rev, body);
+        } catch (error) {
+          if (error instanceof PayloadTooLargeError) return payloadTooLarge(error.message);
+          throw error;
+        } finally {
+          release();
         }
-        return await updatePackage(route.name, route.rev, body);
       }
 
       return jsonResponse({ error: 'Invalid package name or version' }, 400);

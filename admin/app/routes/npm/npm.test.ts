@@ -292,6 +292,28 @@ describe('npm registry route', () => {
     expect((await audit('10.0.0.1')).status).toBe(200);
   });
 
+  it('refuses package documents over the JSON limits and dist-tag bodies that are not a version', async () => {
+    expect((await publish('@acme/limits')).status).toBe(200);
+    const auth = { authorization: 'Bearer alice-token', 'content-type': 'application/json' };
+    const res = await call(
+      request('/@acme%2flimits', {
+        method: 'PUT',
+        headers: auth,
+        body: `{"name":"@acme/limits","pad":[${Array(500_000).fill('[]').join(',')}]}`,
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect((await res.json()).reason).toMatch(/more than 1000000 JSON values/);
+
+    const tag = await call(
+      request('/-/package/@acme%2flimits/dist-tags/next', { method: 'PUT', headers: auth, body: JSON.stringify(' '.repeat(8192) + '1.0.0') }),
+    );
+    expect(tag.status).toBe(413);
+    expect(
+      (await call(request('/-/package/@acme%2flimits/dist-tags/next', { method: 'PUT', headers: auth, body: '"1.0.0"' }))).status,
+    ).toBe(201);
+  });
+
   it('logs out locally: revokes the token and never sends it upstream', async () => {
     const del = (p: string, headers: Record<string, string> = {}) => call(request(p, { method: 'DELETE', headers }));
     const token = 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFsaWNlIn0.sig';
