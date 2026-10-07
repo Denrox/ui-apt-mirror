@@ -33,7 +33,7 @@ import classNames from 'classnames';
 import ChunkedUpload from '~/components/shared/form/chunked-upload';
 import DownloadFile from '~/components/shared/form/download-file';
 import { getHostAddress } from '~/utils/url';
-import { fileUrl, viewOfPath, type FileManagerView } from '~/utils/file-links';
+import { canDelete, fileUrl, viewOfPath, type FileManagerView } from '~/utils/file-links';
 import { formatDateTime, useHydrated } from '~/utils/use-hydrated';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -553,7 +553,7 @@ export default function FileManager() {
           {view === 'mirrored-packages' && (
             <FileManagerWarning
               type="warning"
-              message="Manual changes can break mirror functionality. Only deletion is available here."
+              message="Manual changes can break mirror functionality. Only files inside the published mirror tree can be deleted here; the signing keys and the mirror folders are kept."
             />
           )}
 
@@ -902,7 +902,7 @@ export default function FileManager() {
                             </FormButton>
                           </>
                         )}
-                        {!isPublicRoute && (
+                        {!isPublicRoute && canDelete(item.path, appConfig) && (
                           <FormButton
                             type="secondary"
                             size="small"

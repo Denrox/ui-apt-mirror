@@ -306,6 +306,21 @@ describe('managed storage and the public host (r2-files-17)', () => {
     expect(res.error).toMatch(/managed by the mirror/);
     expect(fs.existsSync(key)).toBe(true);
     expect((await post({ intent: 'moveFile', sourcePath: path.join(dirs.npm, 'public'), destinationPath: dirs.files })).success).toBe(false);
-    expect((await post({ intent: 'deleteFile', filePath: key })).success).toBe(true);
+    expect((await post({ intent: 'deleteFile', filePath: path.join(dirs.mirror, 'mirror', 'dists') })).success).toBe(true);
+    expect((await post({ intent: 'deleteFile', filePath: path.join(dirs.npm, 'public') })).success).toBe(true);
+  });
+
+  it('the signing keys and the mirror folders themselves cannot be deleted (r3-files-4)', async () => {
+    fs.writeFileSync(path.join(dirs.mirror, 'gpg', 'keys.json'), '{}');
+    for (const name of ['gpg', 'gpg/keys.json', 'gpg/gnupg', 'mirror', 'mirror/', 'mirror/.']) {
+      const res = await post({ intent: 'deleteFile', filePath: path.join(dirs.mirror, name) });
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/signing keys/);
+    }
+    const rename = await post({ intent: 'renameFile', filePath: path.join(dirs.mirror, 'gpg'), newName: 'gpg-old' });
+    expect(rename.success).toBe(false);
+    expect(fs.existsSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key'))).toBe(true);
+    expect(fs.existsSync(path.join(dirs.mirror, 'gpg', 'keys.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dirs.mirror, 'mirror', 'dists'))).toBe(true);
   });
 });
