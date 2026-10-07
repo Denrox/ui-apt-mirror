@@ -29,6 +29,22 @@ vi.mock('~/config/config.json', () => ({
 vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => ({}) }));
 vi.mock('~/utils/sync', () => ({ checkLockFile: async () => false }));
 
+// skopeo stand-in: writes an archive to the docker-archive: path, or fails.
+const skopeo = vi.hoisted(() => ({ fail: false }));
+vi.mock('child_process', async (importOriginal) => {
+  const original = await importOriginal<typeof import('child_process')>();
+  const fs = await import('fs');
+  return {
+    ...original,
+    execFile: (_cmd: string, args: string[], callback: (error: Error | null, out?: unknown) => void) => {
+      if (skopeo.fail) return callback(new Error('Failed to retrieve image manifest'));
+      const target = args[args.length - 1].replace(/^docker-archive:/, '');
+      fs.writeFileSync(target, 'image');
+      callback(null, { stdout: '', stderr: '' });
+    },
+  };
+});
+
 const { action } = await import('./action');
 
 async function post(fields: Record<string, string | Blob>) {
@@ -174,5 +190,37 @@ describe('URL download (r2-files-4)', () => {
       server.closeAllConnections();
       server.close();
     }
+  });
+});
+
+describe('container image download (r2-files-6)', () => {
+  const pull = () =>
+    post({ intent: 'downloadImage', imageUrl: 'busybox', imageTag: 'latest', currentPath: dirs.files });
+  const tar = () => path.join(dirs.files, 'busybox_latest_amd64.tar');
+
+  it('stores the image under its name', async () => {
+    skopeo.fail = false;
+    expect(await pull()).toEqual({ success: true, message: 'Container image downloaded successfully' });
+    expect(fs.readFileSync(tar(), 'utf-8')).toBe('image');
+    expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+
+  it('refuses to replace a file with the same name', async () => {
+    skopeo.fail = false;
+    fs.writeFileSync(tar(), 'user data');
+    const res = await pull();
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/already exists/);
+    expect(fs.readFileSync(tar(), 'utf-8')).toBe('user data');
+  });
+
+  it('a failed pull leaves an existing file and no temp data', async () => {
+    skopeo.fail = true;
+    fs.writeFileSync(tar(), 'user data');
+    expect((await pull()).success).toBe(false);
+    expect(fs.readFileSync(tar(), 'utf-8')).toBe('user data');
+    fs.rmSync(tar());
+    expect((await pull()).success).toBe(false);
+    expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.') || n.endsWith('.tar'))).toEqual([]);
   });
 });

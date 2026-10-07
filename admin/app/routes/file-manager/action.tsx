@@ -14,6 +14,7 @@ import {
   pathExists,
   removeStaleTempDirs,
   sweepStaleUploads,
+  UPLOAD_TEMP_PREFIX,
   UploadError,
   writeChunk,
 } from '~/utils/chunk-upload';
@@ -213,16 +214,19 @@ async function downloadImage(
   if (!ARCHITECTURES.has(architecture)) {
     throw new Error('Invalid architecture');
   }
+  const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
+  const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
+  const fullPath = path.join(destPath, fileName);
+  // Never replace or delete a file that already has this name.
+  if (await pathExists(fullPath)) {
+    throw new Error(nameTakenError(fileName));
+  }
+  let tempDir: string | null = null;
   try {
     await mkdirOwned(destPath);
-
-    const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
-    const fullPath = path.join(destPath, fileName);
-
-    try {
-      await fs.unlink(fullPath);
-    } catch (unlinkError) {}
+    // Pull to a hidden temp dir and link into place when complete.
+    tempDir = await fs.mkdtemp(path.join(destPath, `${UPLOAD_TEMP_PREFIX}img-`));
+    const tempPath = path.join(tempDir, fileName);
 
     const registryInfo = parseImageUrl(imageUrl);
     if (!registryInfo) {
@@ -232,13 +236,23 @@ async function downloadImage(
     }
 
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
-    const skopeoCopy = (image: string) =>
-      execFileAsync('skopeo', ['copy', '--override-arch', architecture, `docker://${image}`, `docker-archive:${fullPath}`]);
+    const skopeoCopy = async (image: string) => {
+      await fs.rm(tempPath, { force: true });
+      await execFileAsync('skopeo', ['copy', '--override-arch', architecture, `docker://${image}`, `docker-archive:${tempPath}`]);
+    };
+    const store = async () => {
+      try {
+        await fs.link(tempPath, fullPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(nameTakenError(fileName));
+        throw error;
+      }
+      giveToDirOwner(fullPath);
+      return true;
+    };
 
     try {
       await skopeoCopy(sourceImage);
-      giveToDirOwner(fullPath);
-      return true;
     } catch (dockerError) {
       if (
         registryInfo.registry === 'docker.io' &&
@@ -249,8 +263,6 @@ async function downloadImage(
 
         try {
           await skopeoCopy(gcrImage);
-          giveToDirOwner(fullPath);
-          return true;
         } catch (gcrError) {
           throw dockerError;
         }
@@ -258,19 +270,9 @@ async function downloadImage(
         throw dockerError;
       }
     }
+    return await store();
   } catch (error) {
     console.error('Failed to download image:', error);
-
-    try {
-      const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
-      const fullPath = path.join(destPath, fileName);
-
-      const stats = await fs.stat(fullPath);
-      if (stats.size === 0) {
-        await fs.unlink(fullPath);
-      }
-    } catch (cleanupError) {}
 
     const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -291,9 +293,13 @@ async function downloadImage(
       throw new Error(
         'Download timed out. Please try again or check your network connection.',
       );
+    } else if (errorMessage.includes('already exists here')) {
+      throw error;
     }
 
     return false;
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true });
   }
 }
 
