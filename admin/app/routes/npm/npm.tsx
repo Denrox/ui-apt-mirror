@@ -779,6 +779,29 @@ async function changeDistTag(
   });
 }
 
+// A login is a name and a password; npm sends a few more fields, nothing near this.
+const MAX_LOGIN_BODY_BYTES = 64 * 1024;
+
+/** The request body as text, or null once it is longer than maxBytes (nothing more is read). */
+async function readBodyText(request: Request, maxBytes: number): Promise<string | null> {
+  if (Number(request.headers.get('content-length') ?? 0) > maxBytes) return null;
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
 /**
  * `npm logout`: `DELETE /-/user/token/<token>`. The token is ended here, never sent upstream.
  * nginx takes it out of the path, so that it is not written to any log, and passes it in
@@ -829,7 +852,11 @@ export async function action({ request }: ActionFunctionArgs) {
         username = decodeURIComponent(username);
       } catch {}
 
-      const body = parseJsonObject(await request.text());
+      const text = await readBodyText(request, MAX_LOGIN_BODY_BYTES);
+      if (text === null) {
+        return jsonResponse({ error: 'Payload Too Large', reason: 'The login request is too large' }, 413);
+      }
+      const body = parseJsonObject(text);
       if (!body) {
         return jsonResponse({ error: 'Bad request', reason: 'Request body must be a JSON object' }, 400);
       }
