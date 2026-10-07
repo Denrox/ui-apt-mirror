@@ -203,9 +203,13 @@ export function revokeToken(
   htpasswdFile: string,
   id: string,
   expSeconds: number,
+  username: string,
   now = Date.now(),
 ): void {
   if (!id || /\s/.test(id)) throw new Error('Invalid token id');
+  if (!username || /[\s:]/.test(username)) {
+    throw new Error(`Refusing to revoke a token of invalid username ${JSON.stringify(username)}`);
+  }
   const nowSeconds = Math.floor(now / 1000);
   const entries = new Map(
     readCached(revokedTokensPath(htpasswdFile), parseRevokedTokens, new Map()),

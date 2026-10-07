@@ -162,10 +162,10 @@ describe('hardening', () => {
 
 describe('single token revocation', () => {
   it('remembers revoked ids until they expire', () => {
-    revokeToken(file, 'a', 100, 50_000);
-    revokeToken(file, 'b', 200, 150_000);
+    revokeToken(file, 'a', 100, 'bob', 50_000);
+    revokeToken(file, 'b', 200, 'bob', 150_000);
     expect(isTokenRevoked(file, 'a')).toBe(false); // expired at 100 s, pruned
     expect(isTokenRevoked(file, 'b')).toBe(true);
-    expect(() => revokeToken(file, 'x 1\ny', 300)).toThrow();
+    expect(() => revokeToken(file, 'x 1\ny', 300, 'bob')).toThrow();
   });
 });

@@ -154,7 +154,7 @@ export async function revokeSession(request: Request): Promise<void> {
   const user = await validateAuthToken(token);
   const id = user && tokenId(user);
   if (!user || !id) return;
-  revokeToken(appConfig.htpasswdPath, id, user.exp);
+  revokeToken(appConfig.htpasswdPath, id, user.exp, user.username);
 }
 
 export function createAuthCookie(token: string): string {
@@ -200,4 +200,13 @@ export async function requireAuth(request: Request): Promise<AuthUser | null> {
 
 export async function validateNpmAuthToken(token: string): Promise<AuthUser | null> {
   return await validateAuthToken(token, 'npm');
+}
+
+/** Ends one npm token for good (`npm logout`). False if it was not a valid npm token. */
+export async function revokeNpmToken(token: string): Promise<boolean> {
+  const user = await validateAuthToken(token, 'npm');
+  const id = user && tokenId(user);
+  if (!user || !id) return false;
+  revokeToken(appConfig.htpasswdPath, id, user.exp, user.username);
+  return true;
 }

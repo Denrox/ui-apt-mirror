@@ -9,6 +9,7 @@ import appConfig from '~/config/config.json';
 import {
   attemptLogin,
   createNpmAuthToken,
+  revokeNpmToken,
   validateNpmAuthToken,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
@@ -25,6 +26,7 @@ import {
   isValidVersion,
   isWebLoginPath,
   legacyPublicCachePath,
+  logoutPathToken,
   mergePublish,
   nextRev,
   packageScope,
@@ -66,19 +68,14 @@ async function ensureCacheDir() {
   }
 }
 
+function bearerToken(request: Request): string | null {
+  return request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null;
+}
+
 async function extractNpmAuth(request: Request): Promise<{ username: string } | null> {
-  const authHeader = request.headers.get('Authorization');
-  if (authHeader) {
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (match) {
-      const token = match[1];
-      const user = await validateNpmAuthToken(token);
-      if (user) {
-        return { username: user.username };
-      }
-    }
-  }
-  return null;
+  const token = bearerToken(request);
+  const user = token ? await validateNpmAuthToken(token) : null;
+  return user ? { username: user.username } : null;
 }
 
 async function isCached(filePath: string): Promise<boolean> {
@@ -537,6 +534,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return notFound();
   }
   if (isWebLoginPath(packagePath)) return webLoginUnsupported();
+  // Token paths carry a secret of this registry; they are never looked up upstream.
+  if (logoutPathToken(packagePath) !== null) return notFound();
   if (!upstreamUrl(NPM_REGISTRY_URL, packagePath, url.search)) return invalidPath();
 
   const originalHeaders: Record<string, string> = {};
@@ -780,6 +779,21 @@ async function changeDistTag(
   });
 }
 
+/**
+ * `npm logout`: `DELETE /-/user/token/<token>`. The token is ended here, never sent upstream.
+ * nginx takes it out of the path, so that it is not written to any log, and passes it in
+ * X-Npm-Logout-Token; without either, the request's own Bearer token is the one logged out.
+ * The answer is the same whether or not the token was valid.
+ */
+async function npmLogout(request: Request, pathToken: string): Promise<Response> {
+  const token =
+    (pathToken && pathToken !== '-' ? pathToken : null) ??
+    request.headers.get('x-npm-logout-token') ??
+    bearerToken(request);
+  if (token) await revokeNpmToken(token);
+  return jsonResponse({ ok: true });
+}
+
 /** The audit request body without locally published packages, as plain JSON; null if unreadable. */
 async function publicAuditBody(body: Buffer, encoding: string | undefined, bulk: boolean): Promise<Buffer | null> {
   let payload: unknown;
@@ -883,6 +897,17 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (!packagePath) {
     return notFound();
+  }
+
+  const logoutToken = logoutPathToken(packagePath);
+  if (logoutToken !== null) {
+    if (request.method !== 'DELETE') return notFound();
+    try {
+      return await npmLogout(request, logoutToken);
+    } catch (error) {
+      console.error('npm logout failed:', error instanceof Error ? error.message : 'unknown error');
+      return jsonResponse({ error: 'Logout failed' }, 500);
+    }
   }
 
   const route = parseNpmPath(packagePath);

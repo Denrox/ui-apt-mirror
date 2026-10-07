@@ -336,6 +336,21 @@ export function upstreamUrl(registry: string, packagePath: string, search = ''):
   return url.origin === base.origin && url.pathname === `/${raw}` ? url : null;
 }
 
+/**
+ * `npm logout` sends `DELETE /-/user/token/<token>`. For such a path (also percent-encoded), the
+ * token in it ('' if there is none); null for other paths.
+ */
+export function logoutPathToken(packagePath: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(packagePath.replace(/^\/+/, ''));
+  } catch {
+    return /^(?:-|%2d)\/user\/token(?:\/|%2f|$)/i.test(packagePath) ? '' : null;
+  }
+  const match = /^-\/+user\/+token(?:\/(.*))?$/s.exec(decoded);
+  return match ? (match[1] ?? '').replace(/\/+$/, '') : null;
+}
+
 /** A version of a private packument by version or dist-tag (/<name>/<spec>), or null. */
 export function privateVersion(doc: PackageDoc, spec: string): Record<string, any> | null {
   const version = Object.hasOwn(doc['dist-tags'] ?? {}, spec) ? doc['dist-tags'][spec] : spec;
