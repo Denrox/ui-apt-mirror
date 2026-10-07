@@ -79,6 +79,21 @@ describe('parseGithubUrl', () => {
   });
 });
 
+describe('parseGithubUrl folder characters', () => {
+  it.each(['%E2%80%AEx', 'a%E2%81%A6b', '%E2%80%8B', 'x%E2%80%A8y', '%E3%85%A4', '%00'])(
+    'refuses invisible, bidi and control characters in the folder: %s',
+    (segment) => {
+      expect(() => parseGithubUrl(`https://github.com/tldr-pages/tldr/tree/main/${segment}`)).toThrow(
+        'Invalid folder path',
+      );
+    },
+  );
+
+  it('accepts accented and non-Latin folder names', () => {
+    expect(parseGithubUrl('https://github.com/o/r/tree/main/%C3%BCber/%D0%BF%D1%80%D0%B8').path).toBe('über/при');
+  });
+});
+
 describe('cleanSourceName', () => {
   it('keeps one trimmed line of at most 100 characters', () => {
     expect(cleanSourceName('  First\naid\r\n manual\t')).toBe('First aid manual');
@@ -86,6 +101,22 @@ describe('cleanSourceName', () => {
     expect(cleanSourceName('x'.repeat(200_000))).toHaveLength(100);
     expect(Array.from(cleanSourceName('😀'.repeat(150)))).toHaveLength(100);
     expect(cleanSourceName(' \n\u202E ')).toBe('');
+  });
+
+  it('keeps at most 3 combining marks on a character and counts what is seen', () => {
+    const zalgo = cleanSourceName(`r3-content-z${'\u0301'.repeat(500)}`);
+    expect(zalgo).toBe(`r3-content-z${'\u0301'.repeat(3)}`);
+    // Vietnamese and decomposed accents keep their marks.
+    expect(cleanSourceName('Tiê\u0301ng Vie\u0323\u0302t')).toBe('Tiê\u0301ng Vie\u0323\u0302t');
+    // 100 characters on screen, however many code points they take.
+    const accented = 'e\u0301'.repeat(150);
+    expect(cleanSourceName(accented)).toBe('e\u0301'.repeat(100));
+  });
+
+  it('treats a name with nothing visible as empty', () => {
+    expect(cleanSourceName('\u3164\u3164\u2800\u115F')).toBe('');
+    expect(cleanSourceName('\u0301\u0301')).toBe('');
+    expect(cleanSourceName('a\u3164b\uFE0F')).toBe('ab');
   });
 });
 

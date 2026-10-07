@@ -61,8 +61,10 @@ export function parseGithubUrl(input: string): GithubSource {
     ref = parts[3];
     if (!REF_RE.test(ref)) throw new Error('Invalid branch or tag name');
     const folder = parts.slice(4);
-    // Only-dots names ("...") and control characters (%00) are refused too.
-    if (folder.some((s) => /^\.+$/.test(s) || /[\\/]/.test(s) || /\p{Cc}/u.test(s))) {
+    // Only-dots names ("..."), control characters (%00), and invisible or
+    // bidi characters (%E2%80%AE), which would make the URL display as
+    // another folder, are refused too.
+    if (folder.some((s) => /^\.+$/.test(s) || /[\\/]/.test(s) || INVISIBLE_RE.test(s))) {
       throw new Error('Invalid folder path');
     }
     path = folder.join('/');
@@ -71,15 +73,31 @@ export function parseGithubUrl(input: string): GithubSource {
   return { owner, repo, ref, path };
 }
 
-export const MAX_SOURCE_NAME = 100;
+const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 
-/** A source name on one line: no control or bidi-override characters, at most 100 characters. */
+export const MAX_SOURCE_NAME = 100;
+/** Combining marks kept on one character; more only stack into a line drawn over other rows. */
+const MAX_MARKS = 3;
+
+/**
+ * A source name on one line: no control, bidi or invisible characters, at
+ * most 3 combining marks on a character and 100 characters (as seen on
+ * screen). A name with nothing visible in it is empty.
+ */
 export function cleanSourceName(name: string): string {
   const flat = name
     .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ')
+    // Fillers that draw nothing (Hangul fillers, variation selectors), and the blank Braille cell.
+    .replace(/\p{Default_Ignorable_Code_Point}+/gu, '')
+    .replace(/\u2800+/g, ' ')
+    .replace(new RegExp(`(\\p{M}{${MAX_MARKS}})\\p{M}+`, 'gu'), '$1')
     .replace(/\s+/g, ' ')
     .trim();
-  return Array.from(flat).slice(0, MAX_SOURCE_NAME).join('').trim();
+  if (!/[\p{L}\p{N}\p{P}\p{S}]/u.test(flat)) return '';
+  // A character with its marks is one grapheme; at most 8 code points each here.
+  const head = Array.from(flat).slice(0, MAX_SOURCE_NAME * 8).join('');
+  const graphemes = Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(head), (g) => g.segment);
+  return graphemes.slice(0, MAX_SOURCE_NAME).join('').trim();
 }
 
 export function githubWebUrl(s: GithubSource): string {
