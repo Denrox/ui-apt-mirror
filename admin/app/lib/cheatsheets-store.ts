@@ -1,8 +1,9 @@
 // cheatsheetsDir/sources.json lists the sources; each one's content lives in
 // sources/<id>/files and its search index in sources/<id>/index.json.
 
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { createWriteStream } from 'fs';
+import { createInterface } from 'readline';
 import fs from 'fs/promises';
 import path from 'path';
 import { Readable, Transform } from 'stream';
@@ -48,6 +49,10 @@ export interface CheatsheetSource {
 const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
 const MAX_FILES = 50_000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
+/** Unpacked size of the files taken from an archive (only .md files and categories.json are). */
+export const MAX_EXTRACTED_BYTES = 512 * 1024 * 1024;
+/** Entries an archive may list at all, whatever is taken from it. */
+export const MAX_ARCHIVE_ENTRIES = 500_000;
 const MAX_INDEXED_TEXT = 20_000;
 const SKIP_FILES = new Set([
   'readme.md',
@@ -287,6 +292,113 @@ async function fetchArchive(s: CheatsheetSource, dest: string) {
   await pipeline(Readable.fromWeb(res.body as any), limit, createWriteStream(dest));
 }
 
+/** GNU tar's "escape" quoting (with LC_ALL=C: \\, \n, \ooo for bytes) back to the name. */
+export function unescapeTarName(name: string): string {
+  const bytes: number[] = [];
+  const simple: Record<string, number> = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, '\\': 92, '"': 34, "'": 39, '?': 63 };
+  for (let i = 0; i < name.length; i++) {
+    const c = name[i];
+    if (c === '\\' && i + 1 < name.length) {
+      const octal = /^[0-7]{3}/.exec(name.slice(i + 1, i + 4));
+      if (octal) {
+        bytes.push(parseInt(octal[0], 8));
+        i += 3;
+        continue;
+      }
+      if (name[i + 1] in simple) {
+        bytes.push(simple[name[i + 1]]);
+        i += 1;
+        continue;
+      }
+    }
+    bytes.push(...Buffer.from(c, 'utf-8'));
+  }
+  return Buffer.from(bytes).toString('utf-8');
+}
+
+export interface ExtractionPlan {
+  /** As tar lists them (quoted), for tar -T. */
+  members: string[];
+  bytes: number;
+  folderFound: boolean;
+}
+
+/**
+ * Picks what to unpack from the lines of `tar -tv` (LC_ALL=C, --quoting-style=escape):
+ * regular .md files up to MAX_FILE_BYTES and categories.json, inside `folder`
+ * of the archive's top directory. Symlinks and other entries are never unpacked.
+ */
+export function planExtraction(lines: Iterable<string>, folder: string): ExtractionPlan {
+  const members: string[] = [];
+  let bytes = 0;
+  let folderFound = false;
+  let prefix: string | null = null;
+  let entries = 0;
+  for (const line of lines) {
+    const m = /^(\S)\S*\s+\S+\s+(\d+)\s+\d{4}-\d\d-\d\d\s+\d\d:\d\d(?::\d\d)?\s(.*)$/.exec(line);
+    if (!m) continue;
+    if (++entries > MAX_ARCHIVE_ENTRIES) {
+      throw new Error(`The repository has more than ${MAX_ARCHIVE_ENTRIES} files; pick a smaller folder`);
+    }
+    const [, type, size, quoted] = m;
+    const name = unescapeTarName(type === 'l' ? quoted.replace(/ -> .*$/, '') : quoted);
+    if (prefix === null) {
+      const top = name.split('/')[0];
+      prefix = folder ? `${top}/${folder}/` : `${top}/`;
+    }
+    if (!name.startsWith(prefix) && name !== prefix.slice(0, -1)) continue;
+    folderFound = true;
+    if (type !== '-') continue;
+    const rel = name.slice(prefix.length);
+    const wanted = /\.md$/i.test(rel) || rel === 'categories.json';
+    if (!wanted || Number(size) > MAX_FILE_BYTES) continue;
+    members.push(quoted);
+    bytes += Number(size);
+    if (members.length > MAX_FILES + 1) {
+      throw new Error(`More than ${MAX_FILES} markdown files; pick a smaller folder`);
+    }
+    if (bytes > MAX_EXTRACTED_BYTES) {
+      throw new Error(
+        `The markdown files are larger than ${MAX_EXTRACTED_BYTES / 1024 / 1024} MB in total; pick a smaller folder`,
+      );
+    }
+  }
+  return { members, bytes, folderFound };
+}
+
+const TAR_ENV = { ...process.env, LC_ALL: 'C' };
+
+/** Lists the archive with tar and plans what to unpack, without unpacking anything. */
+async function listArchive(archive: string, folder: string): Promise<ExtractionPlan> {
+  const tar = spawn('tar', ['-tvzf', archive, '--numeric-owner', '--quoting-style=escape', '--full-time'], {
+    env: TAR_ENV,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stderr = '';
+  tar.stderr.on('data', (d) => (stderr = (stderr + d).slice(-2000)));
+  const exited = new Promise<number | null>((resolve, reject) => {
+    tar.on('error', reject);
+    tar.on('close', resolve);
+  });
+  try {
+    const lines = createInterface({ input: tar.stdout, crlfDelay: Infinity });
+    const collected: string[] = [];
+    let count = 0;
+    for await (const line of lines) {
+      collected.push(line);
+      if (++count > MAX_ARCHIVE_ENTRIES) {
+        throw new Error(`The repository has more than ${MAX_ARCHIVE_ENTRIES} files; pick a smaller folder`);
+      }
+    }
+    const plan = planExtraction(collected, folder);
+    const code = await exited;
+    if (code !== 0) throw new Error(`Could not read the repository archive: ${stderr.trim() || `tar exited ${code}`}`);
+    return plan;
+  } finally {
+    if (tar.exitCode === null) tar.kill();
+  }
+}
+
 async function collectMarkdown(base: string): Promise<string[]> {
   const out: string[] = [];
   const walk = async (dir: string, rel: string) => {
@@ -326,7 +438,18 @@ async function downloadSource(id: string) {
     await fs.mkdir(extract, { recursive: true });
     const archive = path.join(work, 'archive.tar.gz');
     await fetchArchive(s, archive);
-    await execFileAsync('tar', ['-xzf', archive, '-C', extract, '--no-same-owner', '--no-same-permissions']);
+    // Only what is used is unpacked, and only after its size is known: a
+    // repository that compresses well could otherwise fill the disk.
+    const plan = await listArchive(archive, s.path);
+    if (!plan.folderFound) throw new Error(`Folder "${s.path}" not found in the repository`);
+    if (!plan.members.length) throw new Error('No markdown (.md) files found in this location');
+    const memberList = path.join(work, 'members.txt');
+    await fs.writeFile(memberList, plan.members.join('\n') + '\n');
+    await execFileAsync(
+      'tar',
+      ['-xzf', archive, '-C', extract, '--no-same-owner', '--no-same-permissions', '--no-wildcards', '-T', memberList],
+      { env: TAR_ENV },
+    );
     await fs.rm(archive, { force: true });
 
     // Single top folder: <owner>-<repo>-<sha>.
@@ -370,7 +493,7 @@ async function downloadSource(id: string) {
         headings: extractHeadings(markdown),
       });
     }
-    await fs.writeFile(path.join(staged, 'index.json'), JSON.stringify(index));
+    await writeIndex(path.join(staged, 'index.json'), index);
     await giveTreeToOwner(staged);
 
     // Swap only once complete, so a failed update keeps the old copy.
@@ -406,7 +529,7 @@ export async function loadIndex(id: string): Promise<IndexEntry[]> {
   if (cached && cached.mtimeMs === st.mtimeMs) return cached.entries;
   const entries = (async () => {
     try {
-      const list = JSON.parse(await fs.readFile(p, 'utf-8')) as IndexEntry[];
+      const list = await parseIndex(await fs.readFile(p, 'utf-8'));
       await addMissingHeadings(id, list);
       return list;
     } catch {
@@ -414,6 +537,55 @@ export async function loadIndex(id: string): Promise<IndexEntry[]> {
     }
   })();
   indexCache.set(id, { mtimeMs: st.mtimeMs, entries });
+  return entries;
+}
+
+const INDEX_SLICE_MS = 10;
+const yieldToOthers = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * index.json is a JSON array with one page per line, written and read a few
+ * pages at a time: one JSON.stringify or JSON.parse of a 40,000-page index
+ * blocked every request for a second or more.
+ */
+export async function writeIndex(file: string, entries: IndexEntry[]) {
+  const handle = await fs.open(file, 'w');
+  try {
+    let chunk = '[\n';
+    let sliceStart = performance.now();
+    for (let i = 0; i < entries.length; i++) {
+      chunk += JSON.stringify(entries[i]) + (i < entries.length - 1 ? ',\n' : '\n');
+      if (chunk.length > 1 << 20 || performance.now() - sliceStart > INDEX_SLICE_MS) {
+        await handle.write(chunk);
+        chunk = '';
+        await yieldToOthers();
+        sliceStart = performance.now();
+      }
+    }
+    await handle.write(chunk + ']\n');
+  } finally {
+    await handle.close();
+  }
+}
+
+export async function parseIndex(text: string): Promise<IndexEntry[]> {
+  const entries: IndexEntry[] = [];
+  let sliceStart = performance.now();
+  let start = 0;
+  while (start < text.length) {
+    let end = text.indexOf('\n', start);
+    if (end === -1) end = text.length;
+    const line = text.slice(start, end).replace(/,$/, '');
+    start = end + 1;
+    if (line === '[' || line === ']' || !line) continue;
+    const value = JSON.parse(line) as IndexEntry | IndexEntry[];
+    if (Array.isArray(value)) entries.push(...value);
+    else entries.push(value);
+    if ((entries.length & 63) === 0 && performance.now() - sliceStart > INDEX_SLICE_MS) {
+      await yieldToOthers();
+      sliceStart = performance.now();
+    }
+  }
   return entries;
 }
 
