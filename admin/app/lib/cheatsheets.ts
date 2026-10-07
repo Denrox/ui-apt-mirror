@@ -242,10 +242,6 @@ function termRegex(term: string): RegExp {
   return new RegExp(NO_SPACES.test(term) ? escaped : `(?<![\\p{L}\\p{N}])${escaped}`, 'gu');
 }
 
-export function makeSnippet(text: string, terms: string[], radius = 90, folded = foldText(text)): string {
-  return snippetAt(text, folded, terms.map((t) => ({ t, re: termRegex(t) })), radius);
-}
-
 function snippetAt(text: string, folded: string, terms: { t: string; re: RegExp }[], radius = 90): string {
   let at = -1;
   for (const { t, re } of terms) {
