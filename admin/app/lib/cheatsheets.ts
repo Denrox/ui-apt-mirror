@@ -31,10 +31,15 @@ export function parseGithubUrl(input: string): GithubSource {
     throw new Error('Only github.com URLs are supported');
   }
 
-  const parts = url.pathname
-    .split('/')
-    .filter(Boolean)
-    .map((p) => decodeURIComponent(p));
+  let parts: string[];
+  try {
+    parts = url.pathname
+      .split('/')
+      .filter(Boolean)
+      .map((p) => decodeURIComponent(p));
+  } catch {
+    throw new Error('Not a valid URL');
+  }
   if (parts.length < 2) {
     throw new Error('URL must point to a repository: github.com/<owner>/<repo>');
   }
@@ -56,13 +61,25 @@ export function parseGithubUrl(input: string): GithubSource {
     ref = parts[3];
     if (!REF_RE.test(ref)) throw new Error('Invalid branch or tag name');
     const folder = parts.slice(4);
-    if (folder.some((s) => s === '.' || s === '..' || /[\\/]/.test(s))) {
+    // Only-dots names ("...") and control characters (%00) are refused too.
+    if (folder.some((s) => /^\.+$/.test(s) || /[\\/]/.test(s) || /\p{Cc}/u.test(s))) {
       throw new Error('Invalid folder path');
     }
     path = folder.join('/');
   }
 
   return { owner, repo, ref, path };
+}
+
+export const MAX_SOURCE_NAME = 100;
+
+/** A source name on one line: no control or bidi-override characters, at most 100 characters. */
+export function cleanSourceName(name: string): string {
+  const flat = name
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return Array.from(flat).slice(0, MAX_SOURCE_NAME).join('').trim();
 }
 
 export function githubWebUrl(s: GithubSource): string {
@@ -129,6 +146,23 @@ export interface IndexEntry {
   title: string;
   categories: string[];
   text: string;
+  /** Section headings below the title, one per line; missing in indexes from before it was added. */
+  headings?: string;
+}
+
+const MAX_HEADINGS_TEXT = 2_000;
+
+/** The ##…###### headings outside code blocks, as plain text, one per line. */
+export function extractHeadings(markdown: string): string {
+  const out: string[] = [];
+  let fenced = false;
+  for (const line of markdown.split('\n')) {
+    if (/^[ \t]*(```|~~~)/.test(line)) fenced = !fenced;
+    if (fenced) continue;
+    const m = /^#{2,6}[ \t]+(.+?)[ \t#]*$/.exec(line);
+    if (m) out.push(markdownToText(m[1]));
+  }
+  return out.filter(Boolean).join('\n').slice(0, MAX_HEADINGS_TEXT);
 }
 
 export const GENERAL_CATEGORY = 'General';
@@ -170,12 +204,19 @@ export function foldText(value: string): string {
   return value.normalize('NFD').replace(/\p{M}+/gu, '').normalize('NFC').toLowerCase();
 }
 
-function tokenize(q: string): string[] {
-  return q.split(/\s+/).filter(Boolean);
-}
-
 // Scripts written without spaces have no word starts to anchor on.
 const NO_SPACES = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}]/u;
+
+// Search runs on the thread that serves every host, so a query is bounded:
+// repeated words count once, one-letter words are dropped when there are
+// longer ones, and only the first few words are used.
+export const MAX_SEARCH_TERMS = 8;
+
+export function searchTerms(phrase: string): string[] {
+  const unique = [...new Set(phrase.split(/\s+/).filter(Boolean))];
+  const long = unique.filter((t) => [...t].length > 1 || NO_SPACES.test(t));
+  return (long.length ? long : unique).slice(0, MAX_SEARCH_TERMS);
+}
 
 // A term matches at the start of a word: "tar" finds "tar" and "tarball", not "cataract".
 function termRegex(term: string): RegExp {
@@ -184,9 +225,13 @@ function termRegex(term: string): RegExp {
 }
 
 export function makeSnippet(text: string, terms: string[], radius = 90, folded = foldText(text)): string {
+  return snippetAt(text, folded, terms.map((t) => ({ t, re: termRegex(t) })), radius);
+}
+
+function snippetAt(text: string, folded: string, terms: { t: string; re: RegExp }[], radius = 90): string {
   let at = -1;
-  for (const t of terms) {
-    const i = folded.search(termRegex(t));
+  for (const { t, re } of terms) {
+    const i = folded.includes(t) ? folded.search(re) : -1;
     if (i !== -1 && (at === -1 || i < at)) at = i;
   }
   if (at === -1) at = 0;
@@ -195,47 +240,119 @@ export function makeSnippet(text: string, terms: string[], radius = 90, folded =
   return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
 }
 
-const folds = new WeakMap<IndexEntry, { title: string; text: string }>();
+const folds = new WeakMap<
+  IndexEntry,
+  { title: string; titleWords: string[]; headings: string; text: string }
+>();
 function folded(entry: IndexEntry) {
   let f = folds.get(entry);
-  if (!f) folds.set(entry, (f = { title: foldText(entry.title), text: foldText(entry.text) }));
+  if (!f) {
+    const title = foldText(entry.title);
+    const titleWords = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const headings = foldText(entry.headings ?? '');
+    folds.set(entry, (f = { title, titleWords, headings, text: foldText(entry.text) }));
+  }
   return f;
 }
 
-// All words must match; title matches rank above body matches. Body matches
-// are weighed like BM25: repeats count less and less, long pages count less.
-export function searchEntries(entries: IndexEntry[], query: string): SearchHit[] {
-  const phrase = foldText(query.trim()).replace(/\s+/g, ' ');
-  const terms = tokenize(phrase).map((t) => ({ t, re: termRegex(t) }));
-  if (!terms.length) return [];
-  const phraseRe = termRegex(phrase);
-  const avgLength = entries.reduce((n, e) => n + e.text.length, 0) / (entries.length || 1) || 1;
+const HEADING_SCORE = 5;
 
+interface Search {
+  phrase: string;
+  terms: { t: string; re: RegExp }[];
+  phraseRe: RegExp;
+  snippetTerms: { t: string; re: RegExp }[];
+  avgLength: number;
+}
+
+function prepareSearch(entries: IndexEntry[], query: string): Search | null {
+  const phrase = foldText(query.trim()).replace(/\s+/g, ' ');
+  const terms = searchTerms(phrase).map((t) => ({ t, re: termRegex(t) }));
+  if (!terms.length) return null;
+  const avgLength = entries.reduce((n, e) => n + e.text.length, 0) / (entries.length || 1) || 1;
+  const phraseRe = termRegex(phrase);
+  return { phrase, terms, phraseRe, snippetTerms: [{ t: phrase, re: phraseRe }, ...terms], avgLength };
+}
+
+// All words must match; title matches rank above heading matches, which rank
+// above body matches. Body matches are weighed like BM25: repeats count less
+// and less, long pages count less. A section heading marks a page that is
+// about the word, not one that only lists it (a kit list's table rows).
+function scoreEntry(entry: IndexEntry, search: Search): SearchHit | null {
+  const { phrase, terms, phraseRe, avgLength } = search;
+  const { title, titleWords, headings, text } = folded(entry);
+  // Cheap substring checks first, so most pages are rejected without a regex.
+  for (const { t } of terms) {
+    if (!title.includes(t) && !text.includes(t)) return null;
+  }
+  let score = 0;
+  const lengthNorm = 0.25 + (0.75 * text.length) / avgLength;
+  for (const { t, re } of terms) {
+    const inTitle = title.includes(t) && title.search(re) !== -1;
+    const n = text.includes(t) ? countMatches(re, text) : 0;
+    if (!inTitle && !n) return null;
+    if (titleWords.includes(t)) score += 30;
+    else if (inTitle) score += 15;
+    else if (headings.includes(t) && headings.search(re) !== -1) score += HEADING_SCORE;
+    score += (5 * n * 2.2) / (n + 1.2 * lengthNorm);
+  }
+  if (title === phrase) score += 100;
+  else if (title.startsWith(phrase)) score += 50;
+  if (terms.length > 1 && text.includes(phrase) && text.search(phraseRe) !== -1) score += 15;
+  return { entry, score, snippet: snippetAt(entry.text, text, search.snippetTerms) };
+}
+
+// Past this many uses a page's body score barely changes, and stopping
+// early keeps common words ("the", "a") cheap.
+const MAX_COUNTED = 30;
+
+function countMatches(re: RegExp, text: string): number {
+  re.lastIndex = 0;
+  let n = 0;
+  while (n < MAX_COUNTED && re.exec(text)) n++;
+  re.lastIndex = 0;
+  return n;
+}
+
+const byScore = (a: SearchHit, b: SearchHit) => b.score - a.score || a.entry.title.localeCompare(b.entry.title);
+
+export function searchEntries(entries: IndexEntry[], query: string): SearchHit[] {
+  const search = prepareSearch(entries, query);
+  if (!search) return [];
   const hits: SearchHit[] = [];
   for (const entry of entries) {
-    const { title, text } = folded(entry);
-    let score = 0;
-    let all = true;
-    const titleWords = title.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-    const lengthNorm = 0.25 + (0.75 * text.length) / avgLength;
-    for (const { t, re } of terms) {
-      const inTitle = title.includes(t) && title.search(re) !== -1;
-      const n = text.includes(t) ? (text.match(re)?.length ?? 0) : 0;
-      if (!inTitle && !n) {
-        all = false;
-        break;
-      }
-      if (titleWords.includes(t)) score += 30;
-      else if (inTitle) score += 15;
-      score += (5 * n * 2.2) / (n + 1.2 * lengthNorm);
-    }
-    if (!all) continue;
-    if (title === phrase) score += 100;
-    else if (title.startsWith(phrase)) score += 50;
-    if (terms.length > 1 && text.search(phraseRe) !== -1) score += 15;
-    hits.push({ entry, score, snippet: makeSnippet(entry.text, [phrase, ...terms.map((x) => x.t)], 90, text) });
+    const hit = scoreEntry(entry, search);
+    if (hit) hits.push(hit);
   }
-  return hits.sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title));
+  return hits.sort(byScore);
+}
+
+const SLICE_MS = 10;
+const nextTick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/**
+ * searchEntries that gives other requests a turn every few milliseconds, and
+ * stops early once `signal` aborts (the client went away).
+ */
+export async function searchEntriesAsync(
+  entries: IndexEntry[],
+  query: string,
+  signal?: AbortSignal,
+): Promise<SearchHit[]> {
+  const search = prepareSearch(entries, query);
+  if (!search) return [];
+  const hits: SearchHit[] = [];
+  let sliceStart = performance.now();
+  for (let i = 0; i < entries.length; i++) {
+    const hit = scoreEntry(entries[i], search);
+    if (hit) hits.push(hit);
+    if ((i & 31) === 31 && performance.now() - sliceStart > SLICE_MS) {
+      await nextTick();
+      signal?.throwIfAborted();
+      sliceStart = performance.now();
+    }
+  }
+  return hits.sort(byScore);
 }
 
 /** "1 cheatsheet", "2 cheatsheets". */

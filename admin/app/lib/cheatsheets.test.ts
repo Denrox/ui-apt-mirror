@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   categoriesFor,
+  cleanSourceName,
   onlySheetChanged,
   parseSheetParam,
   sheetSearch,
   defaultSourceName,
+  extractHeadings,
   extractTitle,
   githubWebUrl,
   isSafeRelativeMdPath,
@@ -15,6 +17,9 @@ import {
   plural,
   resolvePageLink,
   searchEntries,
+  searchEntriesAsync,
+  searchTerms,
+  MAX_SEARCH_TERMS,
   SEARCH_PAGE_SIZE,
   sourceIdFor,
   type IndexEntry,
@@ -65,8 +70,22 @@ describe('parseGithubUrl', () => {
     ['https://github.com/tldr-pages/tldr/tree/main/../..', '".."'],
     ['https://github.com/o/r/tree/main/pages/%2e%2E/x', '".."'],
     ['github.com/o/r/tree/main/./pages', '".."'],
+    ['https://github.com/tldr-pages/tldr/tree/main/pages/..%00', 'folder path'],
+    ['https://github.com/o/r/tree/main/pages/%0Ax', 'folder path'],
+    ['https://github.com/tldr-pages/tldr/tree/main/pages/...', 'folder path'],
+    ['https://github.com/o/r/tree/main/%E0%A4%A', 'valid URL'],
   ])('rejects %s', (input, message) => {
     expect(() => parseGithubUrl(input)).toThrow(message);
+  });
+});
+
+describe('cleanSourceName', () => {
+  it('keeps one trimmed line of at most 100 characters', () => {
+    expect(cleanSourceName('  First\naid\r\n manual\t')).toBe('First aid manual');
+    expect(cleanSourceName('evil\u202Etxt.exe\u2066x\u0000y')).toBe('evil txt.exe x y');
+    expect(cleanSourceName('x'.repeat(200_000))).toHaveLength(100);
+    expect(Array.from(cleanSourceName('😀'.repeat(150)))).toHaveLength(100);
+    expect(cleanSourceName(' \n\u202E ')).toBe('');
   });
 });
 
@@ -108,6 +127,14 @@ describe('markdown helpers', () => {
     expect(markdownToText('> More information: <https://www.gnu.org/software/tar>.')).toBe(
       'More information: https://www.gnu.org/software/tar .',
     );
+  });
+});
+
+describe('extractHeadings', () => {
+  it('lists section headings as plain text, not the title or code comments', () => {
+    const md = '# Chapter 4\n\n## Equipment\n### [Tourniquets](t.md) ##\n```sh\n## not a heading\n```\n#### *Wound* packing\nText';
+    expect(extractHeadings(md)).toBe('Equipment\nTourniquets\nWound packing');
+    expect(extractHeadings('# Only a title\ntext')).toBe('');
   });
 });
 
@@ -203,9 +230,73 @@ describe('searchEntries', () => {
     expect(new Set(scores).size).toBe(3);
   });
 
+  it('ranks a page with the word in a section heading above one that only lists it', () => {
+    // The Army manual: Appendix A lists tourniquets in kit tables, Chapter 4 explains them.
+    const filler = 'Apply pressure to the wound and check the casualty for other injuries. '.repeat(60);
+    const list: IndexEntry[] = [
+      entry('Appendix A: First Aid Kits', 'Tourniquet 2 Tourniquet Pouch 2 Combat Application Tourniquet 1 Tourniquet 2'),
+      {
+        ...entry('Chapter 4: Massive Bleeding Control', `${filler} Apply the tourniquet. ${filler} tourniquet tourniquet`),
+        headings: 'Equipment\nTourniquets\nApplication of Tourniquets',
+      },
+    ];
+    expect(searchEntries(list, 'tourniquet').map((h) => h.entry.title)).toEqual([
+      'Chapter 4: Massive Bleeding Control',
+      'Appendix A: First Aid Kits',
+    ]);
+    // Without the headings the short list page wins, as before.
+    expect(searchEntries(list.map((e) => ({ ...e, headings: undefined })), 'tourniquet')[0].entry.title).toBe(
+      'Appendix A: First Aid Kits',
+    );
+  });
+
   it('returns nothing for blank or unmatched queries', () => {
     expect(searchEntries(entries, '   ')).toEqual([]);
     expect(searchEntries(entries, 'chest fracture')).toEqual([]);
+  });
+
+  it('bounds the words a query can cost', () => {
+    expect(searchTerms('a e i o s t a e i o s t')).toEqual(['a', 'e', 'i', 'o', 's', 't']);
+    expect(searchTerms('e e e e zzzzzzqq')).toEqual(['zzzzzzqq']);
+    expect(searchTerms('chest a pain chest')).toEqual(['chest', 'pain']);
+    expect(searchTerms('火 傷')).toEqual(['火', '傷']);
+    const many = Array.from({ length: 50 }, (_, i) => `w${i}`).join(' ');
+    expect(searchTerms(many)).toHaveLength(MAX_SEARCH_TERMS);
+    // Repeating a word changes nothing.
+    const titles = (q: string) => searchEntries(entries, q).map((h) => h.entry.title);
+    expect(titles('chest chest chest pain pain')).toEqual(titles('chest pain'));
+    expect(searchEntries(entries, 'chest a pain').map((h) => h.entry.title)).toEqual(['Chest Pain', 'Heart Attack']);
+  });
+
+  it('keeps a 100-word query on a large index fast', () => {
+    const words = 'the quick brown fox jumps over a lazy dog and then sits in the sun for an hour '.repeat(120);
+    const big = Array.from({ length: 3000 }, (_, i) => entry(`Page ${i}`, words));
+    const q = Array.from({ length: 100 }, (_, i) => 'aeiost'[i % 6]).join(' ');
+    searchEntries(big.slice(0, 10), q);
+    const t = performance.now();
+    searchEntries(big, q);
+    searchEntries(big, `${'e '.repeat(99)}zzzzzzqq`);
+    // Before the bound this took several seconds.
+    expect(performance.now() - t).toBeLessThan(1500);
+  });
+
+  it('searches asynchronously with the same results and lets other work run', async () => {
+    const big = Array.from({ length: 4000 }, (_, i) =>
+      entry(`Page ${i}`, `${'Apply pressure and wait for help to arrive. '.repeat(40)} chest pain ${i}`),
+    );
+    let ticks = 0;
+    const timer = setInterval(() => ticks++, 1);
+    const hits = await searchEntriesAsync([...big, ...entries], 'chest pain');
+    clearInterval(timer);
+    expect(hits).toEqual(searchEntries([...big, ...entries], 'chest pain'));
+    expect(ticks).toBeGreaterThan(0);
+  });
+
+  it('stops an async search once the request is aborted', async () => {
+    const big = Array.from({ length: 20000 }, (_, i) => entry(`Page ${i}`, 'the help '.repeat(400)));
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 5);
+    await expect(searchEntriesAsync(big, 'the help', controller.signal)).rejects.toThrow();
   });
 });
 

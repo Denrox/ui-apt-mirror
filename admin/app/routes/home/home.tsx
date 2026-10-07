@@ -391,12 +391,14 @@ export default function Home() {
                       {config.hosts.length > 0 && (
                         <Dropdown
                           trigger={
-                            <span
+                            <button
+                              type="button"
                               className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
                               title="GPG signing options"
+                              aria-label="GPG signing options"
                             >
                               <FontAwesomeIcon icon={faKey} />
-                            </span>
+                            </button>
                           }
                           disabled={isActionInProgress}
                         >
@@ -631,6 +633,7 @@ export default function Home() {
           </div>
           <LogPanel
             content={latestLog.content}
+            firstLine={latestLog.firstLine}
             title={latestLog.name}
             bodyClassName="max-h-[320px] min-h-[200px]"
           />

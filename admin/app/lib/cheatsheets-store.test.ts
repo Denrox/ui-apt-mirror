@@ -1,12 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import appConfig from '~/config/config.json';
 import {
+  addSource,
   cleanLeftovers,
+  giveTreeToOwner,
   isPublicCheatsheetsRequest,
   listSources,
+  loadIndex,
   refreshSource,
   removeSource,
 } from './cheatsheets-store';
@@ -68,6 +72,58 @@ describe('refreshSource', () => {
   });
 });
 
+describe('addSource', () => {
+  it('stores a cleaned, length-capped name', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 404, ok: false })));
+    const long = await addSource('https://github.com/o/long', `Line one\nline\u202Etwo ${'x'.repeat(200_000)}`);
+    expect(long.name).toMatch(/^Line one line two x+$/);
+    expect(long.name).toHaveLength(100);
+    expect(long.nameFromUser).toBe(true);
+    const blank = await addSource('https://github.com/o/blank', ' \n ');
+    expect(blank).toMatchObject({ name: 'o/blank', nameFromUser: false });
+    await waitFor(() =>
+      JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8'))
+        .sources.filter((s: { id: string }) => s.id !== 'a')
+        .every((s: { status: string }) => s.status === 'error'),
+    );
+    const stored = JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8')).sources;
+    expect(stored.find((s: { url: string }) => s.url.endsWith('/long')).name).toBe(long.name);
+  });
+
+  it('cleans names stored before names were cleaned', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'sources.json'),
+      JSON.stringify({ sources: [{ ...source('a'), name: `Old\nname ${'y'.repeat(500)}` }] }),
+    );
+    const [s] = await listSources();
+    expect(s.name).toHaveLength(100);
+    expect(s.name.startsWith('Old name y')).toBe(true);
+  });
+});
+
+describe('giveTreeToOwner', () => {
+  it("gives every file and folder of a source to the data directory's owner", async () => {
+    const src = path.join(dir, 'sources', 'a');
+    fs.mkdirSync(path.join(src, 'files', 'common'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'files', 'common', 'tar.md'), '# tar');
+    fs.writeFileSync(path.join(src, 'index.json'), '[]');
+    const lchown = vi.spyOn(fsp, 'lchown').mockResolvedValue(undefined);
+    try {
+      const me = fs.statSync(dir);
+      await giveTreeToOwner(src);
+      expect(lchown).not.toHaveBeenCalled();
+
+      await giveTreeToOwner(src, { uid: me.uid + 1, gid: me.gid + 1 });
+      expect(lchown.mock.calls.map(([p]) => path.relative(src, String(p))).sort()).toEqual(
+        ['', 'files', 'files/common', 'files/common/tar.md', 'index.json'].sort(),
+      );
+      expect(lchown).toHaveBeenCalledWith(src, me.uid + 1, me.gid + 1);
+    } finally {
+      lchown.mockRestore();
+    }
+  });
+});
+
 describe('cleanLeftovers', () => {
   it('removes stray work dirs and source dirs without a registry entry', async () => {
     fs.mkdirSync(path.join(dir, '.tmp-gone-123'));
@@ -79,6 +135,25 @@ describe('cleanLeftovers', () => {
     expect(fs.existsSync(path.join(dir, 'sources', 'orphan'))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'sources', 'a'))).toBe(true);
     expect((await listSources()).map((s) => s.id)).toEqual(['a']);
+  });
+});
+
+describe('loadIndex', () => {
+  it('adds headings from the stored pages to an index written before they were indexed', async () => {
+    const src = path.join(dir, 'sources', 'a');
+    fs.mkdirSync(path.join(src, 'files'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'files', 'ch4.md'), '# Chapter 4\n\n## Tourniquets\n\nText.\n');
+    fs.writeFileSync(
+      path.join(src, 'index.json'),
+      JSON.stringify([
+        { path: 'ch4.md', title: 'Chapter 4', categories: ['General'], text: 'Text.' },
+        { path: 'gone.md', title: 'Gone', categories: ['General'], text: '' },
+        { path: 'new.md', title: 'New', categories: ['General'], text: '', headings: 'Kept' },
+      ]),
+    );
+    const [first, second] = await Promise.all([loadIndex('a'), loadIndex('a')]);
+    expect(first).toBe(second);
+    expect(first.map((e) => e.headings)).toEqual(['Tourniquets', '', 'Kept']);
   });
 });
 

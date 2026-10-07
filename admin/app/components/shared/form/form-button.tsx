@@ -6,6 +6,8 @@ interface FormButtonProps {
   readonly buttonType?: 'button' | 'submit' | 'reset';
   readonly disabled?: boolean;
   readonly size?: 'small' | 'medium' | 'large';
+  /** Needed when the button shows only an icon. */
+  readonly ariaLabel?: string;
 }
 
 export default function FormButton({
@@ -15,6 +17,7 @@ export default function FormButton({
   buttonType = 'button',
   disabled = false,
   size = 'medium',
+  ariaLabel,
 }: PropsWithChildren<FormButtonProps>) {
   const baseClasses =
     'font-semibold rounded-lg outline-none focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap transition-colors';
@@ -37,6 +40,8 @@ export default function FormButton({
       type={buttonType}
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
+      title={ariaLabel}
       className={`${baseClasses} ${typeClasses[type]} ${sizeClasses[size]}`}
     >
       {children}

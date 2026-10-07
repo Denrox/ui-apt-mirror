@@ -99,7 +99,7 @@ export default function CheatsheetModal({
         </div>
       </div>
 
-      <div className="max-w-4xl max-h-[calc(90vh-200px)] overflow-y-auto">
+      <div className="max-w-4xl min-w-0 max-h-[calc(90vh-200px)] overflow-y-auto">
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -113,10 +113,17 @@ export default function CheatsheetModal({
             <p className="text-sm mt-1">{error}</p>
           </div>
         ) : (
-          <div className="prose max-w-none">
+          // Long words and URLs wrap; a wide table scrolls on its own, so the
+          // popup never scrolls sideways on a phone.
+          <div className="prose max-w-none break-words">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
+                table: ({ node: _node, ...props }) => (
+                  <div className="overflow-x-auto">
+                    <table {...props} />
+                  </div>
+                ),
                 a: ({ href, children }) => {
                   const target = href ? resolvePageLink(page.path, href) : null;
                   if (target) {

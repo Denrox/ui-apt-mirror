@@ -9,9 +9,12 @@ import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
+import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
 import {
   categoriesFor,
+  cleanSourceName,
   defaultSourceName,
+  extractHeadings,
   extractTitle,
   githubWebUrl,
   isSafeRelativeMdPath,
@@ -69,17 +72,41 @@ let registryLock: Promise<unknown> = Promise.resolve();
 async function readRegistry(): Promise<CheatsheetSource[]> {
   try {
     const data = JSON.parse(await fs.readFile(registryPath(), 'utf-8'));
-    return Array.isArray(data?.sources) ? data.sources : [];
+    if (!Array.isArray(data?.sources)) return [];
+    // Names stored before they were cleaned (any length, newlines) are cleaned here.
+    return (data.sources as CheatsheetSource[]).map((s) => ({ ...s, name: cleanSourceName(s.name ?? '') || s.id }));
   } catch {
     return [];
   }
 }
 
 async function writeRegistry(sources: CheatsheetSource[]) {
-  await fs.mkdir(root(), { recursive: true });
+  await mkdirOwned(root());
   const tmp = `${registryPath()}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify({ sources }, null, 2));
+  giveToDirOwner(tmp);
   await fs.rename(tmp, registryPath());
+}
+
+/**
+ * The app runs as root, but the data directory belongs to the host user, who
+ * must be able to remove a source without sudo. Gives `target` and everything
+ * in it to the owner of the cheatsheets directory, as mirror.list and uploads do.
+ */
+export async function giveTreeToOwner(target: string, owner?: { uid: number; gid: number }) {
+  try {
+    const { uid, gid } = owner ?? (await fs.stat(root()));
+    const walk = async (p: string) => {
+      const st = await fs.lstat(p);
+      if (st.uid !== uid || st.gid !== gid) await fs.lchown(p, uid, gid);
+      if (st.isDirectory()) {
+        for (const name of await fs.readdir(p)) await walk(path.join(p, name));
+      }
+    };
+    await walk(target);
+  } catch (error) {
+    console.error(`cheatsheets: could not change the owner of ${target}:`, error);
+  }
 }
 
 function withRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -141,10 +168,11 @@ export async function addSource(url: string, name?: string): Promise<CheatsheetS
       throw new Error('This source has already been added');
     }
     const id = sourceIdFor(gh, (id) => sources.some((s) => s.id === id));
+    const userName = cleanSourceName(name ?? '');
     const s: CheatsheetSource = {
       id,
-      name: name?.trim() || defaultSourceName(gh),
-      nameFromUser: !!name?.trim(),
+      name: userName || cleanSourceName(defaultSourceName(gh)),
+      nameFromUser: !!userName,
       url: webUrl,
       ...gh,
       status: 'downloading',
@@ -339,12 +367,14 @@ async function downloadSource(id: string) {
         title: extractTitle(markdown, rel),
         categories: categoriesFor(rel, explicit),
         text: markdownToText(markdown).slice(0, MAX_INDEXED_TEXT),
+        headings: extractHeadings(markdown),
       });
     }
     await fs.writeFile(path.join(staged, 'index.json'), JSON.stringify(index));
+    await giveTreeToOwner(staged);
 
     // Swap only once complete, so a failed update keeps the old copy.
-    await fs.mkdir(path.join(root(), 'sources'), { recursive: true });
+    await mkdirOwned(path.join(root(), 'sources'));
     const old = path.join(work, 'old');
     await updateRegistry(async (sources) => {
       if (!sources.some((x) => x.id === id)) throw new Error('Source was removed');
@@ -356,7 +386,7 @@ async function downloadSource(id: string) {
     let title: string | null = null;
     try {
       const readme = await fs.readFile(path.join(base, 'README.md'), 'utf-8');
-      title = readme.match(/^#[ \t]+(.+?)[ \t#]*$/m)?.[1].trim().slice(0, 100) || null;
+      title = cleanSourceName(readme.match(/^#[ \t]+(.+?)[ \t#]*$/m)?.[1] ?? '') || null;
     } catch {}
 
     return { fileCount: index.length, revision, title };
@@ -365,7 +395,8 @@ async function downloadSource(id: string) {
   }
 }
 
-const indexCache = new Map<string, { mtimeMs: number; entries: IndexEntry[] }>();
+// Promises, so parallel first searches read and prepare an index only once.
+const indexCache = new Map<string, { mtimeMs: number; entries: Promise<IndexEntry[]> }>();
 
 export async function loadIndex(id: string): Promise<IndexEntry[]> {
   const p = indexPath(id);
@@ -373,12 +404,30 @@ export async function loadIndex(id: string): Promise<IndexEntry[]> {
   if (!st) return [];
   const cached = indexCache.get(id);
   if (cached && cached.mtimeMs === st.mtimeMs) return cached.entries;
-  try {
-    const entries = JSON.parse(await fs.readFile(p, 'utf-8')) as IndexEntry[];
-    indexCache.set(id, { mtimeMs: st.mtimeMs, entries });
-    return entries;
-  } catch {
-    return [];
+  const entries = (async () => {
+    try {
+      const list = JSON.parse(await fs.readFile(p, 'utf-8')) as IndexEntry[];
+      await addMissingHeadings(id, list);
+      return list;
+    } catch {
+      return [];
+    }
+  })();
+  indexCache.set(id, { mtimeMs: st.mtimeMs, entries });
+  return entries;
+}
+
+// Indexes written before headings were indexed get them from the stored
+// pages, in memory only; the next Update writes them to index.json.
+async function addMissingHeadings(id: string, entries: IndexEntry[]) {
+  const missing = entries.filter((e) => e.headings === undefined);
+  for (let i = 0; i < missing.length; i += 32) {
+    await Promise.all(
+      missing.slice(i, i + 32).map(async (e) => {
+        const markdown = await readPage(id, e.path).catch(() => null);
+        e.headings = markdown ? extractHeadings(markdown) : '';
+      }),
+    );
   }
 }
 

@@ -31,6 +31,7 @@ export function meta() {
 export default function Documentation() {
   const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
   const npmHost = hostOf(hosts, 'npm');
+  const filesHost = hostOf(hosts, 'files');
   const sections = documentationSections(isNpmProxyEnabled);
   const activeSection = useParams().section ?? 'file-structure';
 
@@ -42,6 +43,11 @@ export default function Documentation() {
           <pre className="overflow-x-auto whitespace-pre">
             {`ui-apt-mirror/
 ├── .env                         # Settings, change with ./setup.sh --reconfigure
+├── setup.sh                     # First setup, --reconfigure, --reset-admin-password
+├── start.sh                     # Loads the image and starts the container
+├── upgrade.sh                   # Installs the latest release
+├── README.md
+├── docker-compose.src.yml       # Template of docker-compose.yml
 ├── docker-compose.yml           # Stock file, replaced on upgrade
 ├── docker-compose.override.yml  # Optional: your compose changes
 ├── backups/                     # Configuration backups made by upgrades
@@ -86,8 +92,10 @@ export default function Documentation() {
           <div>
             <h4 className="font-semibold text-primary">.env</h4>
             <p className="text-on-surface-variant">
-              Domains, sync frequency, npm proxy and timezone. Change them with
-              ./setup.sh --reconfigure, or edit the file and run ./start.sh.
+              The base domain (MIRROR_DOMAIN; the admin, files, npm and
+              cheatsheets hosts are its subdomains), sync frequency, npm proxy
+              and timezone. Change them with ./setup.sh --reconfigure, or edit
+              the file and run ./start.sh.
             </p>
           </div>
           <div>
@@ -101,9 +109,11 @@ export default function Documentation() {
             <h4 className="font-semibold text-primary">conf/</h4>
             <p className="text-on-surface-variant">
               The mirror list. Nginx sites are generated in the container from
-              .env; a file in conf/nginx/custom/ with the name of a site (e.g.
-              files.mirror.intra.conf) replaces it. Delete the file to go back
-              to the stock site.
+              .env; a file in conf/nginx/custom/ with the name of a stock site
+              replaces it. Delete the file to go back to the stock site. The
+              names stay the stock ones whatever the domain: the site for{' '}
+              {filesHost || 'files.mirror.intra'} is overridden by
+              files.mirror.intra.conf, and so on.
             </p>
           </div>
           <div>
@@ -133,29 +143,6 @@ export default function Documentation() {
 
   const renderCommands = () => (
     <div className="space-y-8">
-      <div>
-        <h3 className="text-lg font-semibold mb-4">Build Process</h3>
-        <div className="bg-surface-container p-4 rounded-lg">
-          <h4 className="font-semibold text-primary mb-2">./build.sh</h4>
-          <p className="text-on-surface-variant mb-3">
-            Builds Docker images for multiple architectures (amd64, arm64).
-          </p>
-          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
-            <h5 className="font-semibold mb-2">Operations:</h5>
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              <li>Checks Docker and buildx prerequisites</li>
-              <li>Sets up multi-platform builder</li>
-              <li>Builds images for both amd64 and arm64 architectures</li>
-              <li>Saves compressed tar files to dist/ directory</li>
-              <li>
-                Installs required packages: apt-mirror, nginx, openssl, curl,
-                wget, xz-utils, nodejs, npm
-              </li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
       <div>
         <h3 className="text-lg font-semibold mb-4">Initial Setup</h3>
         <div className="bg-surface-container p-4 rounded-lg">
@@ -312,6 +299,31 @@ export default function Documentation() {
           </div>
         </div>
       </div>
+      <div>
+        <h3 className="text-lg font-semibold mb-4">Building From Source</h3>
+        <div className="bg-surface-container p-4 rounded-lg">
+          <h4 className="font-semibold text-primary mb-2">./build.sh</h4>
+          <p className="text-on-surface-variant mb-3">
+            Builds Docker images for multiple architectures (amd64, arm64).
+            Part of the source repository only; an installation has no
+            build.sh and gets new images with ./upgrade.sh.
+          </p>
+          <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
+            <h5 className="font-semibold mb-2">Operations:</h5>
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              <li>Checks Docker and buildx prerequisites</li>
+              <li>Sets up multi-platform builder</li>
+              <li>Builds images for both amd64 and arm64 architectures</li>
+              <li>Saves compressed tar files to dist/ directory</li>
+              <li>
+                Installs apt-mirror2 (from PyPI) and the packages it needs:
+                nginx, openssl, curl, wget, xz-utils, nodejs, npm
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 
