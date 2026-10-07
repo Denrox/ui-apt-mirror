@@ -337,8 +337,9 @@ export async function action({ request }: { request: Request }) {
       if (!(await getKey(host))) return { error: `There is no signing key for ${host}` };
       // Before the key goes: Release files signed with it would fail on every client.
       let restored = true;
+      let unrestored = 0;
       try {
-        await restoreUpstreamSignatures(host);
+        unrestored = await restoreUpstreamSignatures(host);
       } catch (restoreError) {
         console.error('Restoring upstream signatures failed:', restoreError);
         restored = false;
@@ -346,9 +347,11 @@ export async function action({ request }: { request: Request }) {
       if (!(await deleteKey(host))) return { error: `There is no signing key for ${host}` };
       return {
         success: true,
-        message: restored
-          ? `Deleted signing key for ${host} and restored the upstream signatures`
-          : `Deleted signing key for ${host}; restoring the upstream signatures failed, run a sync to fix them`,
+        message: !restored
+          ? `Deleted signing key for ${host}; restoring the upstream signatures failed, run a sync to fix them`
+          : unrestored
+            ? `Deleted signing key for ${host}. ${unrestored} Release file(s) had no saved upstream signature and stay signed with the deleted key until the next sync; run a sync to restore them`
+            : `Deleted signing key for ${host} and restored the upstream signatures`,
       };
     } catch (error) {
       console.error('Error deleting GPG key:', error);

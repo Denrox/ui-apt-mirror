@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createdFingerprint, signedCount } from './gpg';
+import { createdFingerprint, signedCount, unrestoredCount } from './gpg';
 
 describe('signedCount', () => {
   it('reads the count sign-releases.sh reports', () => {
@@ -18,5 +18,17 @@ describe('createdFingerprint', () => {
   });
   it('is null without a KEY_CREATED line', () => {
     expect(createdFingerprint('[GNUPG:] PROGRESS\n')).toBeNull();
+  });
+});
+
+describe('unrestoredCount', () => {
+  it('reads how many Release files kept our signature', () => {
+    const out =
+      "[2026-10-07 10:00:00] Restored upstream signatures of 1 Release file(s) for host 'deb.debian.org'.\n" +
+      "[2026-10-07 10:00:00] Not restored: 2 Release file(s) for host 'deb.debian.org'.\n";
+    expect(unrestoredCount(out)).toBe(2);
+  });
+  it('is 0 when every Release file was restored', () => {
+    expect(unrestoredCount("[x] Restored upstream signatures of 2 Release file(s) for host 'a.org'.\n")).toBe(0);
   });
 });
