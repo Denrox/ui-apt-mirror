@@ -9,6 +9,7 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import {
   documentationSections,
   findDocumentationSection,
+  npmLoginCommand,
 } from '~/utils/documentation-sections';
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -32,6 +33,7 @@ export default function Documentation() {
   const { isNpmProxyEnabled, hosts } = useRuntimeConfig();
   const npmHost = hostOf(hosts, 'npm');
   const filesHost = hostOf(hosts, 'files');
+  const cheatsheetsHost = hostOf(hosts, 'cheatsheets');
   const sections = documentationSections(isNpmProxyEnabled);
   const activeSection = useParams().section ?? 'file-structure';
 
@@ -122,7 +124,8 @@ export default function Documentation() {
               Main data storage directory. apt-mirror/ contains downloaded
               package repositories and signing keys, files/ and files-private/
               the public and private file repositories, cheatsheets/
-              cheatsheets downloaded from GitHub sources
+              cheatsheets downloaded from GitHub sources (shown to everyone,
+              without a login, at http://{cheatsheetsHost || 'cheatsheets.mirror.intra'})
               {isNpmProxyEnabled
                 ? ', npm/ contains npm packages with public/ for cached packages and private/ for published packages'
                 : ''}
@@ -412,8 +415,7 @@ export default function Documentation() {
               </p>
               <div className="space-y-2 text-sm">
                 <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
-                  npm login --registry=http://{npmHost}
-                  --auth-type=legacy
+                  {npmLoginCommand(npmHost)}
                 </div>
                 <p className="text-on-surface-variant">
                   Enter your username and password when prompted, then verify:

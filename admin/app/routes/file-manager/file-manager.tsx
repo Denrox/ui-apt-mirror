@@ -677,6 +677,7 @@ export default function FileManager() {
                           type="secondary"
                           onClick={handleSearch}
                           disabled={isLoading || searchQuery.trim().length < 3}
+                          ariaLabel="Search"
                         >
                           <FontAwesomeIcon icon={faSearch} />
                         </FormButton>
@@ -688,6 +689,7 @@ export default function FileManager() {
                           type="secondary"
                           onClick={() => setIsCreateFolderOpen(true)}
                           disabled={isLoading}
+                          ariaLabel="New folder"
                         >
                           <FontAwesomeIcon icon={faFolderPlus} />
                         </FormButton>
@@ -734,6 +736,7 @@ export default function FileManager() {
                             type="secondary"
                             disabled={isOperationInProgress || isLoading}
                             onClick={() => {}}
+                            ariaLabel="More actions"
                           >
                             <FontAwesomeIcon icon={faEllipsisV} />
                           </FormButton>
@@ -842,6 +845,7 @@ export default function FileManager() {
                                 isLoading
                               }
                               onClick={() => handlePlayMedia(item)}
+                              ariaLabel={`Play ${item.name}`}
                             >
                               <FontAwesomeIcon icon={faPlay} />
                             </FormButton>
@@ -859,6 +863,7 @@ export default function FileManager() {
                                 isLoading
                               }
                               onClick={() => handlePreviewFile(item)}
+                              ariaLabel={`Preview ${item.name}`}
                             >
                               <FontAwesomeIcon icon={faEye} />
                             </FormButton>
@@ -883,8 +888,9 @@ export default function FileManager() {
                               link.click();
                               document.body.removeChild(link);
                             }}
+                            ariaLabel={`Download ${item.name}`}
                           >
-                            ↓
+                            <span aria-hidden="true">↓</span>
                           </FormButton>
                         )}
                         {!isPublicRoute && !isManagedView && (
@@ -903,6 +909,7 @@ export default function FileManager() {
                                   name: item.name,
                                 })
                               }
+                              ariaLabel={`Move ${item.name}`}
                             >
                               <FontAwesomeIcon icon={faCut} />
                             </FormButton>
@@ -920,6 +927,7 @@ export default function FileManager() {
                                   name: item.name,
                                 })
                               }
+                              ariaLabel={`Rename ${item.name}`}
                             >
                               <FontAwesomeIcon icon={faEdit} />
                             </FormButton>
@@ -935,12 +943,14 @@ export default function FileManager() {
                               isLoading
                             }
                             onClick={() => handleDelete(item.path, item.name)}
+                            ariaLabel={`Delete ${item.name}`}
                           >
                             <FontAwesomeIcon icon={faTrash} />
                           </FormButton>
                         )}
                       </div>
                     }
+                    openLabel={item.isDirectory ? `Open folder ${item.name}` : undefined}
                     onClick={() =>
                       item.isDirectory &&
                       !isOperationInProgress &&

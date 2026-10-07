@@ -4,12 +4,29 @@ type FileHandle = Awaited<ReturnType<typeof fs.open>>;
 
 // Logs only grow between reads, so each one's newline count is kept and only
 // the new part is counted next time. A smaller file or another inode
-// (rotated, truncated) is counted again from the start.
-const newlineCounts = new Map<string, { ino: number; end: number; count: number }>();
+// (rotated, truncated) is counted again from the start. A log truncated in
+// place (copytruncate) that grew past its old size before the next read keeps
+// its inode and looks grown, so the bytes just before the counted end are
+// kept too: if they changed, the file was rewritten and is counted again.
+const MARK_BYTES = 256;
+const newlineCounts = new Map<string, { ino: number; end: number; count: number; mark: Buffer }>();
+
+async function readAt(handle: FileHandle, pos: number, length: number): Promise<Buffer> {
+  const buffer = Buffer.alloc(length);
+  const { bytesRead } = await handle.read(buffer, 0, length, pos);
+  return buffer.subarray(0, bytesRead);
+}
+
+const markAt = (handle: FileHandle, end: number) =>
+  readAt(handle, Math.max(0, end - MARK_BYTES), Math.min(end, MARK_BYTES));
 
 async function countNewlines(handle: FileHandle, file: string, ino: number, end: number): Promise<number> {
   const cached = newlineCounts.get(file);
-  const resume = cached && cached.ino === ino && cached.end <= end;
+  const resume =
+    cached &&
+    cached.ino === ino &&
+    cached.end <= end &&
+    (await markAt(handle, cached.end)).equals(cached.mark);
   let count = resume ? cached.count : 0;
   const buffer = Buffer.alloc(Math.min(1 << 20, Math.max(1, end)));
   for (let pos = resume ? cached.end : 0; pos < end; ) {
@@ -19,7 +36,7 @@ async function countNewlines(handle: FileHandle, file: string, ino: number, end:
     for (let i = chunk.indexOf(10); i !== -1; i = chunk.indexOf(10, i + 1)) count++;
     pos += bytesRead;
   }
-  newlineCounts.set(file, { ino, end, count });
+  newlineCounts.set(file, { ino, end, count, mark: await markAt(handle, end) });
   return count;
 }
 

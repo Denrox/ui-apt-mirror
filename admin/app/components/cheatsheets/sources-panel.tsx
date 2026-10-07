@@ -97,12 +97,18 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                 }
                 title={
                   <div className="flex flex-col min-w-0">
-                    <div className="font-medium text-on-surface break-words">{s.name}</div>
+                    {/* Isolated (bdi, dir="ltr") so a name, URL or date in another
+                        direction can't reorder the rest of the line; clipped so
+                        stacked accents can't draw over the rows above. */}
+                    <div className="font-medium text-on-surface break-words overflow-hidden">
+                      <bdi>{s.name}</bdi>
+                    </div>
                     <a
                       href={s.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-xs text-primary break-all"
+                      dir="ltr"
+                      className="text-xs text-primary break-all text-left"
                     >
                       {s.url}
                     </a>
@@ -114,14 +120,20 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                         </span>
                       ) : (
                         <span>
-                          {s.fileCount} pages · updated {s.updatedAt ? formatDateTime(s.updatedAt, hydrated) : 'never'}
-                          {s.revision ? ` · ${s.revision}` : ''}
+                          {s.fileCount} pages · updated{' '}
+                          <bdi>{s.updatedAt ? formatDateTime(s.updatedAt, hydrated) : 'never'}</bdi>
+                          {s.revision && (
+                            <>
+                              {' · '}
+                              <bdi dir="ltr">{s.revision}</bdi>
+                            </>
+                          )}
                         </span>
                       )}
                     </div>
                     {s.status === 'error' && s.error && (
                       <div className="text-xs text-error mt-1">
-                        {s.error}
+                        <bdi>{s.error}</bdi>
                         {s.fileCount > 0 ? ' (previous copy is still available)' : ''}
                       </div>
                     )}

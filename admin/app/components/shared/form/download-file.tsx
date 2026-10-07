@@ -130,6 +130,7 @@ export default function DownloadFile({
         type="secondary"
         onClick={handleDownloadClick}
         disabled={downloading}
+        ariaLabel="Download from a URL"
       >
         <FontAwesomeIcon icon={faDownload} />
       </FormButton>

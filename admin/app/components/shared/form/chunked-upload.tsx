@@ -261,6 +261,7 @@ export default function ChunkedUpload({
             }
             type="secondary"
             disabled={uploading}
+            ariaLabel="Upload files"
           >
             <FontAwesomeIcon icon={faUpload} />
           </FormButton>

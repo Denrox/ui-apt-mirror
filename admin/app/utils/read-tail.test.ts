@@ -52,4 +52,28 @@ describe('readTail', () => {
     fs.writeFileSync(file, `x\n${lines(2, 400)}`);
     await check(100);
   });
+
+  it('counts again when the log was truncated in place and grew past its old size unseen', async () => {
+    const file = path.join(dir, 'copytruncate.log');
+    const lines = (from: number, to: number, tag: string) =>
+      Array.from({ length: to - from + 1 }, (_, i) => `${tag} line ${String(from + i).padStart(7, '0')}\n`).join('');
+    const check = async () => {
+      const { content, firstLine } = await readTail(file, 2000);
+      expect(content.split('\n')[0]).toMatch(new RegExp(` line ${String(firstLine).padStart(7, '0')}$`));
+    };
+    fs.writeFileSync(file, lines(1, 3000, 'old'));
+    await check();
+    const ino = fs.statSync(file).ino;
+    // copytruncate: same inode, emptied, then more (and shorter) lines than before.
+    fs.truncateSync(file, 0);
+    fs.appendFileSync(file, lines(1, 3500, 'new, longer'));
+    expect(fs.statSync(file).ino).toBe(ino);
+    await check();
+    // Back to shorter lines, again past the counted end without a read in between.
+    fs.truncateSync(file, 0);
+    fs.appendFileSync(file, lines(1, 3800, 'new'));
+    await check();
+    fs.appendFileSync(file, lines(3801, 3900, 'new'));
+    await check();
+  });
 });

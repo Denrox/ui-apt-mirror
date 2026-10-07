@@ -11,9 +11,15 @@ import {
   isPublicCheatsheetsRequest,
   listSources,
   loadIndex,
+  MAX_EXTRACTED_BYTES,
+  parseIndex,
+  planExtraction,
   refreshSource,
   removeSource,
+  unescapeTarName,
+  writeIndex,
 } from './cheatsheets-store';
+import { execFileSync } from 'child_process';
 
 let dir: string;
 const originalDir = appConfig.cheatsheetsDir;
@@ -148,5 +154,127 @@ describe('isPublicCheatsheetsRequest', () => {
       new Request(url, { headers: referer ? { Referer: referer } : {} });
     expect(isPublicCheatsheetsRequest(req('http://cheatsheets.uam.test/api/cheatsheets/search'))).toBe(true);
     expect(isPublicCheatsheetsRequest(req('http://admin.uam.test/cheatsheets', 'http://cheatsheets.x/'))).toBe(false);
+  });
+});
+
+describe('planExtraction', () => {
+  const line = (type: string, size: number, name: string) =>
+    `${type}rw-r--r-- 0/0 ${String(size).padStart(9)} 2026-10-07 09:47:47 ${name}`;
+
+  it('takes only regular .md files and categories.json inside the folder', () => {
+    const plan = planExtraction(
+      [
+        line('d', 0, 'o-r-abc/'),
+        line('-', 10, 'o-r-abc/README.md'),
+        line('d', 0, 'o-r-abc/pages/'),
+        line('-', 10, 'o-r-abc/pages/a.md'),
+        line('-', 10, 'o-r-abc/pages/categories.json'),
+        line('-', 999, 'o-r-abc/pages/video.mp4'),
+        line('l', 0, 'o-r-abc/pages/link.md -> /etc/passwd'),
+        line('-', 3 * 1024 * 1024, 'o-r-abc/pages/huge.md'),
+        line('-', 10, 'o-r-abc/pages2/b.md'),
+        line('-', 10, 'o-r-abc/pages/sub dir/\\303\\274ber.md'),
+      ],
+      'pages',
+    );
+    expect(plan.folderFound).toBe(true);
+    expect(plan.members).toEqual([
+      'o-r-abc/pages/a.md',
+      'o-r-abc/pages/categories.json',
+      'o-r-abc/pages/sub dir/\\303\\274ber.md',
+    ]);
+    expect(plan.bytes).toBe(30);
+  });
+
+  it('notices a missing folder', () => {
+    expect(planExtraction([line('-', 1, 'o-r-abc/x.md')], 'nope').folderFound).toBe(false);
+  });
+
+  it('refuses archives whose markdown would unpack to too much', () => {
+    const lines = Array.from({ length: 300 }, (_, i) => line('-', 2 * 1024 * 1024, `o-r-abc/p/${i}.md`));
+    expect(300 * 2 * 1024 * 1024).toBeGreaterThan(MAX_EXTRACTED_BYTES);
+    expect(() => planExtraction(lines, 'p')).toThrow(/larger than 512 MB/);
+  });
+
+  it('reads the names tar escapes', () => {
+    expect(unescapeTarName('a\\nb\\\\c/\\303\\274ber.md')).toBe('a\nb\\c/über.md');
+  });
+});
+
+describe('index files', () => {
+  it('round-trip one page per line', async () => {
+    const entries = Array.from({ length: 300 }, (_, i) => ({
+      path: `p/${i}.md`,
+      title: `Page "${i}"\n`,
+      categories: ['x'],
+      text: 'line\nbreak, comma,',
+      headings: '',
+    }));
+    const file = path.join(dir, 'index.json');
+    await writeIndex(file, entries);
+    const text = fs.readFileSync(file, 'utf-8');
+    expect(JSON.parse(text)).toEqual(entries);
+    expect(text.split('\n')).toHaveLength(entries.length + 3);
+    expect(await parseIndex(text)).toEqual(entries);
+    await writeIndex(file, []);
+    expect(await parseIndex(fs.readFileSync(file, 'utf-8'))).toEqual([]);
+  });
+});
+
+describe('downloading a source', () => {
+  it('unpacks only the markdown of the folder, never symlinks', async () => {
+    const build = path.join(dir, 'build');
+    const top = path.join(build, 'o-r-0123abc');
+    fs.mkdirSync(path.join(top, 'pages', 'sub'), { recursive: true });
+    fs.mkdirSync(path.join(top, 'other'));
+    fs.writeFileSync(path.join(top, 'README.md'), '# Whole repo');
+    fs.writeFileSync(path.join(top, 'pages', 'README.md'), '# Pages folder');
+    fs.writeFileSync(path.join(top, 'pages', 'a.md'), '# Alpha\nhelp');
+    fs.writeFileSync(path.join(top, 'pages', 'sub', 'b.md'), '# Beta');
+    fs.writeFileSync(path.join(top, 'pages', 'blob.bin'), Buffer.alloc(1024 * 1024));
+    fs.writeFileSync(path.join(top, 'other', 'c.md'), '# Gamma');
+    fs.symlinkSync('/etc/hostname', path.join(top, 'pages', 'link.md'));
+    const archive = path.join(dir, 'repo.tar.gz');
+    execFileSync('tar', ['-czf', archive, '-C', build, 'o-r-0123abc']);
+    fs.rmSync(build, { recursive: true });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(fs.readFileSync(archive), { status: 200 })),
+    );
+    const added = await addSource('https://github.com/o/r/tree/main/pages');
+    await waitFor(() =>
+      JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8')).sources.some(
+        (s: { id: string; status: string }) => s.id === added.id && s.status !== 'downloading',
+      ),
+    );
+    const stored = (await listSources()).find((s) => s.id === added.id)!;
+    expect(stored).toMatchObject({ status: 'ready', fileCount: 2, name: 'Pages folder', revision: '0123abc' });
+    const files = path.join(dir, 'sources', added.id, 'files');
+    const list = (d: string): string[] =>
+      fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? list(path.join(d, e.name)).map((n) => `${e.name}/${n}`) : [e.name],
+      );
+    expect(list(files).sort()).toEqual(['a.md', 'sub/b.md']);
+    expect((await loadIndex(added.id)).map((e) => e.title).sort()).toEqual(['Alpha', 'Beta']);
+    expect(fs.readdirSync(dir).filter((n) => n.startsWith('.tmp-'))).toEqual([]);
+  });
+
+  it('says so when the folder is not in the repository', async () => {
+    const build = path.join(dir, 'build2', 'o-r-0123abc');
+    fs.mkdirSync(build, { recursive: true });
+    fs.writeFileSync(path.join(build, 'a.md'), '# A');
+    const archive = path.join(dir, 'repo2.tar.gz');
+    execFileSync('tar', ['-czf', archive, '-C', path.dirname(build), 'o-r-0123abc']);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(fs.readFileSync(archive), { status: 200 })));
+    const added = await addSource('https://github.com/o/r/tree/main/missing');
+    await waitFor(() =>
+      JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8')).sources.some(
+        (s: { id: string; status: string }) => s.id === added.id && s.status === 'error',
+      ),
+    );
+    expect((await listSources()).find((s) => s.id === added.id)?.error).toBe(
+      'Folder "missing" not found in the repository',
+    );
   });
 });
