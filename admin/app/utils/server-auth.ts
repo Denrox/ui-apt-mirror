@@ -4,7 +4,13 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import appConfig from '../config/config.json';
 import { giveToDirOwner } from './file-owner';
-import { checkCredentials, isTokenCurrent, revokeTokens } from './htpasswd';
+import {
+  checkCredentials,
+  isTokenCurrent,
+  isTokenRevoked,
+  revokeToken,
+  revokeTokens,
+} from './htpasswd';
 import { beginLoginAttempt, clientIp, loginSucceeded } from './login-limiter';
 import { assertSameOrigin, isPublicHostRequest } from './request-guard';
 
@@ -38,6 +44,7 @@ export interface AuthUser {
   type?: 'web' | 'npm';
   iat?: number;
   iatMs?: number;
+  jti?: string;
 }
 
 export interface LoginCredentials {
@@ -84,6 +91,7 @@ export async function createAuthToken(username: string): Promise<string> {
     exp: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
     type: 'web',
     iatMs: Date.now(),
+    jti: randomBytes(16).toString('base64url'),
   };
 
   return jwt.sign(payload, getJwtSecret());
@@ -95,6 +103,7 @@ export async function createNpmAuthToken(username: string): Promise<string> {
     exp: Math.floor(Date.now() / 1000) + NPM_TOKEN_MAX_AGE_MS / 1000,
     type: 'npm',
     iatMs: Date.now(),
+    jti: randomBytes(16).toString('base64url'),
   };
 
   return jwt.sign(payload, getJwtSecret());
@@ -119,11 +128,33 @@ export async function validateAuthToken(
     if (!isTokenCurrent(appConfig.htpasswdPath, decoded.username, issuedAtMs)) {
       return null;
     }
+    const id = tokenId(decoded);
+    if (id && isTokenRevoked(appConfig.htpasswdPath, id)) {
+      return null;
+    }
 
     return decoded;
   } catch (error) {
     return null;
   }
+}
+
+/** What identifies one token in the logout list: its jti, or for tokens made before jti, user and issue time. */
+function tokenId(user: AuthUser): string | null {
+  if (typeof user.jti === 'string' && /^[\w-]{1,64}$/.test(user.jti)) return user.jti;
+  const issued = user.iatMs ?? (user.iat !== undefined ? user.iat * 1000 : undefined);
+  if (typeof user.username !== 'string' || typeof issued !== 'number') return null;
+  return `${encodeURIComponent(user.username)}@${issued}`;
+}
+
+/** Ends the session in the request's cookie for good, not just in this browser. */
+export async function revokeSession(request: Request): Promise<void> {
+  const token = extractAuthToken(request.headers.get('Cookie'));
+  if (!token) return;
+  const user = await validateAuthToken(token);
+  const id = user && tokenId(user);
+  if (!user || !id) return;
+  revokeToken(appConfig.htpasswdPath, id, user.exp);
 }
 
 export function createAuthCookie(token: string): string {

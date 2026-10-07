@@ -18,6 +18,7 @@ import {
   createAuthToken,
   createNpmAuthToken,
   requireAuth,
+  revokeSession,
   revokeUserTokens,
   validateAuthToken,
   validateNpmAuthToken,
@@ -139,5 +140,44 @@ describe('requireAuth', () => {
     expect((await requireAuth(post))?.username).toBe('admin');
     const get = await withCookie({ headers: { 'Sec-Fetch-Site': 'same-site' } });
     expect((await requireAuth(get))?.username).toBe('admin');
+  });
+});
+
+describe('revokeSession (logout)', () => {
+  const cookieRequest = (token: string) =>
+    new Request('http://admin.mirror.intra/logout', {
+      method: 'POST',
+      headers: { Cookie: `auth_token=${token}` },
+    });
+
+  it('refuses the logged-out token but keeps the user\'s other sessions', async () => {
+    writePrivateFile(htpasswdPath, 'admin:x\nerin:y\n');
+    const loggedOut = await createAuthToken('erin');
+    const other = await createAuthToken('erin');
+    await revokeSession(cookieRequest(loggedOut));
+    expect(await validateAuthToken(loggedOut)).toBeNull();
+    expect(await validateAuthToken(other)).not.toBeNull();
+    const file = path.join(path.dirname(htpasswdPath), '.tokens-revoked');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it('revokes tokens issued before jti existed', async () => {
+    writePrivateFile(htpasswdPath, 'admin:x\nfrank:y\n');
+    const { default: jwt } = await import('jsonwebtoken');
+    const { getJwtSecret } = await import('./server-auth');
+    const legacy = jwt.sign(
+      { username: 'frank', type: 'web', iatMs: Date.now(), exp: Math.floor(Date.now() / 1000) + 3600 },
+      getJwtSecret(),
+    );
+    expect(await validateAuthToken(legacy)).not.toBeNull();
+    await revokeSession(cookieRequest(legacy));
+    expect(await validateAuthToken(legacy)).toBeNull();
+  });
+
+  it('ignores requests without a valid cookie', async () => {
+    await expect(revokeSession(cookieRequest('garbage'))).resolves.toBeUndefined();
+    await expect(
+      revokeSession(new Request('http://admin.mirror.intra/logout', { method: 'POST' })),
+    ).resolves.toBeUndefined();
   });
 });

@@ -6,9 +6,11 @@ import {
   checkCredentials,
   hashPassword,
   isTokenCurrent,
+  isTokenRevoked,
   parseHtpasswd,
   parseValidAfter,
   readHtpasswd,
+  revokeToken,
   revokeTokens,
   validAfterPath,
   verifyPassword,
@@ -155,5 +157,15 @@ describe('hardening', () => {
       withAuthFileLock(() => order.push('d')),
     ]);
     expect(order).toEqual(['a1', 'a2', 'b', 'c failed', 'd']);
+  });
+});
+
+describe('single token revocation', () => {
+  it('remembers revoked ids until they expire', () => {
+    revokeToken(file, 'a', 100, 50_000);
+    revokeToken(file, 'b', 200, 150_000);
+    expect(isTokenRevoked(file, 'a')).toBe(false); // expired at 100 s, pruned
+    expect(isTokenRevoked(file, 'b')).toBe(true);
+    expect(() => revokeToken(file, 'x 1\ny', 300)).toThrow();
   });
 });

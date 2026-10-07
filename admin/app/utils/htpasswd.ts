@@ -179,3 +179,39 @@ export function isTokenCurrent(
   if (validAfter === undefined) return true;
   return issuedAtMs !== undefined && issuedAtMs >= validAfter;
 }
+
+// Single tokens ended by logout: "<token id> <exp seconds>" lines, dropped
+// once the token would have expired anyway.
+export function revokedTokensPath(htpasswdFile: string): string {
+  return path.join(path.dirname(htpasswdFile), '.tokens-revoked');
+}
+
+export function parseRevokedTokens(content: string): Map<string, number> {
+  const entries = new Map<string, number>();
+  for (const line of content.split('\n')) {
+    const [id, exp, ...rest] = line.trim().split(/\s+/);
+    if (id && !rest.length && /^\d+$/.test(exp ?? '')) entries.set(id, Number(exp));
+  }
+  return entries;
+}
+
+export function isTokenRevoked(htpasswdFile: string, id: string): boolean {
+  return readCached(revokedTokensPath(htpasswdFile), parseRevokedTokens, new Map()).has(id);
+}
+
+export function revokeToken(
+  htpasswdFile: string,
+  id: string,
+  expSeconds: number,
+  now = Date.now(),
+): void {
+  if (!id || /\s/.test(id)) throw new Error('Invalid token id');
+  const nowSeconds = Math.floor(now / 1000);
+  const entries = new Map(
+    readCached(revokedTokensPath(htpasswdFile), parseRevokedTokens, new Map()),
+  ).set(id, expSeconds);
+  const lines = [...entries]
+    .filter(([, exp]) => exp >= nowSeconds)
+    .map(([tokenId, exp]) => `${tokenId} ${exp}\n`);
+  writePrivateFile(revokedTokensPath(htpasswdFile), lines.join(''));
+}
