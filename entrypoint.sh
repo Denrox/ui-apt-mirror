@@ -16,6 +16,10 @@ cleanup() {
 
 trap cleanup SIGTERM SIGINT
 
+# No core files: a crash of the admin app (a heap of up to a few GB) would leave one in its working
+# directory, /var/admin, inside the container, and every process started here inherits the limit.
+ulimit -c 0
+
 mkdir -p /var/log/nginx
 # Access log names contain the date, so nginx workers (www-data) open them per request.
 chown www-data:www-data /var/log/nginx
