@@ -111,7 +111,7 @@ describe('closureFromGraph', () => {
   });
 });
 
-describe('resource limits (r3-repos-7)', () => {
+describe('resource limits', () => {
   it('parses an index split into arbitrary chunks the same way', async () => {
     const { PackagesParser } = await import('./dep-closure');
     const whole = graphFrom(PACKAGES, true);

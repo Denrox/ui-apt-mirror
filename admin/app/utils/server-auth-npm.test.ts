@@ -15,7 +15,7 @@ import { writePrivateFile } from './htpasswd';
 
 afterAll(() => fs.rmSync(path.dirname(htpasswdPath), { recursive: true, force: true }));
 
-describe('revokeNpmToken (npm logout, r3-npm-3)', () => {
+describe('revokeNpmToken (npm logout)', () => {
   it('ends only the given npm token', async () => {
     writePrivateFile(htpasswdPath, 'admin:x\ngina:y\n');
     const loggedOut = await createNpmAuthToken('gina');

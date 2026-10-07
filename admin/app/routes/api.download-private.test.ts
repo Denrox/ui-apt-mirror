@@ -30,7 +30,7 @@ const get = (headers: Record<string, string> = {}) =>
     }),
   });
 
-describe('/api/download-private ranges (r3-files-12)', () => {
+describe('/api/download-private ranges', () => {
   it('sends the whole file and advertises ranges', async () => {
     const res = await get();
     expect(res.status).toBe(200);

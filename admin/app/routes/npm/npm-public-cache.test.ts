@@ -129,7 +129,7 @@ describe('public npm cache', () => {
   });
 });
 
-describe('upstream requests (r3-npm-1)', () => {
+describe('upstream requests', () => {
   it('only ever go to registry.npmjs.org, whatever the path', async () => {
     const paths = [
       '/http:/example.com/',

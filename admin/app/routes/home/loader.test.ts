@@ -5,7 +5,7 @@ vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => u
 
 const { filterNote } = await import('./loader');
 
-describe('filterNote (r3-repos-3)', () => {
+describe('filterNote', () => {
   it('is empty for an unfiltered repository alone on its upstream', () => {
     expect(filterNote(false, [])).toEqual([]);
     expect(filterNote(false, [{ title: 'Other', filtered: false }])).toEqual([]);

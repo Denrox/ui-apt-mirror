@@ -71,7 +71,7 @@ describe('scanTrees', () => {
   });
 });
 
-describe('scanTrees with symlinks (r2-files-7)', () => {
+describe('scanTrees with symlinks', () => {
   it('never descends into or cleans up through links that leave the roots', async () => {
     const root = path.join(dir, 'files');
     const outside = path.join(dir, 'outside');

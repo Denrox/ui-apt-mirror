@@ -79,7 +79,7 @@ const victimIntact = () => {
   expect(fs.readFileSync(path.join(dirs.priv, 'victim', 't.txt'), 'utf-8')).toBe('t');
 };
 
-describe('symlinks are operated on as links (r2-files-1, r2-files-16)', () => {
+describe('symlinks are operated on as links', () => {
   it('deleting a link removes the link and leaves the target alone', async () => {
     for (const name of ['link-file.txt', 'link-dir']) {
       const res = await post({ intent: 'deleteFile', filePath: path.join(dirs.files, name) });
@@ -139,7 +139,7 @@ describe('symlinks are operated on as links (r2-files-1, r2-files-16)', () => {
 });
 
 describe('uploads', () => {
-  it('stores an empty file sent as one empty chunk (r2-files-13)', async () => {
+  it('stores an empty file sent as one empty chunk', async () => {
     const res = await post({
       intent: 'uploadChunk',
       filePath: dirs.files,
@@ -153,7 +153,7 @@ describe('uploads', () => {
     expect(fs.statSync(path.join(dirs.files, '__init__.py')).size).toBe(0);
   });
 
-  it('refuses a name that is too long with a clear message (r2-files-15)', async () => {
+  it('refuses a name that is too long with a clear message', async () => {
     const res = await post({
       intent: 'uploadChunk',
       filePath: dirs.files,
@@ -169,7 +169,7 @@ describe('uploads', () => {
   });
 });
 
-describe('request body size (r3-files-3)', () => {
+describe('request body size', () => {
   it('stores a plain upload', async () => {
     const res = await post({ intent: 'uploadFile', filePath: dirs.files, file: new File(['hello'], 'plain.txt') });
     expect(res).toEqual({ success: true, message: 'File uploaded successfully' });
@@ -210,7 +210,7 @@ describe('request body size (r3-files-3)', () => {
   });
 });
 
-describe('folder paths (r3-files-5)', () => {
+describe('folder paths', () => {
   it('redirects another spelling of a folder to its canonical path', async () => {
     fs.mkdirSync(path.join(dirs.files, 'base'));
     for (const spelling of [`${dirs.files}/base/`, `${dirs.files}//base`, `${dirs.files}/./base`]) {
@@ -226,7 +226,7 @@ describe('folder paths (r3-files-5)', () => {
   });
 });
 
-describe('URL download (r2-files-4)', () => {
+describe('URL download', () => {
   it('cancelling ends the pending request and leaves nothing behind', async () => {
     const http = await import('http');
     const server = http.createServer((_req, res) => {
@@ -254,7 +254,7 @@ describe('URL download (r2-files-4)', () => {
   });
 });
 
-describe('container image download (r2-files-6)', () => {
+describe('container image download', () => {
   const pull = () =>
     post({ intent: 'downloadImage', imageUrl: 'busybox', imageTag: 'latest', currentPath: dirs.files });
   const tar = () => path.join(dirs.files, 'busybox_latest_amd64.tar');
@@ -285,7 +285,7 @@ describe('container image download (r2-files-6)', () => {
     expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.') || n.endsWith('.tar'))).toEqual([]);
   });
 
-  it('pulls from the registry named in the image (r3-files-10)', async () => {
+  it('pulls from the registry named in the image', async () => {
     skopeo.fail = false;
     skopeo.calls.length = 0;
     const res = await post({
@@ -298,14 +298,14 @@ describe('container image download (r2-files-6)', () => {
     expect(skopeo.calls[0]).toContain('docker://quay.io/prometheus/busybox:latest');
   });
 
-  it('refuses a tag in the image name with a clear message (r3-files-10)', async () => {
+  it('refuses a tag in the image name with a clear message', async () => {
     const res = await post({ intent: 'downloadImage', imageUrl: 'busybox:1.36', imageTag: 'latest', currentPath: dirs.files });
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/Tag field/);
   });
 });
 
-describe('managed storage and the public host (r2-files-17)', () => {
+describe('managed storage and the public host', () => {
   beforeEach(() => {
     fs.mkdirSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d'), { recursive: true });
     fs.writeFileSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key'), 'secret');
@@ -346,7 +346,7 @@ describe('managed storage and the public host (r2-files-17)', () => {
     expect((await post({ intent: 'deleteFile', filePath: path.join(dirs.npm, 'public') })).success).toBe(true);
   });
 
-  it('the signing keys and the mirror folders themselves cannot be deleted (r3-files-4)', async () => {
+  it('the signing keys and the mirror folders themselves cannot be deleted', async () => {
     fs.writeFileSync(path.join(dirs.mirror, 'gpg', 'keys.json'), '{}');
     for (const name of ['gpg', 'gpg/keys.json', 'gpg/gnupg', 'mirror', 'mirror/', 'mirror/.']) {
       const res = await post({ intent: 'deleteFile', filePath: path.join(dirs.mirror, name) });

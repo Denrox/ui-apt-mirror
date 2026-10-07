@@ -174,7 +174,7 @@ render mirror.intra
 check "changed base: next start still reminds" 'grep -q "Compare custom/files.mirror.intra.conf" "$CASE/log"'
 check "changed base: next start does not repeat the claim" '! grep -q "changed since" "$CASE/log"'
 
-# 10. An override whose only edit is another host name for one site (r3-upgrade-2):
+# 10. An override whose only edit is another host name for one site:
 #     kept through a stock change, flagged, and still serves that name
 for domain in mirror.intra c.test; do
     for other in files.example.org files.other.lan; do

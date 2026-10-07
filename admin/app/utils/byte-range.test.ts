@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseRange } from './byte-range';
 
-describe('parseRange (r3-files-12)', () => {
+describe('parseRange', () => {
   it.each([
     ['bytes=100-199', { start: 100, end: 199 }],
     ['bytes=100-', { start: 100, end: 999 }],

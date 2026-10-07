@@ -46,7 +46,7 @@ check "lock removed" '[ ! -f "$MIRROR_SYNC_LOCK" ]'
 check "says stopped" 'grep -q "stopped successfully" "$WORK/out"'
 wait "$OLD" 2>/dev/null
 
-echo "# r3-repos-4: a sync started while Stop still waits is left alone"
+echo "# a sync started while Stop still waits is left alone"
 start_sync quick
 OLD=$LAST
 "$SRC/scripts/stop-mirror.sh" > "$WORK/out" &

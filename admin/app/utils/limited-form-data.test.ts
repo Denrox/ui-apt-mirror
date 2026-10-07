@@ -28,13 +28,13 @@ describe('readFormData', () => {
     expect(new Uint8Array(await chunk.arrayBuffer())).toEqual(new Uint8Array(4096).fill(7));
   });
 
-  it('refuses a body whose declared length is over the limit (r3-files-3)', async () => {
+  it('refuses a body whose declared length is over the limit', async () => {
     const form = new FormData();
     form.append('file', new Blob([new Uint8Array(70 * 1024)]), 'big.bin');
     await expect(readFormData(post(form), 64 * 1024)).rejects.toBeInstanceOf(BodyTooLargeError);
   });
 
-  it('stops reading a streamed body once it passes the limit (r3-files-3)', async () => {
+  it('stops reading a streamed body once it passes the limit', async () => {
     await expect(readFormData(streamed(200 * 1024), 64 * 1024)).rejects.toThrow(
       'The request is too large',
     );

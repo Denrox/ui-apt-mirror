@@ -29,7 +29,7 @@ afterAll(() => fs.rmSync(base, { recursive: true, force: true }));
 
 const names = ({ results }: { results: { path: string }[] }) => results.map((r) => path.relative(files, r.path)).sort();
 
-describe('searchFiles (r2-files-7)', () => {
+describe('searchFiles', () => {
   it('does not follow symlinks out of the roots', async () => {
     // link-docs leads to a folder already searched, so it is not walked twice.
     expect(names(await searchFiles(files, 'match', [files]))).toEqual(['docs/match-a.txt']);
@@ -41,7 +41,7 @@ describe('searchFiles (r2-files-7)', () => {
   });
 });
 
-describe('searchFiles limits (r2-files-8)', () => {
+describe('searchFiles limits', () => {
   it('returns at most `limit` matches and says so', async () => {
     const many = path.join(files, 'many');
     fs.mkdirSync(many);

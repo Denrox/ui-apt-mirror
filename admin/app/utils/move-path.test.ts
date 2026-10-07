@@ -114,7 +114,7 @@ describe('moveFile', () => {
     expect(fs.readlinkSync(path.join(to, 'dir-link'))).toBe(path.join(from, 'dir'));
     expect(fs.existsSync(path.join(from, 'dir', 'sub', 'b.txt'))).toBe(true);
   });
-  it('keeps what is added to a folder while it is copied (r3-files-1)', async () => {
+  it('keeps what is added to a folder while it is copied', async () => {
     crossDevice();
     const realCp = fsp.cp;
     vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
@@ -132,7 +132,7 @@ describe('moveFile', () => {
     expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
   });
 
-  it('removes only what was copied unchanged and puts the rest back (r3-files-1)', async () => {
+  it('removes only what was copied unchanged and puts the rest back', async () => {
     crossDevice();
     const realCp = fsp.cp;
     vi.spyOn(fsp, 'cp').mockImplementation(async (src, ...rest) => {

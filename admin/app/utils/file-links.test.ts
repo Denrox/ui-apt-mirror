@@ -18,7 +18,7 @@ describe('relativeTo', () => {
   });
 });
 
-describe('viewOfPath (r2-files-11)', () => {
+describe('viewOfPath', () => {
   it.each([
     [null, 'public-files'],
     ['/var/www/files/x', 'public-files'],
@@ -37,14 +37,14 @@ describe('viewOfPath (r2-files-11)', () => {
   });
 });
 
-describe('fileUrl (r2-files-9, r2-files-10)', () => {
+describe('fileUrl', () => {
   it('encodes every path segment', () => {
     expect(encodePathSegments('a b/hash#1.txt')).toBe('a%20b/hash%231.txt');
     expect(fileUrl('/var/www/files/names/r2-files-hash#1.txt', dirs, hosts)).toBe(
       'http://files.mirror.intra/downloads/names/r2-files-hash%231.txt',
     );
-    expect(fileUrl('/var/www/files/r2-files-50%off.txt', dirs, hosts)).toBe(
-      'http://files.mirror.intra/downloads/r2-files-50%25off.txt',
+    expect(fileUrl('/var/www/files/50%off.txt', dirs, hosts)).toBe(
+      'http://files.mirror.intra/downloads/50%25off.txt',
     );
     expect(fileUrl('/var/www/files/q?.txt', dirs, hosts)).toBe('http://files.mirror.intra/downloads/q%3F.txt');
   });
@@ -68,7 +68,7 @@ describe('fileUrl (r2-files-9, r2-files-10)', () => {
   });
 });
 
-describe('canDelete (r3-files-4)', () => {
+describe('canDelete', () => {
   it('offers deletion in the mirror dir only inside the published tree', () => {
     for (const p of ['/var/spool/apt-mirror/gpg', '/var/spool/apt-mirror/gpg/keys.json', '/var/spool/apt-mirror/mirror', '/var/spool/apt-mirror/skel', '/var/spool/apt-mirror/var']) {
       expect(canDelete(p, dirs)).toBe(false);

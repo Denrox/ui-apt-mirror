@@ -21,7 +21,7 @@ const upstreams = [
   { url: 'http://archive.ubuntu.com/ubuntu', title: 'Ubuntu', filtered: false },
 ];
 
-describe('sharedFilterWarning (r3-repos-3)', () => {
+describe('sharedFilterWarning', () => {
   it('warns about an unfiltered repository on a filtered upstream', () => {
     expect(sharedFilterWarning(values(), upstreams)).toMatch(/only get the packages "Hello" selects/);
   });

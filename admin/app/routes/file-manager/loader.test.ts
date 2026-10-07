@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { canonicalPath, pageOf } from './loader';
 
-describe('pageOf (r2-files-8)', () => {
+describe('pageOf', () => {
   const items = Array.from({ length: 450 }, (_, i) => i);
 
   it('returns one page and the page count', () => {
@@ -18,7 +18,7 @@ describe('pageOf (r2-files-8)', () => {
   });
 });
 
-describe('canonicalPath (r3-files-5)', () => {
+describe('canonicalPath', () => {
   it.each([
     ['/var/www/files/base/', '/var/www/files/base'],
     ['/var/www/files/base//', '/var/www/files/base'],

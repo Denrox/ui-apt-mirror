@@ -79,7 +79,7 @@ describe('attemptLogin', () => {
     ).toEqual({ ok: true });
   });
 
-  it('is not reset by a correct login to another account (r3-auth-2)', async () => {
+  it('is not reset by a correct login to another account', async () => {
     writePrivateFile(
       htpasswdPath,
       `erin:${await hashPassword('right')}\nmallory:${await hashPassword('mine')}\n`,

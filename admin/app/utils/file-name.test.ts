@@ -45,12 +45,12 @@ describe('getValidationError', () => {
     ['tag character', '\u{E0041}'],
     ['division slash', '\u2215'],
     ['fullwidth slash', '\uFF0F'],
-  ])('rejects a name with a %s (r3-files-7)', (_kind, char) => {
+  ])('rejects a name with a %s', (_kind, char) => {
     expect(getValidationError(`r3-files-a${char}b`)).not.toBeNull();
   });
 
   it.each([' r3-files-lead', 'r3-files-trail ', 'r3-files-nbsp\u00A0', '\u3000r3-files-ideo'])(
-    'rejects leading or trailing whitespace in %j (r3-files-7)',
+    'rejects leading or trailing whitespace in %j',
     (name) => {
       expect(getValidationError(name)).toMatch(/start or end with a space/);
     },

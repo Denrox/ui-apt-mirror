@@ -82,7 +82,7 @@ describe('startDownload', () => {
     expect(leftovers()).toEqual(['f.bin']);
   });
 
-  it('follows redirects (r2-files-5)', async () => {
+  it('follows redirects', async () => {
     expect(await startDownload(`${base}/redir`, dest()).done).toEqual({ ok: true });
     expect(fs.readFileSync(dest(), 'utf-8')).toBe('hello');
     fs.rmSync(dest());
@@ -104,21 +104,21 @@ describe('startDownload', () => {
     expect(leftovers()).toEqual([]);
   });
 
-  it('a stalled transfer fails and leaves nothing behind (r2-files-4)', async () => {
+  it('a stalled transfer fails and leaves nothing behind', async () => {
     const result = await startDownload(`${base}/stall`, dest(), { idleTimeoutMs: 200 }).done;
     expect(result).toEqual({ ok: false, error: 'The server stopped responding' });
     expect(leftovers()).toEqual([]);
     expect(openFdsInDir()).toEqual([]);
   });
 
-  it('a connection reset mid-body settles and leaves nothing behind (r2-files-4)', async () => {
+  it('a connection reset mid-body settles and leaves nothing behind', async () => {
     const result = await startDownload(`${base}/reset`, dest(), { idleTimeoutMs: 5000 }).done;
     expect(result.ok).toBe(false);
     expect(leftovers()).toEqual([]);
     expect(openFdsInDir()).toEqual([]);
   });
 
-  it('cancel stops the transfer, closes the file and frees its space (r2-files-4)', async () => {
+  it('cancel stops the transfer, closes the file and frees its space', async () => {
     const download = startDownload(`${base}/slow`, dest());
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(fs.existsSync(dest())).toBe(false); // never visible under its name while running

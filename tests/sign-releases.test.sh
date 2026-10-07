@@ -54,7 +54,7 @@ signed_upstream() {
 # apt-mirror2's autoclean deletes every file the indexes do not list.
 autoclean() { find "$MIRROR_ROOT" -type f \( -name '*.upstream' -o -name '*.new' \) -delete; }
 
-echo "# r3-repos-1: the upstream signatures survive autoclean"
+echo "# the upstream signatures survive autoclean"
 make_suite deb.example.org/debian trixie one
 D="$MIRROR_ROOT/deb.example.org/debian/dists/trixie"
 "$SIGN" deb.example.org >/dev/null
@@ -106,7 +106,7 @@ rm -rf "$SKEL/deb.example.org"
 "$SIGN" --restore deb.example.org >/dev/null
 check "published folder restores" 'signed_upstream "$D"'
 
-echo "# r3-repos-2: a base URL with a port"
+echo "# a base URL with a port"
 make_suite deb.example.org:8080/debian trixie seven
 P="$MIRROR_ROOT/deb.example.org:8080/debian/dists/trixie"
 "$SIGN" deb.example.org > "$WORK/out"

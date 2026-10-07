@@ -50,7 +50,7 @@ TZ=Europe/Berlin
 ENV
 check "fresh: documented .env written" 'cmp -s "$d/expected" "$d/.env"'
 
-# An install's .env with the admin's own lines (r3-upgrade-1), a key changed by hand
+# An install's .env with the admin's own lines, a key changed by hand
 # (SYNC_FREQUENCY), and mode 640
 admin_env() {
     cat > "$1/.env" <<'ENV'

@@ -62,7 +62,7 @@ describe('login limiter', () => {
     expect(beginLoginAttempt('1.1.1.1', 'alice', 0)).toBeGreaterThan(0);
   });
 
-  it('does not let an account holder reset their address between guesses (r3-auth-2)', () => {
+  it('does not let an account holder reset their address between guesses', () => {
     // 4 guesses at the victim, then a correct login to the attacker's own account.
     fail('10.0.0.1', 'victim', 4);
     expect(beginLoginAttempt('10.0.0.1', 'attacker', 0)).toBe(0);
@@ -103,7 +103,7 @@ describe('login limiter', () => {
   });
 });
 
-describe('shared addresses (r3-auth-3)', () => {
+describe('shared addresses', () => {
   it('recognises the Docker gateway and loopback', () => {
     for (const ip of [GATEWAY, '::ffff:172.18.0.1', '127.0.0.1', '127.0.0.53', '::1', 'unknown'])
       expect(isSharedAddress(ip)).toBe(true);

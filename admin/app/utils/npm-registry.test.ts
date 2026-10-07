@@ -210,7 +210,7 @@ describe('isValidDistTag', () => {
     expect(isValidDistTag('a/b')).toBe(false);
   });
 
-  it('rejects the names of Object.prototype properties (r3-npm-5)', () => {
+  it('rejects the names of Object.prototype properties', () => {
     for (const tag of ['constructor', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'toLocaleString']) {
       expect(isValidDistTag(tag), tag).toBe(false);
     }
@@ -218,7 +218,7 @@ describe('isValidDistTag', () => {
   });
 });
 
-describe('upstreamUrl (r3-npm-1)', () => {
+describe('upstreamUrl', () => {
   const REG = 'https://registry.npmjs.org';
   const href = (p: string, search?: string) => upstreamUrl(REG, p, search)?.href ?? null;
 
