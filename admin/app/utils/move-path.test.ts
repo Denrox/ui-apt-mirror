@@ -3,7 +3,7 @@ import fs from 'fs';
 import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { moveFile, renameEntry, restoreParkedMoves, MOVE_SOURCE_PREFIX } from './move-path';
+import { moveFile, moveHolds, renameEntry, restoreParkedMoves, MOVE_SOURCE_PREFIX } from './move-path';
 
 let base: string;
 let from: string;
@@ -242,6 +242,67 @@ describe('moveFile', () => {
     expect(await moveFile(path.join(to, 'a.txt'), path.join(to, 'sub'))).toBe(true);
     expect(fs.readFileSync(path.join(to, 'sub', 'a.txt'), 'utf-8')).toBe('a');
     expect(fs.readdirSync(to)).toEqual(['sub']);
+    expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+
+  it('holds the parked source, the target and the folders above them while it copies', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    const seen: Record<string, boolean> = {};
+    vi.spyOn(fsp, 'cp').mockImplementation(async (src, ...rest) => {
+      seen.parked = moveHolds(String(src));
+      seen.inParked = moveHolds(path.join(String(src), 'sub', 'b.txt'));
+      seen.sourceFolder = moveHolds(from);
+      seen.target = moveHolds(path.join(to, 'dir'));
+      seen.targetFolder = moveHolds(to);
+      seen.base = moveHolds(base);
+      seen.sibling = moveHolds(path.join(from, 'a.txt'));
+      seen.oldName = moveHolds(path.join(from, 'dir'));
+      return realCp(src, ...rest);
+    });
+    expect(await moveFile(path.join(from, 'dir'), to)).toBe(true);
+    expect(seen).toEqual({
+      parked: true,
+      inParked: true,
+      sourceFolder: true,
+      target: true,
+      targetFolder: true,
+      base: true,
+      sibling: false,
+      oldName: false,
+    });
+    expect(moveHolds(from)).toBe(false);
+    expect(moveHolds(to)).toBe(false);
+  });
+
+  it('a restore while a move copies leaves its parked source alone', async () => {
+    crossDevice();
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      await restoreParkedMoves(base);
+      return realCp(...args);
+    });
+    expect(await moveFile(path.join(from, 'dir'), to)).toBe(true);
+    expect(fs.readFileSync(path.join(to, 'dir', 'sub', 'b.txt'), 'utf-8')).toBe('b');
+    expect(fs.existsSync(path.join(from, 'dir'))).toBe(false);
+    expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
+  });
+
+  it('a later restore puts back a source a failed move could not put back', async () => {
+    crossDevice();
+    vi.spyOn(fsp, 'cp').mockRejectedValue(new Error('ENOSPC'));
+    // Putting it back fails once (a full disk), so it stays parked.
+    const realMkdir = fsp.mkdir;
+    vi.spyOn(fsp, 'mkdir').mockImplementation(async (p, ...rest) => {
+      if (String(p).startsWith(from + path.sep)) throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+      return realMkdir(p, ...rest);
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await moveFile(path.join(from, 'dir'), to)).toBe(false);
+    expect(fs.existsSync(path.join(from, 'dir'))).toBe(false);
+    vi.mocked(fsp.mkdir).mockRestore();
+    await restoreParkedMoves(base);
+    expect(fs.readFileSync(path.join(from, 'dir', 'sub', 'b.txt'), 'utf-8')).toBe('b');
     expect(fs.readdirSync(from).filter((n) => n.startsWith('.'))).toEqual([]);
   });
 

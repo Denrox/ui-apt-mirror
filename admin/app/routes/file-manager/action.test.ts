@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
@@ -350,6 +350,65 @@ describe('container image download (r2-files-6)', () => {
     const res = await post({ intent: 'downloadImage', imageUrl: 'busybox:1.36', imageTag: 'latest', currentPath: dirs.files });
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/Tag field/);
+  });
+});
+
+describe('a move between public and private storage', () => {
+  // The two storages behave like separate mounts.
+  const crossDevice = async () => {
+    const fsp = (await import('fs/promises')).default;
+    const mount = (p: unknown) => (String(p).startsWith(dirs.priv) ? 'priv' : 'files');
+    const exdev = () => Object.assign(new Error('EXDEV'), { code: 'EXDEV' });
+    const realRename = fsp.rename;
+    const realLink = fsp.link;
+    vi.spyOn(fsp, 'rename').mockImplementation(async (a, b) => {
+      if (mount(a) !== mount(b)) throw exdev();
+      return realRename(a, b);
+    });
+    vi.spyOn(fsp, 'link').mockImplementation(async (a, b) => {
+      if (mount(a) !== mount(b)) throw exdev();
+      return realLink(a, b);
+    });
+    return fsp;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('refuses to rename, move or delete what it holds until it is done', async () => {
+    const fsp = await crossDevice();
+    fs.mkdirSync(path.join(dirs.files, 'parent', 'child'), { recursive: true });
+    fs.writeFileSync(path.join(dirs.files, 'parent', 'child', 'big.bin'), 'data');
+    const during: Record<string, unknown> = {};
+    const realCp = fsp.cp;
+    vi.spyOn(fsp, 'cp').mockImplementation(async (...args) => {
+      during.renameParent = await post({
+        intent: 'renameFile',
+        filePath: path.join(dirs.files, 'parent'),
+        newName: 'parent2',
+      });
+      during.moveParent = await post({
+        intent: 'moveFile',
+        sourcePath: path.join(dirs.files, 'parent'),
+        destinationPath: path.join(dirs.priv, 'victim'),
+      });
+      during.deleteParent = await post({ intent: 'deleteFile', filePath: path.join(dirs.files, 'parent') });
+      during.deletePlaceholder = await post({ intent: 'deleteFile', filePath: path.join(dirs.priv, 'child') });
+      return realCp(...args);
+    });
+    const moved = await post({
+      intent: 'moveFile',
+      sourcePath: path.join(dirs.files, 'parent', 'child'),
+      destinationPath: dirs.priv,
+    });
+    expect(moved).toEqual({ success: true, message: 'File moved successfully' });
+    for (const res of Object.values(during)) {
+      expect(res).toEqual({ success: false, error: expect.stringMatching(/move .* still running/) });
+    }
+    expect(fs.readFileSync(path.join(dirs.priv, 'child', 'big.bin'), 'utf-8')).toBe('data');
+    expect(fs.readdirSync(path.join(dirs.files, 'parent'))).toEqual([]);
+    // Once it is done, the folder can be renamed again.
+    const after = await post({ intent: 'renameFile', filePath: path.join(dirs.files, 'parent'), newName: 'parent2' });
+    expect(after.success).toBe(true);
   });
 });
 

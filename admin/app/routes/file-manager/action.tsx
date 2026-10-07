@@ -7,7 +7,7 @@ import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveEntry, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
-import { moveFile, renameEntry, restoreParkedMoves } from '~/utils/move-path';
+import { moveFile, moveHolds, renameEntry, restoreParkedMoves } from '~/utils/move-path';
 import {
   abortUpload,
   NameTakenError,
@@ -17,6 +17,7 @@ import {
   sweepStaleUploads,
   UPLOAD_TEMP_PREFIX,
   UploadError,
+  uploadTempDir,
   writeChunk,
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
@@ -35,17 +36,26 @@ const ARCHITECTURES = new Set(['amd64', 'arm64', 'arm', '386', 'ppc64le', 's390x
 
 const OUTSIDE = 'Path is outside the file storage';
 const NO_FOLDER = 'The folder does not exist';
+const MOVE_RUNNING = 'A move of this item, or of something in it, is still running; try again after it finishes';
 
 const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
 
 // Uploads cut off by a restart leave temp dirs behind; uploads stuck in this process are swept.
-// A move cut off by a restart leaves its source parked under a hidden name; put it back.
-for (const dir of [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean)) {
+// A move cut off by a restart, or one that could not put its source back, leaves the source
+// parked under a hidden name; put it back, at start and from then on.
+const userDirs = [appConfig.filesDir, appConfig.privateFilesDir].filter(Boolean);
+const restoreParked = () => {
+  for (const dir of userDirs) {
+    restoreParkedMoves(dir).catch((error) => console.error('Failed to restore parked moves:', error));
+  }
+};
+for (const dir of userDirs) {
   removeStaleTempDirs(dir).catch((error) => console.error('Failed to clean upload temp dirs:', error));
-  restoreParkedMoves(dir).catch((error) => console.error('Failed to restore parked moves:', error));
 }
+restoreParked();
 setInterval(() => {
   sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
+  restoreParked();
 }, 10 * 60 * 1000);
 
 // Running URL downloads by destination path, so the dialog's Cancel can stop one.
@@ -354,6 +364,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (blocked) {
         return { success: false, error: blocked };
       }
+      if (moveHolds(filePath)) {
+        return { success: false, error: MOVE_RUNNING };
+      }
       const success = await deleteFile(filePath);
       if (success) {
         return { success: true, message: 'File deleted successfully' };
@@ -382,6 +395,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (blocked) {
         return { success: false, error: blocked };
       }
+      if (moveHolds(filePath)) {
+        return { success: false, error: MOVE_RUNNING };
+      }
 
       const success = await renameFile(filePath, newName);
 
@@ -408,6 +424,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         (await writeBlocked('add', path.join(destinationPath, path.basename(sourcePath))));
       if (blocked) {
         return { success: false, error: blocked };
+      }
+      if (moveHolds(sourcePath)) {
+        return { success: false, error: MOVE_RUNNING };
       }
 
       const success = await moveFile(sourcePath, destinationPath);
@@ -480,6 +499,10 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       const fileId = formData.get('fileId');
       if (!filePath || typeof fileId !== 'string' || !UPLOAD_ID_RE.test(fileId)) {
         return { success: false, error: 'Missing required upload data' };
+      }
+      // Not the temp dir a running move copies into.
+      if (moveHolds(uploadTempDir(filePath, fileId))) {
+        return { success: false, error: MOVE_RUNNING };
       }
       await abortUpload(fileId, filePath);
       return { success: true };

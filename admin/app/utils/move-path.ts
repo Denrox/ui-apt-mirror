@@ -163,6 +163,29 @@ async function releaseClaim(claim: Claim) {
 export const MOVE_SOURCE_PREFIX = '.moving-';
 const PARKED_NAME_SUFFIX = '.name';
 
+// Paths running cross-mount moves hold: the parked source, the claimed target name and the temp
+// dir the copy is made in. Renaming, moving or deleting one of them, or a folder above one, would
+// pull it from under the move: a parked source would be left hidden, a placeholder replaced.
+const heldByMoves = new Set<string>();
+
+/** True when `p` is, contains or is inside something a running move holds. */
+export function moveHolds(p: string): boolean {
+  for (const held of heldByMoves) {
+    if (held === p || held.startsWith(p + path.sep) || p.startsWith(held + path.sep)) return true;
+  }
+  return false;
+}
+
+async function holding<T>(paths: string[], work: () => Promise<T>): Promise<T> {
+  const added = paths.filter((p) => !heldByMoves.has(p));
+  added.forEach((p) => heldByMoves.add(p));
+  try {
+    return await work();
+  } finally {
+    added.forEach((p) => heldByMoves.delete(p));
+  }
+}
+
 async function copyThenRemove(sourcePath: string, claim: Claim, destinationPath: string) {
   // Park the source under a hidden name on its own mount first. Anything written to its old
   // path during the copy (an upload, a new folder) then lands outside it, never in the tree
@@ -171,6 +194,10 @@ async function copyThenRemove(sourcePath: string, claim: Claim, destinationPath:
     path.dirname(sourcePath),
     `${MOVE_SOURCE_PREFIX}${randomBytes(8).toString('hex')}`,
   );
+  await holding([parked, claim.path], () => parkAndCopy(sourcePath, parked, claim, destinationPath));
+}
+
+async function parkAndCopy(sourcePath: string, parked: string, claim: Claim, destinationPath: string) {
   // Its name, for restoreParkedMoves after a restart.
   await fs.writeFile(parked + PARKED_NAME_SUFFIX, path.basename(sourcePath), { flag: 'wx' });
   try {
@@ -183,7 +210,9 @@ async function copyThenRemove(sourcePath: string, claim: Claim, destinationPath:
   try {
     await copyParked(parked, sourcePath, claim, destinationPath);
   } finally {
-    await fs.rm(parked + PARKED_NAME_SUFFIX, { force: true });
+    // While the source is still parked, its name stays for restoreParkedMoves.
+    const stillParked = await fs.lstat(parked).then(() => true, () => false);
+    if (!stillParked) await fs.rm(parked + PARKED_NAME_SUFFIX, { force: true });
   }
 }
 
@@ -200,16 +229,18 @@ async function copyParked(
     const tempDir = await fs.mkdtemp(path.join(destinationPath, MOVE_TEMP_PREFIX));
     try {
       const tempPath = path.join(tempDir, 'item');
-      await withBusyTempDir(tempDir, () =>
-        fs.cp(parked, tempPath, {
-          recursive: true,
-          errorOnExist: true,
-          force: false,
-          preserveTimestamps: true,
-          verbatimSymlinks: true,
-        }),
-      );
-      await placeOverClaim(tempPath, claim);
+      await holding([tempDir], async () => {
+        await withBusyTempDir(tempDir, () =>
+          fs.cp(parked, tempPath, {
+            recursive: true,
+            errorOnExist: true,
+            force: false,
+            preserveTimestamps: true,
+            verbatimSymlinks: true,
+          }),
+        );
+        await placeOverClaim(tempPath, claim);
+      });
       copied = true;
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -317,14 +348,17 @@ async function putBack(parked: string, sourcePath: string): Promise<void> {
   console.error(`Could not put back ${sourcePath}; it is kept as ${parked}`);
 }
 
-/** Puts back sources that a move had parked when the process stopped (below `root`). */
+/**
+ * Puts back sources (below `root`) that a move left parked: when the process stopped, or when
+ * putting one back failed. Sources a running move holds are left alone.
+ */
 export async function restoreParkedMoves(root: string): Promise<void> {
   const walk = async (dir: string) => {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.name.startsWith(MOVE_SOURCE_PREFIX)) {
-        if (e.name.endsWith(PARKED_NAME_SUFFIX)) continue;
+        if (e.name.endsWith(PARKED_NAME_SUFFIX) || heldByMoves.has(full)) continue;
         const note = full + PARKED_NAME_SUFFIX;
         const name = await fs.readFile(note, 'utf-8').catch(() => '');
         const valid = name && !name.includes('/') && name !== '.' && name !== '..';
