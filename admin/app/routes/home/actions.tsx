@@ -56,6 +56,22 @@ function revisionError(config: MirrorConfig, title: string, formData: FormData):
   return section && revision !== config.sectionRevision(section) ? STALE_ERROR : null;
 }
 
+/**
+ * Delete the mirrored (and skel) files of the given upstream URIs that no enabled repository
+ * uses any more: apt-mirror2 never cleans an upstream that is no longer synced, so its files
+ * would stay on disk (and served) for good. Returns the end of the message for the user.
+ */
+async function deleteUnusedData(config: MirrorConfig, uris: string[]): Promise<string> {
+  const dirs = unusedMirrorDirs(config, uris);
+  const roots = [appConfig.mirrorRoot, path.join(path.dirname(appConfig.mirrorRoot), 'skel')];
+  const deleted = dirs.length ? await deleteMirrorDirs(dirs, roots) : [];
+  return deleted.length
+    ? ' and its mirrored files deleted'
+    : dirs.length
+      ? '; it had no mirrored files'
+      : '; its mirrored files are kept because another enabled repository uses the same upstream';
+}
+
 function signedMessage(count: number): string {
   return count
     ? ` and signed ${count} Release file(s)`
@@ -147,18 +163,9 @@ export async function action({ request }: { request: Request }) {
           return { success: true, message: `Repository "${sectionTitle}" removed` };
         }
 
-        // apt-mirror2 never cleans an upstream that is no longer configured, so its files
-        // would stay on disk (and served) for good.
-        const dirs = unusedMirrorDirs(config, uris);
-        const roots = [appConfig.mirrorRoot, path.join(path.dirname(appConfig.mirrorRoot), 'skel')];
-        const deleted = dirs.length ? await deleteMirrorDirs(dirs, roots) : [];
         return {
           success: true,
-          message: deleted.length
-            ? `Repository "${sectionTitle}" removed and its mirrored files deleted`
-            : dirs.length
-              ? `Repository "${sectionTitle}" removed; it had no mirrored files`
-              : `Repository "${sectionTitle}" removed; its mirrored files are kept because another enabled repository uses the same upstream`,
+          message: `Repository "${sectionTitle}" removed${await deleteUnusedData(config, uris)}`,
         };
       });
     } catch (error) {
@@ -195,6 +202,14 @@ export async function action({ request }: { request: Request }) {
         if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
+        if (!enable && formData.get('deleteData') === 'true') {
+          // Disabling keeps the files unless asked: enabling again then needs no full download.
+          const uris = section.children.flatMap((c) => (c.kind === 'deb' ? [c.uri] : []));
+          return {
+            success: true,
+            message: `Repository section "${sectionTitle}" disabled${await deleteUnusedData(config, uris)}`,
+          };
+        }
         return {
           success: true,
           message: `Repository section "${sectionTitle}" ${

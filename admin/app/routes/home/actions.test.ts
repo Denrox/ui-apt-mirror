@@ -244,3 +244,81 @@ describe('package filters shared through one upstream (r3-repos-3)', () => {
     expect(result.error).toMatch(/"Updates" has no package filter/);
   });
 });
+
+describe('disabling a repository with deleteData', () => {
+  const OTHER = (enabled: boolean) => [
+    '# ---start---Other---',
+    `${enabled ? '' : '#'}deb http://example.com/debian testing main`,
+    '# ---end---Other---',
+  ];
+  function seedData() {
+    for (const root of ['mirror', 'skel']) {
+      fs.mkdirSync(`${state.dir}/${root}/example.com/debian/dists/stable`, { recursive: true });
+      fs.writeFileSync(`${state.dir}/${root}/example.com/debian/dists/stable/Release`, 'x');
+      fs.mkdirSync(`${state.dir}/${root}/keep.org/debian`, { recursive: true });
+    }
+  }
+  const disable = (deleteData: boolean) =>
+    post({
+      action: 'deleteRepository',
+      sectionTitle: 'Simple',
+      revision: revisionOf('Simple'),
+      ...(deleteData ? { deleteData: 'true' } : {}),
+    });
+  const isEnabled = (title: string) => {
+    const config = MirrorConfig.parse(readList());
+    return config.isSectionEnabled(config.getSection(title)!);
+  };
+
+  it('keeps the files by default', async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    const result = await disable(false);
+    expect(result.message).toMatch(/disabled successfully/);
+    expect(isEnabled('Simple')).toBe(false);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
+  });
+
+  it('deletes the mirrored and skel files of an upstream nothing else enabled uses', async () => {
+    writeList(SIMPLE(true), OTHER(false));
+    seedData();
+    const result = await disable(true);
+    expect(result.message).toMatch(/disabled and its mirrored files deleted/);
+    expect(isEnabled('Simple')).toBe(false);
+    expect(readList()).toContain('Simple');
+    for (const root of ['mirror', 'skel']) {
+      expect(fs.existsSync(`${state.dir}/${root}/example.com`)).toBe(false);
+      expect(fs.existsSync(`${state.dir}/${root}/keep.org/debian`)).toBe(true);
+    }
+  });
+
+  it('keeps files another enabled repository still uses', async () => {
+    writeList(SIMPLE(true), OTHER(true));
+    seedData();
+    const result = await disable(true);
+    expect(result.message).toMatch(/kept because another enabled repository/);
+    expect(isEnabled('Simple')).toBe(false);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
+  });
+
+  it('never deletes anything when enabling', async () => {
+    writeList(SIMPLE(false));
+    seedData();
+    const result = await post({
+      action: 'restoreRepository',
+      sectionTitle: 'Simple',
+      revision: revisionOf('Simple'),
+      deleteData: 'true',
+    });
+    expect(result.message).toMatch(/enabled successfully/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
+  });
+
+  it('is refused while a sync runs, like every repository change', async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    state.syncRunning = true;
+    expect((await disable(true)).error).toMatch(/sync is running/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian`)).toBe(true);
+  });
+});

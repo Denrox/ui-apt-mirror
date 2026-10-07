@@ -97,7 +97,7 @@ export default function Home() {
     }
   }, [actionData?.success, actionData?.error, actionData?.message]);
 
-  // Deleting mirrored files is chosen anew for every removal.
+  // Deleting mirrored files is chosen anew for every removal or disable.
   useEffect(() => setDeleteMirrorData(false), [confirmTarget]);
 
   const handleConfirm = () => {
@@ -108,7 +108,7 @@ export default function Home() {
     formData.append('action', confirmTarget.action);
     formData.append('sectionTitle', confirmTarget.title);
     formData.append('revision', confirmTarget.revision);
-    if (confirmTarget.action === 'removeRepository' && deleteMirrorData) {
+    if (deleteMirrorData) {
       formData.append('deleteData', 'true');
     }
     submit(formData, { method: 'post' });
@@ -738,7 +738,7 @@ export default function Home() {
         }
         isLoading={isActionInProgress}
       >
-        {confirmTarget?.action === 'removeRepository' && (
+        {confirmTarget && (
           <label className="flex items-start gap-2 mb-6 text-sm text-on-surface-variant">
             <input
               type="checkbox"
@@ -747,9 +747,10 @@ export default function Home() {
               onChange={(e) => setDeleteMirrorData(e.target.checked)}
             />
             <span>
-              Also delete its mirrored files. Syncs never clean an upstream that
-              is no longer configured. Files still used by another enabled
-              repository are kept.
+              {confirmTarget.action === 'removeRepository'
+                ? 'Also delete its mirrored files. Syncs never clean an upstream that is no longer configured.'
+                : 'Also delete its mirrored files, so clients stop getting them. Syncs never clean a disabled repository; enabling it again downloads everything anew.'}{' '}
+              Files still used by another enabled repository are kept.
             </span>
           </label>
         )}
