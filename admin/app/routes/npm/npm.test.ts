@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 
 const dirs = vi.hoisted(() => {
   const { mkdtempSync } = require('fs') as typeof import('fs');
@@ -185,6 +186,31 @@ describe('npm registry route', () => {
     expect((await call(request('/-/org/acme/user', { method: 'PUT', body: '{}' }))).status).toBe(405);
     expect((await post('/-/npm/v1/security/audits/..%2f..%2fx')).status).toBe(400);
     expect(upstream.calls).toEqual([]);
+  });
+
+  it('refuses an audit that is too large, also once decompressed', async () => {
+    const post = (body: Buffer, headers: Record<string, string> = {}) =>
+      call(
+        request('/-/npm/v1/security/advisories/bulk', {
+          method: 'POST',
+          body: new Uint8Array(body),
+          headers: { 'content-type': 'application/json', ...headers },
+        }),
+      );
+    // Zeros compress about 1000:1; this one would decompress to 64 MB.
+    const bomb = zlib.gzipSync(Buffer.alloc(64 * 1024 * 1024));
+    let res = await post(bomb, { 'content-encoding': 'gzip' });
+    expect(res.status).toBe(413);
+    expect((await res.json()).reason).toMatch(/too large/);
+    res = await post(zlib.deflateSync(Buffer.alloc(64 * 1024 * 1024)), { 'content-encoding': 'deflate' });
+    expect(res.status).toBe(413);
+    expect((await post(Buffer.alloc(17 * 1024 * 1024, 0x20))).status).toBe(413);
+    expect(upstream.calls).toEqual([]);
+
+    // A normal compressed audit is still sent, as plain JSON.
+    res = await post(zlib.gzipSync('{"ms":["2.1.3"]}'), { 'content-encoding': 'gzip' });
+    expect(res.status).toBe(200);
+    expect(upstream.calls).toHaveLength(1);
   });
 
   it('logs out locally: revokes the token and never sends it upstream (r3-npm-3, r3-auth-1)', async () => {

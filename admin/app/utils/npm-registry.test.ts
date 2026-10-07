@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import zlib from 'zlib';
 import {
   applyDocUpdate,
   auditPackageNames,
+  decodeBody,
   isFresh,
   isRegistryRequest,
   isValidDistTag,
@@ -14,6 +16,7 @@ import {
   packageScope,
   parseJsonObject,
   parseNpmPath,
+  PayloadTooLargeError,
   pathPackage,
   privateVersion,
   publicCachePath,
@@ -457,3 +460,26 @@ describe('tarballsAt', () => {
   });
 });
 
+
+describe('decodeBody', () => {
+  const json = Buffer.from('{"ms":["2.1.3"]}');
+
+  it('decodes gzip and deflate bodies and passes others through', async () => {
+    expect(await decodeBody(zlib.gzipSync(json), 'gzip', 1024)).toEqual(json);
+    expect(await decodeBody(zlib.gzipSync(json), ' X-Gzip', 1024)).toEqual(json);
+    expect(await decodeBody(zlib.deflateSync(json), 'deflate', 1024)).toEqual(json);
+    expect(await decodeBody(json, undefined, 1024)).toBe(json);
+    await expect(decodeBody(json, 'gzip', 1024)).rejects.not.toBeInstanceOf(PayloadTooLargeError);
+  });
+
+  it('stops decompressing at the limit', async () => {
+    const bomb = zlib.gzipSync(Buffer.alloc(64 * 1024 * 1024));
+    expect(bomb.length).toBeLessThan(100 * 1024);
+    await expect(decodeBody(bomb, 'gzip', 1024 * 1024)).rejects.toBeInstanceOf(PayloadTooLargeError);
+    await expect(decodeBody(zlib.deflateSync(Buffer.alloc(2048)), 'deflate', 1024)).rejects.toBeInstanceOf(
+      PayloadTooLargeError,
+    );
+    await expect(decodeBody(Buffer.alloc(2048), undefined, 1024)).rejects.toBeInstanceOf(PayloadTooLargeError);
+    expect((await decodeBody(zlib.gzipSync(Buffer.alloc(1024)), 'gzip', 1024)).length).toBe(1024);
+  });
+});

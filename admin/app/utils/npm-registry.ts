@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import zlib from 'zlib';
 
 // npm's own rules for package names; anything else could escape the storage dirs.
 export const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
@@ -365,4 +366,36 @@ export function packageScope(name: string): string | null {
 /** Whether npmjs' package list of a scope (`GET /-/org/<scope>/package`, name → access) has the name. */
 export function scopeListsPackage(list: unknown, name: string): boolean {
   return isObject(list) && Object.hasOwn(list, name);
+}
+
+export class PayloadTooLargeError extends Error {
+  constructor() {
+    super('Payload too large');
+  }
+}
+
+/**
+ * A request body decoded as its Content-Encoding says (gzip, deflate or none). Decoding stops as
+ * soon as the output passes maxBytes, with a PayloadTooLargeError: a few hundred KB of gzip can
+ * decode to GBs. Anything that is not valid gzip or deflate is an ordinary error.
+ */
+export function decodeBody(body: Buffer, encoding: string | undefined, maxBytes: number): Promise<Buffer> {
+  const coding = encoding?.trim().toLowerCase();
+  const decoder =
+    coding === 'gzip' || coding === 'x-gzip' ? zlib.createGunzip() : coding === 'deflate' ? zlib.createInflate() : null;
+  if (!decoder) {
+    return body.length > maxBytes ? Promise.reject(new PayloadTooLargeError()) : Promise.resolve(body);
+  }
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    decoder.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) decoder.destroy(new PayloadTooLargeError());
+      else chunks.push(chunk);
+    });
+    decoder.on('error', reject);
+    decoder.on('end', () => resolve(Buffer.concat(chunks)));
+    decoder.end(body);
+  });
 }

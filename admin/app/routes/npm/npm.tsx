@@ -17,6 +17,7 @@ import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {
   applyDocUpdate,
   auditPackageNames,
+  decodeBody,
   isAuditPath,
   isFresh,
   isRegistryRequest,
@@ -30,6 +31,7 @@ import {
   packageScope,
   parseJsonObject,
   parseNpmPath,
+  PayloadTooLargeError,
   pathPackage,
   privateVersion,
   publicCachePath,
@@ -805,13 +807,21 @@ async function npmLogout(request: Request, pathToken: string): Promise<Response>
   return jsonResponse({ ok: true });
 }
 
-/** The audit request body without locally published packages, as plain JSON; null if unreadable. */
+// An audit names each installed package and its version: a few MB even for a large monorepo.
+// The limit holds for the body as sent and once it is decompressed.
+const MAX_AUDIT_BODY_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The audit request body without locally published packages, as plain JSON; null if unreadable.
+ * Throws a PayloadTooLargeError when it decompresses to more than MAX_AUDIT_BODY_BYTES.
+ */
 async function publicAuditBody(body: Buffer, encoding: string | undefined, bulk: boolean): Promise<Buffer | null> {
   let payload: unknown;
   try {
-    const raw = encoding === 'gzip' ? zlib.gunzipSync(body) : encoding === 'deflate' ? zlib.inflateSync(body) : body;
+    const raw = await decodeBody(body, encoding, MAX_AUDIT_BODY_BYTES);
     payload = JSON.parse(raw.toString('utf-8'));
-  } catch {
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) throw error;
     return null;
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -1004,12 +1014,17 @@ export async function action({ request }: ActionFunctionArgs) {
       ? jsonResponse({})
       : new Response(message, { status, headers: { 'Content-Type': 'text/plain' } });
 
+  const tooLarge = () =>
+    jsonResponse({ error: 'Payload Too Large', reason: 'The audit request is too large' }, 413);
+
   try {
-    const body = await publicAuditBody(
-      Buffer.from(await request.arrayBuffer()),
-      originalHeaders['content-encoding'],
-      isBulkAudit,
-    );
+    const sent = await readBody(request, MAX_AUDIT_BODY_BYTES);
+    if (!sent) return tooLarge();
+    const body = await publicAuditBody(sent, originalHeaders['content-encoding'], isBulkAudit).catch((error) => {
+      if (error instanceof PayloadTooLargeError) return 'too large' as const;
+      throw error;
+    });
+    if (body === 'too large') return tooLarge();
     if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
     delete originalHeaders['content-encoding'];
     originalHeaders['content-type'] = 'application/json';
