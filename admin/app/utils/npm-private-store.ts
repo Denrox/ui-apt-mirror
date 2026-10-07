@@ -87,8 +87,10 @@ export class PrivatePackageStore {
   async writeTarball(name: string, file: string, data: Buffer): Promise<void> {
     await this.ready();
     const target = this.tarballPath(name, file);
+    const tmp = `${target}.${process.pid}.tmp`;
     await fs.mkdir(path.dirname(target), { recursive: true });
-    await fs.writeFile(target, data);
+    await fs.writeFile(tmp, data);
+    await fs.rename(tmp, target);
   }
 
   async removeTarball(name: string, file: string): Promise<void> {

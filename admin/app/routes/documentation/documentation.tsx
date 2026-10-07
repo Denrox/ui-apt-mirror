@@ -9,6 +9,7 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import {
   documentationSections,
   findDocumentationSection,
+  npmClientSetup,
   npmLoginCommand,
 } from '~/utils/documentation-sections';
 
@@ -343,8 +344,8 @@ export default function Documentation() {
             <p className="text-on-surface-variant mb-3">
               The NPM Proxy provides a local caching layer for npm packages,
               speeding up installations and reducing bandwidth usage. It also
-              supports publishing private packages that are stored locally and
-              never forwarded to the public npm registry.
+              supports publishing private packages that are stored locally;
+              their contents are never sent to the public npm registry.
             </p>
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary">
               <h5 className="font-semibold mb-2">Features:</h5>
@@ -355,9 +356,10 @@ export default function Documentation() {
                 <li>Offline package availability</li>
                 <li>Private package publishing (requires authentication)</li>
                 <li>
-                  Private packages stored separately and never forwarded to
-                  npmjs.org
+                  Private packages stored separately; their contents are never
+                  sent to npmjs.org
                 </li>
+                <li>Works with npm, pnpm and Yarn (1 and 2+)</li>
               </ul>
             </div>
           </div>
@@ -367,15 +369,33 @@ export default function Documentation() {
           <h3 className="text-lg font-semibold mb-4">Usage</h3>
           <div className="bg-surface-container p-4 rounded-lg">
             <h4 className="font-semibold text-primary mb-2">
-              Configure npm to use the proxy
+              Point your package manager at the proxy
             </h4>
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-tertiary">
               <h5 className="font-semibold mb-2">Commands:</h5>
-              <div className="space-y-2 text-sm font-mono">
-                <div className="bg-surface-container-lowest p-2 rounded">
-                  npm config set registry http://{npmHost}
-                </div>
+              <div className="space-y-3 text-sm">
+                {npmClientSetup(npmHost).map(({ client, commands }) => (
+                  <div key={client}>
+                    <p className="text-on-surface-variant mb-1">{client}:</p>
+                    {commands.map((command) => (
+                      <div
+                        key={command}
+                        className="bg-surface-container-lowest p-2 rounded font-mono text-xs break-all"
+                      >
+                        {command}
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
+              <p className="text-sm text-on-surface-variant mt-3">
+                Yarn 2+ refuses a registry over plain http unless its host is
+                in unsafeHttpWhitelist. To let Corepack download Yarn or pnpm
+                itself through the proxy, set
+                COREPACK_NPM_REGISTRY=http://{npmHost} as well. Tarball URLs
+                in lockfiles point at the proxy, so installs keep working when
+                npmjs.org cannot be reached.
+              </p>
             </div>
 
             <h4 className="font-semibold text-primary mb-2 mt-4">
@@ -404,8 +424,10 @@ export default function Documentation() {
           </h3>
           <div className="bg-surface-container p-4 rounded-lg">
             <p className="text-on-surface-variant mb-3">
-              You can publish private npm packages to this registry. All
-              packages are stored locally and never forwarded to npmjs.org.
+              You can publish private npm packages to this registry. Their
+              contents are stored locally and never sent to npmjs.org. Publish
+              them under a scope of your own (for example @yourorg/tool): a
+              name that is a public package on npmjs.org cannot be published.
             </p>
 
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-success mb-4">
@@ -458,6 +480,47 @@ export default function Documentation() {
               </div>
             </div>
 
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary mb-4">
+              <h5 className="font-semibold mb-2">Logging out:</h5>
+              <p className="text-sm text-on-surface-variant mb-2">
+                npm logout (and pnpm logout) ends the token on the server, so
+                it no longer works anywhere:
+              </p>
+              <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
+                npm logout --registry=http://{npmHost}
+              </div>
+              <p className="text-sm text-on-surface-variant mt-2">
+                Yarn 2+'s yarn npm logout only removes the token from its own
+                settings; the token stays valid until it expires.
+              </p>
+            </div>
+
+            <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-primary mb-4">
+              <h5 className="font-semibold mb-2">Which names can be published:</h5>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>
+                  The first publish of a name is checked with npmjs.org. A
+                  public package name is refused (403). For a scoped name only
+                  the package list of its scope is asked for, so the name
+                  itself is never sent; an unscoped name is looked up as is
+                </li>
+                <li>
+                  If npmjs.org gives no clear answer (an error, a rate limit),
+                  the publish is refused with 503; try again later
+                </li>
+                <li>
+                  If npmjs.org cannot be reached at all, only a scoped name
+                  whose scope has no public package in the cache can be
+                  published; unscoped names wait until npmjs.org can be
+                  reached
+                </li>
+                <li>
+                  Later versions of a package already published here are not
+                  checked again
+                </li>
+              </ul>
+            </div>
+
             <div className="bg-surface-container-lowest p-3 rounded border-l-4 border-tertiary">
               <h5 className="font-semibold mb-2">Important Notes:</h5>
               <ul className="list-disc list-inside space-y-1 text-sm">
@@ -469,12 +532,13 @@ export default function Documentation() {
                   Public packages (cached from npmjs.org) are stored in
                   data/data/npm/public/
                 </li>
-                <li>Published packages are never forwarded to npmjs.org</li>
                 <li>
-                  Private packages take precedence over cached public packages
+                  The contents of published packages are never sent to
+                  npmjs.org; only the check of a new name is
                 </li>
                 <li>
-                  Authentication tokens are JWT-based and valid for 1 year
+                  Authentication tokens are JWT-based and valid for 1 year, or
+                  until npm logout
                 </li>
               </ul>
             </div>

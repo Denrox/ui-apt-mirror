@@ -1,4 +1,5 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import zlib from 'zlib';
 
 // npm's own rules for package names; anything else could escape the storage dirs.
 export const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
@@ -110,7 +111,7 @@ export function mergePublish(
 
   if (added.some((v) => !isValidVersion(v))) return { status: 400, reason: 'Versions must be valid semver' };
 
-  const taken = added.filter((v) => existing?.versions?.[v]);
+  const taken = added.filter((v) => Object.hasOwn(existing?.versions ?? {}, v));
   if (taken.length) {
     return {
       status: 403,
@@ -158,9 +159,10 @@ export function applyDocUpdate(
   incoming: any,
   now = new Date().toISOString(),
 ): DocResult {
-  const incomingVersions: Record<string, any> = incoming.versions ?? {};
+  const incomingVersions: Record<string, any> = isObject(incoming.versions) ? incoming.versions : {};
   const keep = Object.keys(incomingVersions);
-  if (keep.some((v) => !existing.versions[v])) {
+  // Only own keys count as versions: `constructor` or `toString` would otherwise look published.
+  if (keep.some((v) => !isValidVersion(v) || !Object.hasOwn(existing.versions ?? {}, v))) {
     return { status: 400, reason: 'New versions must be published with their tarball' };
   }
   if (keep.length === 0) return { status: 400, reason: 'Use npm unpublish to remove the package' };
@@ -175,14 +177,14 @@ export function applyDocUpdate(
   }
 
   const tags = Object.entries<unknown>(incoming['dist-tags'] ?? existing['dist-tags']).filter(
-    ([tag, version]) => typeof version === 'string' && versions[version] && isValidDistTag(tag),
+    ([tag, version]) => typeof version === 'string' && Object.hasOwn(versions, version) && isValidDistTag(tag),
   ) as [string, string][];
   const distTags = Object.fromEntries(tags);
   distTags.latest ??= keep[keep.length - 1];
 
   const time: Record<string, string> = {};
   for (const [key, value] of Object.entries(existing.time ?? {})) {
-    if (versions[key] || !existing.versions[key]) time[key] = value;
+    if (Object.hasOwn(versions, key) || !Object.hasOwn(existing.versions ?? {}, key)) time[key] = value;
   }
   time.modified = now;
 
@@ -365,4 +367,77 @@ export function packageScope(name: string): string | null {
 /** Whether npmjs' package list of a scope (`GET /-/org/<scope>/package`, name → access) has the name. */
 export function scopeListsPackage(list: unknown, name: string): boolean {
   return isObject(list) && Object.hasOwn(list, name);
+}
+
+export class PayloadTooLargeError extends Error {
+  constructor() {
+    super('Payload too large');
+  }
+}
+
+/**
+ * A request body decoded as its Content-Encoding says (gzip, deflate or none). Decoding stops as
+ * soon as the output passes maxBytes, with a PayloadTooLargeError: a few hundred KB of gzip can
+ * decode to GBs. Anything that is not valid gzip or deflate is an ordinary error.
+ */
+export function decodeBody(body: Buffer, encoding: string | undefined, maxBytes: number): Promise<Buffer> {
+  const coding = encoding?.trim().toLowerCase();
+  const decoder =
+    coding === 'gzip' || coding === 'x-gzip' ? zlib.createGunzip() : coding === 'deflate' ? zlib.createInflate() : null;
+  if (!decoder) {
+    return body.length > maxBytes ? Promise.reject(new PayloadTooLargeError()) : Promise.resolve(body);
+  }
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    decoder.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBytes) decoder.destroy(new PayloadTooLargeError());
+      else chunks.push(chunk);
+    });
+    decoder.on('error', reject);
+    decoder.on('end', () => resolve(Buffer.concat(chunks)));
+    decoder.end(body);
+  });
+}
+
+export interface TarballDist {
+  integrity?: string;
+  shasum?: string;
+}
+
+/** dist.integrity and dist.shasum of the version whose tarball is `file`, from a packument; or null. */
+export function tarballDist(packument: string, file: string): TarballDist | null {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(packument);
+  } catch {
+    return null;
+  }
+  if (!isObject(doc) || !isObject(doc.versions)) return null;
+  for (const version of Object.values(doc.versions)) {
+    const dist = isObject(version) && isObject(version.dist) ? version.dist : null;
+    if (typeof dist?.tarball !== 'string' || !dist.tarball.endsWith(`/-/${file}`)) continue;
+    return {
+      integrity: typeof dist.integrity === 'string' ? dist.integrity : undefined,
+      shasum: typeof dist.shasum === 'string' ? dist.shasum : undefined,
+    };
+  }
+  return null;
+}
+
+const SRI_ALGORITHMS = new Set(['sha512', 'sha384', 'sha256', 'sha1']);
+
+/**
+ * Whether data has the hashes of `dist`: one of the known algorithms in the SRI string
+ * (integrity), else the hex sha1 (shasum). With neither there is nothing to compare.
+ */
+export function matchesDist(data: Buffer, dist: TarballDist): boolean {
+  const sri = (dist.integrity ?? '')
+    .split(/\s+/)
+    .map((entry) => /^([a-z0-9]+)-([A-Za-z0-9+/=]+)(?:\?.*)?$/.exec(entry))
+    .filter((m): m is RegExpExecArray => !!m && SRI_ALGORITHMS.has(m[1]));
+  if (sri.length) return sri.some(([, algorithm, digest]) => createHash(algorithm).update(data).digest('base64') === digest);
+  if (dist.shasum) return createHash('sha1').update(data).digest('hex') === dist.shasum.toLowerCase();
+  return true;
 }

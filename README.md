@@ -196,10 +196,28 @@ npm install --registry http://npm.mirror.intra
 npm config set registry https://registry.npmjs.org
 ```
 
+Other package managers:
+
+```bash
+# pnpm
+pnpm config set registry http://npm.mirror.intra
+
+# Yarn 1
+yarn config set registry http://npm.mirror.intra
+
+# Yarn 2+ (it refuses a registry over plain http unless the host is whitelisted)
+yarn config set npmRegistryServer http://npm.mirror.intra
+yarn config set unsafeHttpWhitelist --json '["npm.mirror.intra"]'
+```
+
+To let Corepack download Yarn or pnpm itself through the proxy, also set
+`COREPACK_NPM_REGISTRY=http://npm.mirror.intra`.
+
 The npm proxy will:
 - Cache packages locally on first download
 - Serve cached packages for subsequent requests
 - Automatically fetch from npmjs.org if not cached
+- Point tarball URLs (and so lockfiles) at the proxy, so installs keep working when npmjs.org cannot be reached
 
 ### Publishing NPM Packages
 
@@ -242,12 +260,16 @@ npm publish
 - All published packages are treated as private packages
 - Private packages are stored in `data/data/npm/private/`
 - Public packages (cached from npmjs.org) are stored in `data/data/npm/public/`
-- Published packages are **NOT** forwarded to npmjs.org
-- Private packages take precedence over cached public packages
-- Authentication tokens for npm are JWT-based and valid for 1 year; `npm logout` ends the token on the server
-- A name that is a public package on npmjs.org cannot be published. If npmjs.org gives no clear answer
-  (an error, a rate limit), the publish is refused with 503; try again later. If npmjs.org cannot be
-  reached at all, only a scoped name whose scope has no public package in the cache can be published
+- The contents of published packages are **NOT** sent to npmjs.org; only the check of a new name is (below)
+- Authentication tokens for npm are JWT-based and valid for 1 year; `npm logout` (and `pnpm logout`) ends
+  the token on the server. Yarn 2+'s `yarn npm logout` only removes it from Yarn's own settings
+- A name that is a public package on npmjs.org cannot be published (403); publish under a scope of your
+  own, such as `@yourorg/tool`. The first publish of a name is checked with npmjs.org: for a scoped name
+  only the package list of its scope is asked for, so the name itself is never sent; an unscoped name is
+  looked up as is. Later versions of a package already published here are not checked again
+- If npmjs.org gives no clear answer (an error, a rate limit), the publish is refused with 503; try again
+  later. If npmjs.org cannot be reached at all, only a scoped name whose scope has no public package in
+  the cache can be published; unscoped names wait until npmjs.org can be reached
 
 ### File Hosting
 

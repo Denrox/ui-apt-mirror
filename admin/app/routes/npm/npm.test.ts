@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { promises as fs } from 'fs';
 import path from 'path';
+import zlib from 'zlib';
 
 const dirs = vi.hoisted(() => {
   const { mkdtempSync } = require('fs') as typeof import('fs');
@@ -187,6 +188,31 @@ describe('npm registry route', () => {
     expect(upstream.calls).toEqual([]);
   });
 
+  it('refuses an audit that is too large, also once decompressed', async () => {
+    const post = (body: Buffer, headers: Record<string, string> = {}) =>
+      call(
+        request('/-/npm/v1/security/advisories/bulk', {
+          method: 'POST',
+          body: new Uint8Array(body),
+          headers: { 'content-type': 'application/json', ...headers },
+        }),
+      );
+    // Zeros compress about 1000:1; this one would decompress to 64 MB.
+    const bomb = zlib.gzipSync(Buffer.alloc(64 * 1024 * 1024));
+    let res = await post(bomb, { 'content-encoding': 'gzip' });
+    expect(res.status).toBe(413);
+    expect((await res.json()).reason).toMatch(/too large/);
+    res = await post(zlib.deflateSync(Buffer.alloc(64 * 1024 * 1024)), { 'content-encoding': 'deflate' });
+    expect(res.status).toBe(413);
+    expect((await post(Buffer.alloc(17 * 1024 * 1024, 0x20))).status).toBe(413);
+    expect(upstream.calls).toEqual([]);
+
+    // A normal compressed audit is still sent, as plain JSON.
+    res = await post(zlib.gzipSync('{"ms":["2.1.3"]}'), { 'content-encoding': 'gzip' });
+    expect(res.status).toBe(200);
+    expect(upstream.calls).toHaveLength(1);
+  });
+
   it('logs out locally: revokes the token and never sends it upstream (r3-npm-3, r3-auth-1)', async () => {
     const del = (p: string, headers: Record<string, string> = {}) => call(request(p, { method: 'DELETE', headers }));
     const token = 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFsaWNlIn0.sig';
@@ -263,14 +289,18 @@ describe('npm registry route', () => {
     const res = await call(request('/-/user/org.couchdb.user:alice', { method: 'PUT', body: big }));
     expect(res.status).toBe(413);
     // Without a Content-Length (chunked), reading stops at the limit too.
+    // The rest is left unread, not cancelled, so that the client still gets the answer.
+    const cancel = vi.fn();
     const chunked = new ReadableStream({
       start(controller) {
         for (let i = 0; i < 100; i++) controller.enqueue(new TextEncoder().encode('a'.repeat(1024)));
         controller.close();
       },
+      cancel,
     });
     const req = request('/-/user/org.couchdb.user:alice', { method: 'PUT', body: chunked, duplex: 'half' } as RequestInit);
     expect((await call(req)).status).toBe(413);
+    expect(cancel).not.toHaveBeenCalled();
     expect(serverAuth.attemptLogin).not.toHaveBeenCalled();
     // A normal login body is still read.
     await call(request('/-/user/org.couchdb.user:alice', { method: 'PUT', body: '{"name":"alice","password":"x"}' }));
@@ -290,6 +320,34 @@ describe('npm registry route', () => {
     expect((await publish('@acme/tags', '1.1.0', { latest: '1.1.0', constructor: '1.1.0' })).status).toBe(400);
     const tags = await (await call(request('/-/package/@acme%2ftags/dist-tags'))).json();
     expect(tags).toEqual({ latest: '1.0.0' });
+  });
+
+  it('takes only published semver versions as the target of a dist-tag or a document update', async () => {
+    expect((await publish('@acme/proto')).status).toBe(200);
+    const auth = { authorization: 'Bearer alice-token', 'content-type': 'application/json' };
+    for (const version of ['constructor', '__proto__', 'toString', 'hasOwnProperty', '2.0.0']) {
+      const res = await call(
+        request('/-/package/@acme%2fproto/dist-tags/latest', { method: 'PUT', body: JSON.stringify(version), headers: auth }),
+      );
+      expect(res.status, version).toBe(400);
+    }
+    const tags = await (await call(request('/-/package/@acme%2fproto/dist-tags'))).json();
+    expect(tags).toEqual({ latest: '1.0.0' });
+
+    const doc = await (await call(request('/@acme%2fproto'))).json();
+    const update = (versions: string) =>
+      call(
+        request(`/@acme%2fproto/-rev/${doc._rev}`, {
+          method: 'PUT',
+          headers: auth,
+          body: `{"name":"@acme/proto","versions":${versions}}`,
+        }),
+      );
+    expect((await update('{"1.0.0":{},"constructor":{},"toString":{}}')).status).toBe(400);
+    expect((await update('{"1.0.0":{},"__proto__":{}}')).status).toBe(400);
+    const after = await (await call(request('/@acme%2fproto'))).json();
+    expect(Object.keys(after.versions)).toEqual(['1.0.0']);
+    expect(after._rev).toBe(doc._rev);
 
   });
 });

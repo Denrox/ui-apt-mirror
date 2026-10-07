@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import https from 'https';
 import zlib from 'zlib';
+import { randomBytes } from 'crypto';
 import { isWithin } from '~/utils/safe-path';
 import { hostAddress } from '~/utils/hosts';
 import appConfig from '~/config/config.json';
@@ -17,6 +18,7 @@ import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {
   applyDocUpdate,
   auditPackageNames,
+  decodeBody,
   isAuditPath,
   isFresh,
   isRegistryRequest,
@@ -25,16 +27,19 @@ import {
   isValidVersion,
   isWebLoginPath,
   logoutPathToken,
+  matchesDist,
   mergePublish,
   nextRev,
   packageScope,
   parseJsonObject,
   parseNpmPath,
+  PayloadTooLargeError,
   pathPackage,
   privateVersion,
   publicCachePath,
   revMatches,
   scopeListsPackage,
+  tarballDist,
   tarballsAt,
   type DocResult,
   type NpmPath,
@@ -118,6 +123,7 @@ async function fetchFromNpm(
       res.on('data', (chunk) => {
         chunks.push(chunk);
       });
+      res.on('error', reject);
 
       res.on('end', () => {
         let data = Buffer.concat(chunks);
@@ -125,6 +131,13 @@ async function fetchFromNpm(
         if (res.statusCode === 304) {
           console.log(`304 Not Modified for ${packagePath} - using cached version`);
           reject(new Error('304_NOT_MODIFIED'));
+          return;
+        }
+
+        // A connection that closed early ends the body too; such a body must not be cached.
+        const declared = res.headers['content-length'];
+        if (res.complete === false || (declared !== undefined && Number(declared) !== data.length)) {
+          reject(new Error(`Incomplete response from npm registry for ${packagePath}`));
           return;
         }
         
@@ -197,6 +210,22 @@ async function fetchFromNpm(
   });
 }
 
+/** Write a file under a temporary name and rename it into place, so no reader sees it half written. */
+async function writeFileAtomic(filePath: string, data: string | Buffer) {
+  const tmp = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    await fs.writeFile(tmp, data);
+    await fs.rename(tmp, filePath);
+  } catch (error) {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * Cache a complete upstream body. The body and then its .meta are each renamed into place whole;
+ * the .meta records the body's size, and a body without a .meta of its size is not served.
+ */
 async function saveToCache(
   filePath: string,
   data: Buffer,
@@ -209,11 +238,9 @@ async function saveToCache(
     }
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, data);
-
-    const metaPath = filePath + '.meta';
-    await fs.writeFile(
-      metaPath,
+    await writeFileAtomic(filePath, data);
+    await writeFileAtomic(
+      filePath + '.meta',
       JSON.stringify(
         {
           headers,
@@ -229,6 +256,10 @@ async function saveToCache(
   }
 }
 
+/**
+ * A cached body with its headers. A body whose .meta is missing or names another size (a write
+ * that is still going on, or one cut short by a crash before writes were atomic) is a miss.
+ */
 async function loadFromCache(
   filePath: string,
 ): Promise<{ data: Buffer; headers: Record<string, string> }> {
@@ -239,23 +270,30 @@ async function loadFromCache(
       throw new Error('Empty cached file');
     }
 
-    let headers: Record<string, string> = {};
-    try {
-      const metaPath = filePath + '.meta';
-      const metaData = await fs.readFile(metaPath, 'utf-8');
-      const meta = JSON.parse(metaData);
-      headers = meta.headers || {};
-
-      headers['x-cache'] = 'HIT';
-      headers['x-cached-at'] = meta.cachedAt;
-    } catch {
-      headers['x-cache'] = 'HIT';
+    const meta = JSON.parse(await fs.readFile(filePath + '.meta', 'utf-8'));
+    if (meta?.size !== data.length) {
+      throw new Error('Cached file does not match its metadata');
     }
+    const headers: Record<string, string> = { ...meta.headers };
+    headers['x-cache'] = 'HIT';
+    headers['x-cached-at'] = meta.cachedAt;
 
     return { data, headers };
   } catch (error) {
     throw new Error('Failed to load from cache');
   }
+}
+
+/**
+ * Whether a downloaded tarball matches what the cached packument of its package says about it
+ * (dist.integrity or dist.shasum). Without a cached packument, or a version naming the tarball,
+ * there is nothing to check against.
+ */
+async function matchesCachedPackument(tarballCachePath: string, data: Buffer): Promise<boolean> {
+  const packumentPath = path.join(path.dirname(path.dirname(tarballCachePath)), 'package.json');
+  const packument = await fs.readFile(packumentPath, 'utf-8').catch(() => null);
+  const dist = packument && tarballDist(packument, path.basename(tarballCachePath));
+  return !dist || matchesDist(data, dist);
 }
 
 async function isPrivatePackage(packageName: string): Promise<boolean> {
@@ -431,8 +469,9 @@ async function loadPublicPackage(
   cachePath: string,
   originalHeaders: Record<string, string>,
 ): Promise<Upstream> {
+  const isTarball = packagePath.includes('/-/');
   const cached = await loadFromCache(cachePath).catch(() => null);
-  if (cached && (packagePath.includes('/-/') || isFresh(cached.headers['x-cached-at']))) {
+  if (cached && (isTarball || isFresh(cached.headers['x-cached-at']))) {
     return { ...cached, status: 200 };
   }
 
@@ -441,6 +480,9 @@ async function loadPublicPackage(
 
   try {
     const fetched = await fetchFromNpm(packagePath, '', forwarded);
+    if (fetched.status === 200 && isTarball && !(await matchesCachedPackument(cachePath, fetched.data))) {
+      throw new Error(`${packagePath} does not match the integrity in its packument`);
+    }
     // Only successful responses are cached; a 404 or an error is passed on as is.
     if (fetched.status === 200) await saveToCache(cachePath, fetched.data, fetched.headers);
     else if (cached && fetched.status >= 500) throw new Error(`Upstream returned ${fetched.status}`);
@@ -745,7 +787,7 @@ async function changeDistTag(
 
     const tags = { ...doc['dist-tags'] };
     if (request.method === 'PUT') {
-      if (typeof version !== 'string' || !doc.versions?.[version]) {
+      if (typeof version !== 'string' || !isValidVersion(version) || !Object.hasOwn(doc.versions ?? {}, version)) {
         return jsonResponse({ error: `Version not found: ${String(version)}` }, 400);
       }
       tags[tag] = version;
@@ -762,10 +804,14 @@ async function changeDistTag(
 // A login is a name and a password; npm sends a few more fields, nothing near this.
 const MAX_LOGIN_BODY_BYTES = 64 * 1024;
 
-/** The request body as text, or null once it is longer than maxBytes (nothing more is read). */
-async function readBodyText(request: Request, maxBytes: number): Promise<string | null> {
+/**
+ * The request body, or null once it is longer than maxBytes (nothing more is read). The rest of a
+ * refused body is left unread rather than cancelled: cancelling resets the connection, so the
+ * client would never see the answer.
+ */
+async function readBody(request: Request, maxBytes: number): Promise<Buffer | null> {
   if (Number(request.headers.get('content-length') ?? 0) > maxBytes) return null;
-  if (!request.body) return '';
+  if (!request.body) return Buffer.alloc(0);
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -774,12 +820,16 @@ async function readBodyText(request: Request, maxBytes: number): Promise<string 
     if (done) break;
     size += value.byteLength;
     if (size > maxBytes) {
-      await reader.cancel().catch(() => {});
+      reader.releaseLock();
       return null;
     }
     chunks.push(value);
   }
-  return Buffer.concat(chunks).toString('utf-8');
+  return Buffer.concat(chunks, size);
+}
+
+async function readBodyText(request: Request, maxBytes: number): Promise<string | null> {
+  return (await readBody(request, maxBytes))?.toString('utf-8') ?? null;
 }
 
 /**
@@ -797,13 +847,21 @@ async function npmLogout(request: Request, pathToken: string): Promise<Response>
   return jsonResponse({ ok: true });
 }
 
-/** The audit request body without locally published packages, as plain JSON; null if unreadable. */
+// An audit names each installed package and its version: a few MB even for a large monorepo.
+// The limit holds for the body as sent and once it is decompressed.
+const MAX_AUDIT_BODY_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The audit request body without locally published packages, as plain JSON; null if unreadable.
+ * Throws a PayloadTooLargeError when it decompresses to more than MAX_AUDIT_BODY_BYTES.
+ */
 async function publicAuditBody(body: Buffer, encoding: string | undefined, bulk: boolean): Promise<Buffer | null> {
   let payload: unknown;
   try {
-    const raw = encoding === 'gzip' ? zlib.gunzipSync(body) : encoding === 'deflate' ? zlib.inflateSync(body) : body;
+    const raw = await decodeBody(body, encoding, MAX_AUDIT_BODY_BYTES);
     payload = JSON.parse(raw.toString('utf-8'));
-  } catch {
+  } catch (error) {
+    if (error instanceof PayloadTooLargeError) throw error;
     return null;
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
@@ -996,12 +1054,17 @@ export async function action({ request }: ActionFunctionArgs) {
       ? jsonResponse({})
       : new Response(message, { status, headers: { 'Content-Type': 'text/plain' } });
 
+  const tooLarge = () =>
+    jsonResponse({ error: 'Payload Too Large', reason: 'The audit request is too large' }, 413);
+
   try {
-    const body = await publicAuditBody(
-      Buffer.from(await request.arrayBuffer()),
-      originalHeaders['content-encoding'],
-      isBulkAudit,
-    );
+    const sent = await readBody(request, MAX_AUDIT_BODY_BYTES);
+    if (!sent) return tooLarge();
+    const body = await publicAuditBody(sent, originalHeaders['content-encoding'], isBulkAudit).catch((error) => {
+      if (error instanceof PayloadTooLargeError) return 'too large' as const;
+      throw error;
+    });
+    if (body === 'too large') return tooLarge();
     if (!body) return jsonResponse({ error: 'Invalid audit payload' }, 400);
     delete originalHeaders['content-encoding'];
     originalHeaders['content-type'] = 'application/json';

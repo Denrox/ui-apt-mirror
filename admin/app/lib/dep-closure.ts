@@ -75,42 +75,98 @@ function relationNames(field: string | undefined): string[] {
 const FETCH_TIMEOUT_MS = 60_000;
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_INDEX_BYTES = 512 * 1024 * 1024;
-/** Most component × architecture combinations one resolve may load (each also loads binary-all). */
-export const MAX_INDEX_COMBINATIONS = 6;
+/**
+ * Most component × architecture combinations one resolve may load (each also loads binary-all):
+ * the stock component sets of Debian and Ubuntu (4 components) for up to 4 architectures. This
+ * bounds the downloads; memory is bounded by MAX_GRAPH_ENTRIES.
+ */
+export const MAX_INDEX_COMBINATIONS = 16;
+/**
+ * Most entries (packages, the names in their dependency fields, providers of virtual packages)
+ * the graph of one resolve may hold. Packages of the same name in several indices are one entry,
+ * so more architectures add little: all 4 components of Debian trixie with Recommends take about
+ * 570,000 for amd64 and i386 and 580,000 with arm64 and armhf too (about 125 MB of heap), Ubuntu
+ * noble about 550,000. The cap keeps a resolve's graph to a few hundred MB.
+ */
+export const MAX_GRAPH_ENTRIES = 2_000_000;
+
+/** Thrown when the indices of one resolve hold more than MAX_GRAPH_ENTRIES. */
+export class ResolveTooLargeError extends Error {}
+
+/** How many entries a resolve's graph holds, shared by the parsers of its indices. */
+export interface GraphBudget {
+  entries: number;
+  max: number;
+}
 
 // Only these fields of a stanza matter for the closure; the rest is skipped unread.
 const WANTED_FIELDS = new Set(['package', 'depends', 'pre-depends', 'recommends', 'provides']);
 const NEWLINE = 0x0a;
+/**
+ * Longest line, and longest kept field with its continuation lines, of an index. Real ones are a
+ * few KB at most (the Provides of some Rust library packages: tens of KB).
+ */
+export const MAX_LINE_BYTES = 1024 * 1024;
+
+/** An index that is too large, or has a line that is too long, to be read. */
+export class IndexLimitError extends UpstreamFetchError {}
 
 /**
  * Parses a Packages index chunk by chunk, keeping only the fields the closure needs. The
  * decompressed index (hundreds of MB for Debian main) is never held in memory as a whole,
  * and every kept value is a new string, not a slice that would keep a whole chunk alive.
+ * Every byte is looked at once: the unfinished line at the end of a chunk is kept as a list of
+ * parts and joined only when its newline arrives.
  */
 export class PackagesParser {
-  private rest: Buffer | null = null;
+  private partial: Buffer[] = [];
+  private partialBytes = 0;
   private fields: Record<string, string> = {};
   private current: string | null = null;
 
   constructor(
     private readonly graph: DepGraph,
     private readonly includeRecommends: boolean,
+    private readonly budget: GraphBudget = { entries: 0, max: MAX_GRAPH_ENTRIES },
   ) {}
 
+  /** Parse the next chunk; throws an IndexLimitError on a line longer than MAX_LINE_BYTES. */
   push(chunk: Buffer): void {
-    const buf = this.rest ? Buffer.concat([this.rest, chunk]) : chunk;
     let start = 0;
-    for (let nl = buf.indexOf(NEWLINE, start); nl !== -1; nl = buf.indexOf(NEWLINE, start)) {
-      this.line(buf, start, nl);
+    let nl = chunk.indexOf(NEWLINE);
+    if (this.partialBytes > 0 && nl !== -1) {
+      this.keep(chunk.subarray(0, nl));
+      const line = this.takePartial();
+      this.line(line, 0, line.length);
+      start = nl + 1;
+      nl = chunk.indexOf(NEWLINE, start);
+    }
+    for (; nl !== -1; nl = chunk.indexOf(NEWLINE, start)) {
+      this.line(chunk, start, nl);
       start = nl + 1;
     }
-    this.rest = start < buf.length ? Buffer.from(buf.subarray(start)) : null;
+    if (start < chunk.length) this.keep(chunk.subarray(start));
   }
 
   end(): void {
-    if (this.rest) this.line(this.rest, 0, this.rest.length);
-    this.rest = null;
+    if (this.partialBytes > 0) {
+      const line = this.takePartial();
+      this.line(line, 0, line.length);
+    }
     this.finish();
+  }
+
+  private keep(part: Buffer): void {
+    this.partialBytes += part.length;
+    if (this.partialBytes > MAX_LINE_BYTES) throw new IndexLimitError('A line of the package index is too long');
+    this.partial.push(Buffer.from(part));
+  }
+
+  private takePartial(): Buffer {
+    const line = Buffer.concat(this.partial, this.partialBytes);
+    this.partial = [];
+    this.partialBytes = 0;
+    return line;
   }
 
   private line(buf: Buffer, start: number, end: number): void {
@@ -121,7 +177,10 @@ export class PackagesParser {
     }
     const first = buf[start];
     if (first === 0x20 || first === 0x09) {
-      if (this.current) this.fields[this.current] += ' ' + buf.toString('utf8', start, end).trim();
+      if (!this.current) return;
+      const value = this.fields[this.current] + ' ' + buf.toString('utf8', start, end).trim();
+      if (value.length > MAX_LINE_BYTES) throw new IndexLimitError('A field of the package index is too long');
+      this.fields[this.current] = value;
       return;
     }
     const colon = buf.indexOf(0x3a, start);
@@ -152,11 +211,30 @@ export class PackagesParser {
       ...(this.includeRecommends ? relationNames(fields['recommends']) : []),
     ];
     // Last stanza wins for duplicate names across components (fine for closure).
+    const replaced = pkgs.get(name);
+    this.count(1 + deps.length - (replaced ? 1 + replaced.deps.length : 0));
     pkgs.set(name, { deps });
 
     for (const prov of relationNames(fields['provides'])) {
-      if (!provides.has(prov)) provides.set(prov, new Set());
-      provides.get(prov)!.add(name);
+      let providers = provides.get(prov);
+      if (!providers) {
+        providers = new Set();
+        provides.set(prov, providers);
+        this.count(1);
+      }
+      if (!providers.has(name)) {
+        providers.add(name);
+        this.count(1);
+      }
+    }
+  }
+
+  private count(entries: number): void {
+    this.budget.entries += entries;
+    if (this.budget.entries > this.budget.max) {
+      throw new ResolveTooLargeError(
+        'These package indices are too large to resolve at once; select fewer components or architectures',
+      );
     }
   }
 }
@@ -168,8 +246,12 @@ function gunzipInto(buf: Buffer, parser: PackagesParser): Promise<void> {
     let size = 0;
     gunzip.on('data', (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_INDEX_BYTES) gunzip.destroy(new Error('Package index is too large'));
-      else parser.push(chunk);
+      try {
+        if (size > MAX_INDEX_BYTES) throw new IndexLimitError('A package index is too large');
+        parser.push(chunk);
+      } catch (err) {
+        gunzip.destroy(err as Error);
+      }
     });
     gunzip.on('error', reject);
     gunzip.on('end', resolve);
@@ -182,13 +264,24 @@ function unxzInto(buf: Buffer, parser: PackagesParser): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn('xz', ['-dc']);
     let size = 0;
+    let failed: Error | null = null;
     child.stdout.on('data', (chunk: Buffer) => {
+      if (failed) return;
       size += chunk.length;
-      if (size > MAX_INDEX_BYTES) child.kill();
-      else parser.push(chunk);
+      try {
+        if (size > MAX_INDEX_BYTES) throw new IndexLimitError('A package index is too large');
+        parser.push(chunk);
+      } catch (err) {
+        failed = err as Error;
+        child.kill();
+      }
     });
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`xz exited with ${code}`))));
+    child.on('close', (code) => {
+      if (failed) reject(failed);
+      else if (code === 0) resolve();
+      else reject(new Error(`xz exited with ${code}`));
+    });
     child.stdin.on('error', () => {});
     child.stdin.end(buf);
   });
@@ -202,6 +295,7 @@ async function loadIndex(
   arch: string,
   graph: DepGraph,
   includeRecommends: boolean,
+  budget: GraphBudget,
 ): Promise<boolean> {
   const dir = `${baseUrl.replace(/\/+$/, '')}/dists/${suite}/${component}/binary-${arch}`;
   const candidates: Array<{ url: string; kind: 'gz' | 'xz' | 'raw' }> = [
@@ -216,15 +310,15 @@ async function loadIndex(
         maxBytes: MAX_DOWNLOAD_BYTES,
       });
       if (!buf) continue;
-      const parser = new PackagesParser(graph, includeRecommends);
+      const parser = new PackagesParser(graph, includeRecommends, budget);
       if (kind === 'gz') await gunzipInto(buf, parser);
       else if (kind === 'xz') await unxzInto(buf, parser);
       else parser.push(buf);
       parser.end();
       return true;
     } catch (err) {
-      // A refused address, timeout or oversized answer would repeat for every variant
-      if (err instanceof UpstreamFetchError) throw err;
+      // A refused address, timeout or oversized answer or index would repeat for every variant
+      if (err instanceof UpstreamFetchError || err instanceof ResolveTooLargeError) throw err;
     }
   }
   return false;
@@ -297,7 +391,7 @@ export function closureOptionsError(opts: ClosureOptions): string | null {
   }
   if (/[?#]/.test(opts.baseUrl)) return 'Base URL cannot contain a query or fragment';
   if (opts.components.length * opts.arches.length > MAX_INDEX_COMBINATIONS) {
-    return `Resolve at most ${MAX_INDEX_COMBINATIONS} component × architecture combinations at once (for example 3 components × 2 architectures)`;
+    return `Resolve at most ${MAX_INDEX_COMBINATIONS} component × architecture combinations at once (for example 4 components × 4 architectures)`;
   }
   const tokens = [opts.suite, ...opts.components, ...opts.arches];
   if (!tokens.every(isPathToken)) {
@@ -334,11 +428,12 @@ export async function resolveClosure(
   opts: ClosureOptions,
 ): Promise<ClosureResult> {
   const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
+  const budget: GraphBudget = { entries: 0, max: MAX_GRAPH_ENTRIES };
 
   for (const component of opts.components) {
     // binary-all holds Architecture: all packages shared by every arch.
     for (const arch of [...opts.arches, 'all']) {
-      await loadIndex(opts.baseUrl, opts.suite, component, arch, graph, !!opts.includeRecommends);
+      await loadIndex(opts.baseUrl, opts.suite, component, arch, graph, !!opts.includeRecommends, budget);
     }
   }
 
