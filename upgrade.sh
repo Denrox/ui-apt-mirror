@@ -321,7 +321,9 @@ extract_and_install() {
 backup_config() {
     local items=()
     local item
-    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth; do
+    # The GPG keys can't be replaced (apt clients pin them with Signed-By)
+    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth \
+        data/data/apt-mirror/gpg data/data/cheatsheets/sources.json; do
         [ -e "$item" ] && items+=("$item")
     done
     if [ ${#items[@]} -eq 0 ]; then
@@ -332,7 +334,7 @@ backup_config() {
     local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
     print_status "Backing up configuration to $backup..."
     local skipped
-    if skipped=$(tar -czf "$backup" --ignore-failed-read "${items[@]}" 2>&1 >/dev/null); then
+    if skipped=$(umask 077; tar -czf "$backup" --ignore-failed-read --exclude="data/data/apt-mirror/gpg/gnupg/S.*" "${items[@]}" 2>&1 >/dev/null); then
         chmod 600 "$backup"
         if [ -n "$skipped" ]; then
             print_warning "Some files could not be read and are not in the backup:"

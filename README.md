@@ -249,7 +249,8 @@ To upgrade to the latest version:
 The upgrade script will:
 - Check connectivity to the official website
 - Ask you to choose between current architecture or all architectures
-- Back up your configuration to `backups/pre-upgrade-<date>.tar.gz`
+- Back up your configuration, users, repository signing keys and cheatsheet
+  sources list to `backups/pre-upgrade-<date>.tar.gz`
 - Download the latest version and install the new image and scripts
 - Run `setup.sh --upgrade`, which asks nothing and keeps your configuration
 - Clean up temporary files
