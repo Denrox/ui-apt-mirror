@@ -14,6 +14,7 @@ import {
   validateNpmAuthToken,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
+import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {
   NPM_VERSION_RE,
   applyDocUpdate,
@@ -41,6 +42,7 @@ import {
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org';
 const PRIVATE_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'private');
+const privateStore = new PrivatePackageStore(PRIVATE_PACKAGES_DIR);
 
 function insideDir(dir: string, candidate: string): string {
   const resolved = path.resolve(candidate);
@@ -257,38 +259,16 @@ async function loadFromCache(
   }
 }
 
-function getPrivatePackagePath(packagePath: string): string {
-  const cleanPath = packagePath.replace(/^\/+/, '').replace(/\/+$/, '');
-  return insideDir(PRIVATE_PACKAGES_DIR, path.join(PRIVATE_PACKAGES_DIR, cleanPath));
-}
-
-function privateDocPath(packageName: string): string {
-  return getPrivatePackagePath(`${packageName}.json`);
-}
-
-function privateTarballPath(packageName: string, tarballFile: string): string {
-  return getPrivatePackagePath(`${packageName}/-/${tarballFile}`);
-}
-
 async function isPrivatePackage(packageName: string): Promise<boolean> {
-  return await isCached(privateDocPath(packageName));
+  return privateStore.isPrivate(packageName);
 }
 
 async function readPrivateDoc(packageName: string): Promise<PackageDoc | null> {
-  try {
-    return JSON.parse(await fs.readFile(privateDocPath(packageName), 'utf-8'));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
+  return privateStore.readDoc(packageName);
 }
 
 async function writePrivateDoc(doc: PackageDoc) {
-  const target = privateDocPath(doc.name);
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.writeFile(tmp, JSON.stringify(doc, null, 2));
-  await fs.rename(tmp, target);
+  await privateStore.writeDoc(doc);
 }
 
 // Publishes and edits are read-modify-write on one JSON file; serialize them per package.
@@ -364,7 +344,7 @@ async function loadPrivatePackage(
 
   if (tarballFile !== undefined) {
     try {
-      const data = await fs.readFile(privateTarballPath(packageName, tarballFile));
+      const data = await privateStore.readTarball(packageName, tarballFile);
       return { data, headers: { ...headers, 'content-type': 'application/octet-stream' } };
     } catch {
       return null;
@@ -595,9 +575,7 @@ async function publishPackage(
     }
 
     for (const [tarballName, tarballBuffer] of tarballs) {
-      const tarballFullPath = privateTarballPath(packageName, tarballName);
-      await fs.mkdir(path.dirname(tarballFullPath), { recursive: true });
-      await fs.writeFile(tarballFullPath, tarballBuffer);
+      await privateStore.writeTarball(packageName, tarballName, tarballBuffer);
       console.log(`Saved tarball: ${tarballName} (${tarballBuffer.length} bytes)`);
     }
 
@@ -638,9 +616,7 @@ async function unpublishPackage(
     }
 
     if (tarballFile === undefined) {
-      await fs.rm(privateDocPath(packageName));
-      await fs.rm(getPrivatePackagePath(`${packageName}/-`), { recursive: true, force: true });
-      await fs.rmdir(getPrivatePackagePath(packageName)).catch(() => {});
+      await privateStore.removePackage(packageName);
       console.log(`Unpublished ${packageName}`);
       return jsonResponse({ ok: true });
     }
@@ -652,7 +628,7 @@ async function unpublishPackage(
       return jsonResponse({ error: 'Unpublish the version before deleting its tarball' }, 400);
     }
     try {
-      await fs.rm(privateTarballPath(packageName, tarballFile));
+      await privateStore.removeTarball(packageName, tarballFile);
     } catch {
       return jsonResponse({ error: 'Not found' }, 404);
     }
