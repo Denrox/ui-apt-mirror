@@ -109,7 +109,7 @@ afterAll(async () => {
 });
 
 describe('npm registry route', () => {
-  it('publishes <name>.json without breaking <name> (r2-npm-1)', async () => {
+  it('publishes <name>.json without breaking <name>', async () => {
     expect((await publish('@acme/coll')).status).toBe(200);
     expect((await publish('@acme/coll.json')).status).toBe(200);
     expect((await publish('@acme/coll', '1.1.0')).status).toBe(200);
@@ -131,7 +131,7 @@ describe('npm registry route', () => {
     expect((await call(request('/@acme%2fcoll'))).status).toBe(200);
   });
 
-  it('refuses to shadow a scoped public package without sending its name upstream (r2-npm-2)', async () => {
+  it('refuses to shadow a scoped public package without sending its name upstream', async () => {
     const res = await publish('@types/node', '99.0.0');
     expect(res.status).toBe(403);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -153,13 +153,13 @@ describe('npm registry route', () => {
     expect((await publish('@babel/core', '99.0.0')).status).toBe(403);
   });
 
-  it('refuses versions and dist-tags that are not valid (r2-npm-4)', async () => {
+  it('refuses versions and dist-tags that are not valid', async () => {
     expect((await publish('@acme/trav', '..')).status).toBe(400);
     expect((await publish('@acme/trav', '1.0.0', { latest: '..' })).status).toBe(400);
     await expect(fs.stat(path.join(dirs.npm, 'private/_packages/@acme/trav'))).rejects.toThrow();
   });
 
-  it('answers a malformed login body without the parser message (r2-npm-3)', async () => {
+  it('answers a malformed login body without the parser message', async () => {
     for (const body of ['notjson', '[]', 'null', '"x"']) {
       const res = await call(request('/-/user/org.couchdb.user:alice', { method: 'PUT', body }));
       expect(res.status).toBe(400);
@@ -168,7 +168,7 @@ describe('npm registry route', () => {
     }
   });
 
-  it('sends audits only to npmjs, and no other write (r3-npm-1, r3-npm-3)', async () => {
+  it('sends audits only to npmjs, and no other write', async () => {
     const post = (p: string, body = '{}', headers: Record<string, string> = {}) =>
       call(request(p, { method: 'POST', body, headers: { 'content-type': 'application/json', ...headers } }));
     expect((await post('/-/npm/v1/security/advisories/bulk', '{"ms":["2.1.3"]}')).status).toBe(200);
@@ -213,7 +213,7 @@ describe('npm registry route', () => {
     expect(upstream.calls).toHaveLength(1);
   });
 
-  it('logs out locally: revokes the token and never sends it upstream (r3-npm-3, r3-auth-1)', async () => {
+  it('logs out locally: revokes the token and never sends it upstream', async () => {
     const del = (p: string, headers: Record<string, string> = {}) => call(request(p, { method: 'DELETE', headers }));
     const token = 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFsaWNlIn0.sig';
 
@@ -241,7 +241,7 @@ describe('npm registry route', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('refuses a scoped name when npmjs gives no clear answer (r3-npm-2)', async () => {
+  it('refuses a scoped name when npmjs gives no clear answer', async () => {
     for (const status of [429, 500, 503, 401]) {
       fetchMock.mockResolvedValueOnce(new Response('{"error":"x"}', { status }));
       const res = await publish(`@unclear${status}/pkg`);
@@ -262,7 +262,7 @@ describe('npm registry route', () => {
     expect((await publish('@ours/pkg', '1.1.0')).status).toBe(200);
   });
 
-  it('when npmjs cannot be reached, takes only clearly private names (r3-npm-2)', async () => {
+  it('when npmjs cannot be reached, takes only clearly private names', async () => {
     fetchMock.mockRejectedValue(new TypeError('fetch failed'));
     // No package of the scope ever came from npmjs through this mirror.
     expect((await publish('@offline-corp/tool')).status).toBe(200);
@@ -274,7 +274,7 @@ describe('npm registry route', () => {
     expect((await publish('offline-unscoped')).status).toBe(503);
   });
 
-  it('checks unscoped names with npmjs (r3-npm-2)', async () => {
+  it('checks unscoped names with npmjs', async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
     expect((await publish('lodash')).status).toBe(403);
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 429 }));
@@ -284,7 +284,7 @@ describe('npm registry route', () => {
     expect(String(fetchMock.mock.calls.at(-1)?.[0])).toBe('https://registry.npmjs.org/free-unscoped-name');
   });
 
-  it('does not read a login body larger than 64 KiB (r3-npm-4)', async () => {
+  it('does not read a login body larger than 64 KiB', async () => {
     const big = JSON.stringify({ name: 'alice', password: 'x', pad: 'a'.repeat(70 * 1024) });
     const res = await call(request('/-/user/org.couchdb.user:alice', { method: 'PUT', body: big }));
     expect(res.status).toBe(413);
@@ -307,7 +307,7 @@ describe('npm registry route', () => {
     expect(serverAuth.attemptLogin).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses Object.prototype names as dist-tags (r3-npm-5)', async () => {
+  it('refuses Object.prototype names as dist-tags', async () => {
     expect((await publish('@acme/tags')).status).toBe(200);
     const tagPath = (tag: string) => `/-/package/@acme%2ftags/dist-tags/${tag}`;
     for (const tag of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {

@@ -80,7 +80,7 @@ const MAX_INDEX_BYTES = 512 * 1024 * 1024;
  * the stock component sets of Debian and Ubuntu (4 components) for up to 4 architectures. This
  * bounds the downloads; memory is bounded by MAX_GRAPH_ENTRIES.
  */
-export const MAX_INDEX_COMBINATIONS = 16;
+const MAX_INDEX_COMBINATIONS = 16;
 /**
  * Most entries (packages, the names in their dependency fields, providers of virtual packages)
  * the graph of one resolve may hold. Packages of the same name in several indices are one entry,
@@ -88,13 +88,13 @@ export const MAX_INDEX_COMBINATIONS = 16;
  * 570,000 for amd64 and i386 and 580,000 with arm64 and armhf too (about 125 MB of heap), Ubuntu
  * noble about 550,000. The cap keeps a resolve's graph to a few hundred MB.
  */
-export const MAX_GRAPH_ENTRIES = 2_000_000;
+const MAX_GRAPH_ENTRIES = 2_000_000;
 
 /** Thrown when the indices of one resolve hold more than MAX_GRAPH_ENTRIES. */
 export class ResolveTooLargeError extends Error {}
 
 /** How many entries a resolve's graph holds, shared by the parsers of its indices. */
-export interface GraphBudget {
+interface GraphBudget {
   entries: number;
   max: number;
 }

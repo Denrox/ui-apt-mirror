@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_DOWNLOAD_NAME, fileNameFromUrl } from './download-name';
 
-describe('fileNameFromUrl (r3-files-9)', () => {
+describe('fileNameFromUrl', () => {
   it.each([
     ['http://example.test/ok%20space%231.txt', 'ok space#1.txt'],
     ['http://example.test/dir/%E6%97%A5%E6%9C%AC.zip?x=1#frag', '日本.zip'],

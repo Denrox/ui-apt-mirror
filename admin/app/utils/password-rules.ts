@@ -1,8 +1,8 @@
 export const MIN_PASSWORD_LENGTH = 4;
 // openssl passwd reads one line and ignores everything past 256 bytes.
-export const MAX_PASSWORD_BYTES = 256;
+const MAX_PASSWORD_BYTES = 256;
 // Usernames end up in the session JWT, which travels in a cookie header.
-export const MAX_USERNAME_LENGTH = 64;
+const MAX_USERNAME_LENGTH = 64;
 const USERNAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;

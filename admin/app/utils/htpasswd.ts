@@ -12,6 +12,7 @@ import {
 import path from 'path';
 import { giveToDirOwner } from './file-owner';
 import { isHashablePassword } from './password-rules';
+import { serialQueue } from './serial-queue';
 
 const cache = new Map<string, { key: string; value: unknown }>();
 
@@ -71,12 +72,7 @@ export function readHtpasswd(file: string): Map<string, string> {
  * auth files goes through here, so two requests can't both pass a check and
  * then both write (duplicate users, lost updates).
  */
-let authFileQueue: Promise<unknown> = Promise.resolve();
-export function withAuthFileLock<T>(fn: () => T | Promise<T>): Promise<T> {
-  const run = authFileQueue.then(fn, fn);
-  authFileQueue = run.catch(() => {});
-  return run;
-}
+export const withAuthFileLock = serialQueue();
 
 export function hashPassword(password: string, salt?: string): Promise<string> {
   // openssl hashes only the first line, cut at 256 bytes: refuse rather than
@@ -190,7 +186,7 @@ export function isTokenCurrent(
 // MAX_REVOKED_PER_USER entries: past that, a logout ends all of the user's
 // tokens through .tokens-valid-after instead (all their other sessions and
 // npm tokens included) and their entries are dropped.
-export function revokedTokensPath(htpasswdFile: string): string {
+function revokedTokensPath(htpasswdFile: string): string {
   return path.join(path.dirname(htpasswdFile), '.tokens-revoked');
 }
 
@@ -204,7 +200,7 @@ interface RevokedEntry {
   user: string;
 }
 
-export function parseRevokedTokens(content: string): Map<string, RevokedEntry> {
+function parseRevokedTokens(content: string): Map<string, RevokedEntry> {
   const entries = new Map<string, RevokedEntry>();
   for (const line of content.split('\n')) {
     const [id, exp, user, ...rest] = line.trim().split(/\s+/);

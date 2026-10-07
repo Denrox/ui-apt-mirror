@@ -113,7 +113,7 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
     await fs.mkdir(tempDir);
     upload = {
       tempDir,
-      // Fixed short name: `<fileName>.temp` exceeded NAME_MAX for valid 251-255 byte names.
+      // Fixed short name: `<fileName>.temp` would exceed NAME_MAX for valid 251-255 byte names.
       tempFile: path.join(tempDir, 'part'),
       destPath,
       totalChunks,

@@ -7,7 +7,7 @@
 # A key belongs to a host name; it signs every mirror folder of that host, `<host>` and
 # `<host>:<port>` (apt-mirror2 keeps the port of a base URL in the folder name).
 # The upstream InRelease / Release.gpg are saved before they are replaced, under
-# $UPSTREAM_SIGNATURES_DIR (outside the mirror tree, where apt-mirror2's autoclean would
+# upstream-signatures/ next to keys.json (outside the mirror tree, where apt-mirror2's autoclean would
 # delete them), keyed by the checksum of the Release file they sign. `--restore <host>` puts
 # them back (used before the host's key is deleted).
 
@@ -24,8 +24,8 @@ fi
 GPG_HOME="${GNUPG_HOME:-/var/spool/apt-mirror/gpg/gnupg}"
 KEYS_INDEX="${GPG_KEYS_INDEX:-/var/spool/apt-mirror/gpg/keys.json}"
 MIRROR_ROOT="${MIRROR_ROOT:-/var/spool/apt-mirror/mirror}"
-SKEL_ROOT="${SKEL_ROOT:-$(dirname "$MIRROR_ROOT")/skel}"
-UPSTREAM_SIGS="${UPSTREAM_SIGNATURES_DIR:-$(dirname "$KEYS_INDEX")/upstream-signatures}"
+SKEL_ROOT="$(dirname "$MIRROR_ROOT")/skel"
+UPSTREAM_SIGS="$(dirname "$KEYS_INDEX")/upstream-signatures"
 LOG="${SIGN_RELEASES_LOG:-/var/log/apt-mirror/sign-releases.log}"
 # apt-mirror2 builds a repository's new metadata in `dists.apt_mirror_new` and then moves it to `dists`.
 NEW_SUFFIX=".apt_mirror_new"

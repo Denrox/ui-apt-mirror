@@ -103,7 +103,7 @@ describe('parse', () => {
 
 describe('parse never fails on unusual characters', () => {
   // Lines are split on \n only; U+2028/U+2029/U+0085 stay inside a line and `.` does not match
-  // them without the `s` flag. One such line used to make every parse throw.
+  // them without the `s` flag, so no such line may make parsing throw.
   it.each([' ', ' ', '\u0085'])('parses a file with %j in a description and title', (sep) => {
     const input = [
       `# ---start---Odd${sep}title---`,

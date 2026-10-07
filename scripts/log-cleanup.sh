@@ -5,9 +5,9 @@
 # and rotates an error log once it is larger than ERROR_LOG_MAX_KB: the old
 # lines move to <name>.error.log.1 (replacing the previous one).
 
-NGINX_LOG_DIR="${NGINX_LOG_DIR:-/var/log/nginx}"
+NGINX_LOG_DIR="/var/log/nginx"
 RETENTION_DAYS=30
-ERROR_LOG_MAX_KB="${ERROR_LOG_MAX_KB:-10240}"  # 10 MB
+ERROR_LOG_MAX_KB=10240  # 10 MB
 CLEANUP_INTERVAL=86400  # 24h
 
 rotate_error_logs() {

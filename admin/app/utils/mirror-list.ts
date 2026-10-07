@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import fs from 'fs/promises';
 import { giveToDirOwner } from './file-owner';
 import { MirrorConfig, isPathToken, type RepositoryInput } from '~/utils/mirror-config';
+import { serialQueue } from './serial-queue';
 
 /**
  * Thin helpers for the apt-mirror2 `mirror.list` file.
@@ -16,14 +17,8 @@ import { MirrorConfig, isPathToken, type RepositoryInput } from '~/utils/mirror-
 /** Re-exported for callers that predate the {@link MirrorConfig} model. */
 export type NewRepositoryInput = RepositoryInput;
 
-let mirrorListQueue: Promise<unknown> = Promise.resolve();
-
 /** Run read-modify-write cycles on mirror.list one at a time, so none is lost. */
-export function withMirrorListLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = mirrorListQueue.then(fn);
-  mirrorListQueue = run.catch(() => undefined);
-  return run;
-}
+export const withMirrorListLock = serialQueue();
 
 /** Write a file atomically: write to a sibling temp file, then rename. */
 export async function atomicWriteFile(
@@ -66,7 +61,7 @@ const BASE_URL_RE = /^[A-Za-z0-9\-._~:\/@!$&'()*+,;=%\[\]]+$/;
 const INVISIBLE_RE = /[\p{Cf}\p{Co}\p{Cn}\p{Cs}\u115F\u1160\u2800\u3164\uFFA0\uFFFC\uFFFD]/u;
 
 /** A title as it is compared for duplicates: NFKC-normalised, case-folded, single spaces. */
-export function titleKey(title: string): string {
+function titleKey(title: string): string {
   return title.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 

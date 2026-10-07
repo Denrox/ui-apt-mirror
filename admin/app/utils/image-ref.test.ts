@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseImageUrl } from './image-ref';
 
-describe('parseImageUrl (r3-files-10)', () => {
+describe('parseImageUrl', () => {
   it.each([
     ['busybox', 'docker.io', 'library/busybox'],
     ['bitnami/redis', 'docker.io', 'bitnami/redis'],

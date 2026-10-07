@@ -75,7 +75,7 @@ export function parseGithubUrl(input: string): GithubSource {
 
 const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 
-export const MAX_SOURCE_NAME = 100;
+const MAX_SOURCE_NAME = 100;
 /** Combining marks kept on one character; more only stack into a line drawn over other rows. */
 const MAX_MARKS = 3;
 
@@ -240,10 +240,6 @@ export function searchTerms(phrase: string): string[] {
 function termRegex(term: string): RegExp {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(NO_SPACES.test(term) ? escaped : `(?<![\\p{L}\\p{N}])${escaped}`, 'gu');
-}
-
-export function makeSnippet(text: string, terms: string[], radius = 90, folded = foldText(text)): string {
-  return snippetAt(text, folded, terms.map((t) => ({ t, re: termRegex(t) })), radius);
 }
 
 function snippetAt(text: string, folded: string, terms: { t: string; re: RegExp }[], radius = 90): string {

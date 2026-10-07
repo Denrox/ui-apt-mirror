@@ -276,7 +276,7 @@ describe('searchEntries', () => {
       'Chapter 4: Massive Bleeding Control',
       'Appendix A: First Aid Kits',
     ]);
-    // Without the headings the short list page wins, as before.
+    // Without the headings the short list page wins.
     expect(searchEntries(list.map((e) => ({ ...e, headings: '' })), 'tourniquet')[0].entry.title).toBe(
       'Appendix A: First Aid Kits',
     );
@@ -308,7 +308,6 @@ describe('searchEntries', () => {
     const t = performance.now();
     searchEntries(big, q);
     searchEntries(big, `${'e '.repeat(99)}zzzzzzqq`);
-    // Before the bound this took several seconds.
     expect(performance.now() - t).toBeLessThan(1500);
   });
 

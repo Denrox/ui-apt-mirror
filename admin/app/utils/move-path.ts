@@ -2,9 +2,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { UPLOAD_TEMP_PREFIX, withBusyTempDir } from './chunk-upload';
+import { MAX_NAME_BYTES } from './file-name';
 
 /** Prefix of the scratch dir a cross-mount copy is made in; stale ones are swept like upload temp dirs. */
-export const MOVE_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}move-`;
+const MOVE_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}move-`;
 
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException)?.code ?? '';
 
@@ -263,7 +264,7 @@ async function copyParked(
  * Removes `source` entry by entry where `copy` holds the same thing (a file of the same size
  * and mtime, a link with the same target); true when nothing of `source` is left.
  */
-export async function removeCopied(source: string, copy: string): Promise<boolean> {
+async function removeCopied(source: string, copy: string): Promise<boolean> {
   let s, c;
   try {
     s = await fs.lstat(source);
@@ -305,8 +306,6 @@ export async function removeCopied(source: string, copy: string): Promise<boolea
   await fs.unlink(source);
   return true;
 }
-
-const MAX_NAME_BYTES = 255;
 
 function withSuffix(name: string, suffix: string): string {
   let base = name;

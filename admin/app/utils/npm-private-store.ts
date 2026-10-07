@@ -8,7 +8,7 @@ import { isValidName, type PackageDoc } from '~/utils/npm-registry';
  * tarballs under `-/`. Every package has a directory of its own, so no name can collide with the
  * files of another.
  */
-export const PACKAGES_SUBDIR = '_packages';
+const PACKAGES_SUBDIR = '_packages';
 const DOC_FILE = 'package.json';
 const TARBALL_DIR = '-';
 

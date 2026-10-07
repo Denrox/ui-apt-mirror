@@ -25,7 +25,7 @@ export interface RepositoryConfig {
 }
 
 /** An enabled repository's upstream, for the form's warning about shared package filters. */
-export interface RepositoryUpstream {
+interface RepositoryUpstream {
   url: string;
   title: string;
   filtered: boolean;

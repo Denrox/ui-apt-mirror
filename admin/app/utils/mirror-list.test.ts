@@ -110,7 +110,7 @@ describe('validateRepositoryInput', () => {
   });
 });
 
-describe('titles with characters that do not show (r3-repos-6)', () => {
+describe('titles with characters that do not show', () => {
   it.each([
     ['U+200B zero width space', 'Debian​ Trixie'],
     ['U+202E right-to-left override', 'r3-repos-v57‮x'],

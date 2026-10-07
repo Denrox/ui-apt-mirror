@@ -25,6 +25,7 @@ import {
   sourceIdFor,
   type IndexEntry,
 } from './cheatsheets';
+import { serialQueue } from '~/utils/serial-queue';
 
 const execFileAsync = promisify(execFile);
 
@@ -52,7 +53,7 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 /** Unpacked size of the files taken from an archive (only .md files and categories.json are). */
 export const MAX_EXTRACTED_BYTES = 512 * 1024 * 1024;
 /** Entries an archive may list at all, whatever is taken from it. */
-export const MAX_ARCHIVE_ENTRIES = 500_000;
+const MAX_ARCHIVE_ENTRIES = 500_000;
 const MAX_INDEXED_TEXT = 20_000;
 const SKIP_FILES = new Set([
   'readme.md',
@@ -72,7 +73,6 @@ const indexPath = (id: string) => path.join(sourceDir(id), 'index.json');
 
 // 'downloading' in sources.json but not in here means a restart interrupted it.
 const active = new Set<string>();
-let registryLock: Promise<unknown> = Promise.resolve();
 
 async function readRegistry(): Promise<CheatsheetSource[]> {
   try {
@@ -115,7 +115,7 @@ export async function giveTreeToOwner(target: string, owner?: { uid: number; gid
 
 /**
  * rm -rf in a child process: fs.rm of a 40,000-page source runs one
- * callback per file on the event loop, back to back, and held every other
+ * callback per file on the event loop, back to back, and holds every other
  * request for half a second.
  */
 async function removeTree(target: string) {
@@ -126,11 +126,7 @@ async function removeTree(target: string) {
   }
 }
 
-function withRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = registryLock.then(fn);
-  registryLock = run.catch(() => undefined);
-  return run;
-}
+const withRegistryLock = serialQueue();
 
 function updateRegistry<T>(fn: (sources: CheatsheetSource[]) => T | Promise<T>): Promise<T> {
   return withRegistryLock(async () => {
@@ -329,7 +325,7 @@ export function unescapeTarName(name: string): string {
   return Buffer.from(bytes).toString('utf-8');
 }
 
-export interface ExtractionPlan {
+interface ExtractionPlan {
   /** As tar lists them (quoted), for tar -T. */
   members: string[];
   bytes: number;
@@ -559,7 +555,7 @@ const yieldToOthers = () => new Promise<void>((resolve) => setImmediate(resolve)
 /**
  * index.json is a JSON array with one page per line, written and read a few
  * pages at a time: one JSON.stringify or JSON.parse of a 40,000-page index
- * blocked every request for a second or more.
+ * blocks every request for a second or more.
  */
 export async function writeIndex(file: string, entries: IndexEntry[]) {
   const handle = await fs.open(file, 'w');

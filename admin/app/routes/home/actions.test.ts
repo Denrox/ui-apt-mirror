@@ -185,7 +185,7 @@ describe('removeRepository with deleteData', () => {
   });
 });
 
-describe('package filters shared through one upstream (r3-repos-3)', () => {
+describe('package filters shared through one upstream', () => {
   const FILTERED = (enabled: boolean) => [
     '# ---start---Hello---',
     `${enabled ? '' : '#'}deb http://example.com/debian stable main`,

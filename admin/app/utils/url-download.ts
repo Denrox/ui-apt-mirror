@@ -4,10 +4,10 @@ import http from 'http';
 import https from 'https';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import { UPLOAD_TEMP_PREFIX } from './chunk-upload';
+import { nameTakenError, UPLOAD_TEMP_PREFIX } from './chunk-upload';
 import { giveToDirOwner } from './file-owner';
 
-export const DOWNLOAD_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}dl-`;
+const DOWNLOAD_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}dl-`;
 export const DOWNLOAD_CANCELLED = 'Download cancelled';
 
 export type DownloadResult = { ok: true } | { ok: false; error: string };
@@ -77,7 +77,7 @@ export function startDownload(url: string, destPath: string, options: DownloadOp
         await fs.link(tempFile, destPath);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-          throw new DownloadError(`"${path.basename(destPath)}" already exists here; rename or delete it first`);
+          throw new DownloadError(nameTakenError(path.basename(destPath)));
         }
         throw error;
       }

@@ -118,7 +118,7 @@ describe('writeBlockedReason', () => {
     }
   });
 
-  it('keeps the signing keys and the mirror folders themselves (r3-files-4)', () => {
+  it('keeps the signing keys and the mirror folders themselves', () => {
     const d = dirs();
     for (const name of ['gpg', 'gpg/keys.json', 'gpg/gnupg', 'gpg/gnupg/private-keys-v1.d/K.key', 'mirror', 'mirror/', 'skel', 'var', 'other']) {
       expect(writeBlockedReason(path.join(d.mirror, name), 'remove', false, d)).toBe(MIRROR_STRUCTURE_ERROR);
@@ -127,7 +127,7 @@ describe('writeBlockedReason', () => {
     expect(writeBlockedReason(path.join(d.mirror, 'mirror', 'deb.debian.org', 'pool'), 'remove', false, d)).toBeNull();
   });
 
-  it('judges a link in the mirror by where it is, not where it points (r3-files-4)', () => {
+  it('judges a link in the mirror by where it is, not where it points', () => {
     const d = dirs();
     fs.mkdirSync(path.join(d.mirror, 'gpg'), { recursive: true });
     fs.mkdirSync(d.mirrorRoot, { recursive: true });

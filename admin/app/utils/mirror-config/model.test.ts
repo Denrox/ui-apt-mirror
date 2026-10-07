@@ -531,7 +531,7 @@ describe('enabledHosts', () => {
   });
 });
 
-describe('base URLs with a port (r3-repos-2)', () => {
+describe('base URLs with a port', () => {
   it('points the Usage snippet at the host:port folder apt-mirror2 uses', () => {
     const cfg = MirrorConfig.parse(BASE);
     cfg.addSection(input({ title: 'LAN', baseUrl: 'http://aptly.lan:8080/debian', trusted: false }), 'mirror.intra');
@@ -553,7 +553,7 @@ describe('base URLs with a port (r3-repos-2)', () => {
   });
 });
 
-describe('one-line trusted snippets (r3-repos-5)', () => {
+describe('one-line trusted snippets', () => {
   const DOCKER = `# ---start---Docker Debian 13---
 ## Docker CE for Debian 13
 deb https://download.docker.com/linux/debian trixie stable
@@ -581,7 +581,7 @@ deb https://download.docker.com/linux/debian trixie stable
   });
 });
 
-describe('upstreams shared by several sections (r3-repos-3)', () => {
+describe('upstreams shared by several sections', () => {
   const LIST = `# ---start---Hello---
 deb http://deb.debian.org/debian trixie main
 include_binary_packages http://deb.debian.org/debian hello

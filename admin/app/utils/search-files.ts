@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { realRootsOf, statInsideRoots } from './health-scan';
+import { UPLOAD_TEMP_PREFIX } from './chunk-upload';
 
 export interface SearchResult {
   name: string;
@@ -10,8 +11,8 @@ export interface SearchResult {
   isDirectory: boolean;
 }
 
-/** Most matches a search returns; a broad term in a large tree matched tens of thousands. */
-export const MAX_SEARCH_RESULTS = 500;
+/** Most matches a search returns; a broad term in a large tree can match tens of thousands. */
+const MAX_SEARCH_RESULTS = 500;
 
 /**
  * Finds entries below `rootPath` whose name contains `query` (case-insensitive). Symlinks are
@@ -44,7 +45,7 @@ export async function searchFiles(
     for (const itemName of items) {
       if (truncated) return;
       // Skip hidden files except .tmp- directories
-      const isTemp = itemName.startsWith('.tmp-');
+      const isTemp = itemName.startsWith(UPLOAD_TEMP_PREFIX);
       if (itemName.startsWith('.') && !isTemp) continue;
       const itemPath = path.join(dirPath, itemName);
       try {

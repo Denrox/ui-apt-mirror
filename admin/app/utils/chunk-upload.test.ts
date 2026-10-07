@@ -139,7 +139,7 @@ describe('the final store', () => {
   });
 });
 
-describe('a resent last chunk (r3-files-8)', () => {
+describe('a resent last chunk', () => {
   it('is acknowledged for a 2-chunk upload without writing it again', async () => {
     expect(await chunk('last2', 0, 2, 'one')).toBe('chunk');
     expect(await chunk('last2', 1, 2, 'two')).toBe('done');
