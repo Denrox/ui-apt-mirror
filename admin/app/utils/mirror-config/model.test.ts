@@ -93,6 +93,15 @@ describe('addSection', () => {
       .filter((l) => l === 'clean http://archive.ubuntu.com/ubuntu');
     expect(cleans).toHaveLength(1);
   });
+
+  it('writes the base URL in canonical form, so one upstream keeps one clean line', () => {
+    const cfg = MirrorConfig.parse(BASE);
+    cfg.addSection(input({ baseUrl: 'HTTP://ARCHIVE.Ubuntu.com/ubuntu/', title: 'Upper' }), 'mirror.intra');
+    const out = cfg.serialize();
+    expect(out).toContain('deb http://archive.ubuntu.com/ubuntu noble stable');
+    expect(out.split('\n').filter((l) => l.startsWith('clean '))).toEqual(['clean http://archive.ubuntu.com/ubuntu']);
+    expect(out).toContain('#URIs: http://mirror.intra/archive.ubuntu.com/ubuntu');
+  });
 });
 
 describe('removeSection', () => {

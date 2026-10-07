@@ -1,4 +1,4 @@
 export * from './types';
 export { parse } from './parse';
 export { serialize, renderDeb } from './serialize';
-export { MirrorConfig, normalizeUrl } from './model';
+export { MirrorConfig, normalizeUrl, canonicalBaseUrl, isPathToken } from './model';
