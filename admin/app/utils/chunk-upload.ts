@@ -28,6 +28,13 @@ export class UploadError extends Error {}
 export const nameTakenError = (name: string) =>
   `"${name}" already exists here; rename or delete it first`;
 
+/** The target name is taken; callers tell it from other failures by type, not by message. */
+export class NameTakenError extends UploadError {
+  constructor(name: string) {
+    super(nameTakenError(name));
+  }
+}
+
 export const pathExists = (p: string) => fs.lstat(p).then(() => true, () => false);
 
 export function uploadTempDir(dir: string, fileId: string): string {
@@ -99,7 +106,7 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
 
   if (chunkIndex === 0) {
     if (upload) await fs.rm(upload.tempDir, { recursive: true, force: true });
-    if (await pathExists(destPath)) throw new UploadError(nameTakenError(fileName));
+    if (await pathExists(destPath)) throw new NameTakenError(fileName);
     const tempDir = uploadTempDir(dir, fileId);
     await fs.rm(tempDir, { recursive: true, force: true });
     await fs.mkdir(tempDir, { recursive: true });
@@ -141,7 +148,7 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
   uploads.delete(fileId);
   if (await pathExists(destPath)) {
     await fs.rm(upload.tempDir, { recursive: true, force: true });
-    throw new UploadError(nameTakenError(fileName));
+    throw new NameTakenError(fileName);
   }
   try {
     await fs.rename(upload.tempFile, destPath);

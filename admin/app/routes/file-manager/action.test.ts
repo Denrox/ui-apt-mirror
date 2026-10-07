@@ -31,7 +31,7 @@ vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => (
 vi.mock('~/utils/sync', () => ({ checkLockFile: async () => false }));
 
 // skopeo stand-in: writes an archive to the docker-archive: path, or fails.
-const skopeo = vi.hoisted(() => ({ fail: false, calls: [] as string[][] }));
+const skopeo = vi.hoisted(() => ({ fail: false, calls: [] as string[][], during: null as null | (() => void) }));
 vi.mock('child_process', async (importOriginal) => {
   const original = await importOriginal<typeof import('child_process')>();
   const fs = await import('fs');
@@ -39,6 +39,7 @@ vi.mock('child_process', async (importOriginal) => {
     ...original,
     execFile: (_cmd: string, args: string[], callback: (error: Error | null, out?: unknown) => void) => {
       skopeo.calls.push(args);
+      skopeo.during?.();
       if (skopeo.fail) return callback(new Error('Failed to retrieve image manifest'));
       const target = args[args.length - 1].replace(/^docker-archive:/, '');
       fs.writeFileSync(target, 'image');
@@ -273,6 +274,20 @@ describe('container image download (r2-files-6)', () => {
     expect(res.success).toBe(false);
     expect(res.error).toMatch(/already exists/);
     expect(fs.readFileSync(tar(), 'utf-8')).toBe('user data');
+  });
+
+  it('says the name is taken whatever words the image name holds', async () => {
+    skopeo.fail = false;
+    const name = path.join(dirs.files, 'manifest-tool_latest_amd64.tar');
+    // The name is taken while the image is pulled.
+    skopeo.during = () => fs.writeFileSync(name, 'user data');
+    const res = await post({ intent: 'downloadImage', imageUrl: 'manifest-tool', imageTag: 'latest', currentPath: dirs.files });
+    skopeo.during = null;
+    expect(res).toEqual({
+      success: false,
+      error: '"manifest-tool_latest_amd64.tar" already exists here; rename or delete it first',
+    });
+    expect(fs.readFileSync(name, 'utf-8')).toBe('user data');
   });
 
   it('a failed pull leaves an existing file and no temp data', async () => {

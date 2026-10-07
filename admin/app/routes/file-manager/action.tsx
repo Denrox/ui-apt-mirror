@@ -10,6 +10,7 @@ import { checkLockFile } from '~/utils/sync';
 import { moveFile, renameEntry, restoreParkedMoves } from '~/utils/move-path';
 import {
   abortUpload,
+  NameTakenError,
   nameTakenError,
   pathExists,
   removeStaleTempDirs,
@@ -209,7 +210,7 @@ async function downloadImage(
   const fullPath = path.join(destPath, fileName);
   // Never replace or delete a file that already has this name.
   if (await pathExists(fullPath)) {
-    throw new Error(nameTakenError(fileName));
+    throw new NameTakenError(fileName);
   }
   let tempDir: string | null = null;
   try {
@@ -227,7 +228,7 @@ async function downloadImage(
       try {
         await fs.link(tempPath, fullPath);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(nameTakenError(fileName));
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new NameTakenError(fileName);
         throw error;
       }
       giveToDirOwner(fullPath);
@@ -255,6 +256,7 @@ async function downloadImage(
     }
     return await store();
   } catch (error) {
+    if (error instanceof NameTakenError) throw error;
     console.error('Failed to download image:', error);
 
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -276,8 +278,6 @@ async function downloadImage(
       throw new Error(
         'Download timed out. Please try again or check your network connection.',
       );
-    } else if (errorMessage.includes('already exists here')) {
-      throw error;
     }
 
     return false;
