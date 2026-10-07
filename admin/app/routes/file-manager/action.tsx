@@ -17,7 +17,6 @@ import {
   sweepStaleUploads,
   UPLOAD_TEMP_PREFIX,
   UploadError,
-  uploadTempDir,
   writeChunk,
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
@@ -38,7 +37,9 @@ const OUTSIDE = 'Path is outside the file storage';
 const NO_FOLDER = 'The folder does not exist';
 const MOVE_RUNNING = 'A move of this item, or of something in it, is still running; try again after it finishes';
 
-const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+// No "-": an upload's temp dir `.tmp-<id>` can then never be the `.tmp-move-…`, `.tmp-dl-…` or
+// `.tmp-img-…` dir a move, URL download or image pull is writing, which chunk 0 or Cancel removes.
+const UPLOAD_ID_RE = /^[A-Za-z0-9_]{1,100}$/;
 
 // Uploads cut off by a restart leave temp dirs behind; uploads stuck in this process are swept.
 // A move cut off by a restart, or one that could not put its source back, leaves the source
@@ -499,10 +500,6 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       const fileId = formData.get('fileId');
       if (!filePath || typeof fileId !== 'string' || !UPLOAD_ID_RE.test(fileId)) {
         return { success: false, error: 'Missing required upload data' };
-      }
-      // Not the temp dir a running move copies into.
-      if (moveHolds(uploadTempDir(filePath, fileId))) {
-        return { success: false, error: MOVE_RUNNING };
       }
       await abortUpload(fileId, filePath);
       return { success: true };

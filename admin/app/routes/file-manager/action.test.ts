@@ -154,6 +154,25 @@ describe('uploads', () => {
     expect(fs.statSync(path.join(dirs.files, '__init__.py')).size).toBe(0);
   });
 
+  it("refuses upload ids that could name another operation's temp dir", async () => {
+    const busy = path.join(dirs.files, '.tmp-move-abc123');
+    fs.mkdirSync(busy);
+    fs.writeFileSync(path.join(busy, 'item'), 'copy in progress');
+    const abort = await post({ intent: 'abortUpload', filePath: dirs.files, fileId: 'move-abc123' });
+    expect(abort.success).toBe(false);
+    const chunk = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob(['x']),
+      chunkIndex: '0',
+      totalChunks: '2',
+      fileName: 'a.txt',
+      fileId: 'move-abc123',
+    });
+    expect(chunk).toEqual({ success: false, error: 'Invalid upload id' });
+    expect(fs.readFileSync(path.join(busy, 'item'), 'utf-8')).toBe('copy in progress');
+  });
+
   it('never creates the folders an upload or a new folder would go into', async () => {
     const missing = [
       path.join(dirs.files, 'new', '.hidden'),
