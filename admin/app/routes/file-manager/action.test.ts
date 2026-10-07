@@ -236,7 +236,8 @@ describe('managed storage and the public host (r2-files-17)', () => {
   });
 
   const browse = (p: string, host = 'files.mirror.intra') =>
-    loader({ request: new Request(`http://${host}/file-manager?path=${encodeURIComponent(p)}`) });
+    // The files host serves the file manager at / only; anything else redirects there.
+    loader({ request: new Request(`http://${host}/${host.startsWith('files') ? '' : 'file-manager'}?path=${encodeURIComponent(p)}`) });
 
   it('the files host lists public files and the published mirror tree only', async () => {
     expect((await browse(dirs.files)).error).toBeUndefined();
