@@ -139,7 +139,8 @@ export default function FileManager() {
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  // null until the running search answers
+  const [searchResults, setSearchResults] = useState<any[] | null>(null);
 
   useEffect(() => {
     setSearchQuery('');
@@ -195,12 +196,13 @@ export default function FileManager() {
   }, [loaderError, setSearchParams]);
 
   const currentPathFiles = useMemo(() => {
-    if (isSearching && searchResults.length > 0) {
-      return searchResults;
+    if (isSearching) {
+      // No matches is an empty list, not the folder's own contents.
+      return searchResults ?? [];
     }
     return files.filter((file: any) => isChildPath(file.path, currentPath));
   }, [files, currentPath, isSearching, searchResults]);
-
+  const isSearchPending = isSearching && searchResults === null;
 
   const handleDelete = (filePath: string, fileName: string) => {
     setDeleteTarget({ path: filePath, name: fileName });
@@ -325,6 +327,7 @@ export default function FileManager() {
     if (searchQuery.trim().length < 3) return;
 
     setIsSearching(true);
+    setSearchResults(null);
     const formData = new FormData();
     formData.append('intent', 'searchFiles');
     formData.append('searchQuery', searchQuery.trim());
@@ -336,7 +339,7 @@ export default function FileManager() {
   const handleClearSearch = useCallback(() => {
     setIsSearching(false);
     setSearchQuery('');
-    setSearchResults([]);
+    setSearchResults(null);
   }, []);
 
   useEffect(() => {
@@ -732,6 +735,10 @@ export default function FileManager() {
                 <div className="text-on-surface-variant text-sm">
                   Manual operations will be available after it's complete
                 </div>
+              </div>
+            ) : isSearchPending ? (
+              <div className="p-4 text-center text-on-surface-variant">
+                Searching…
               </div>
             ) : currentPathFiles.length === 0 ? (
               <div className="p-4 text-center text-on-surface-variant">
