@@ -268,14 +268,41 @@ function startDownload(id: string) {
     });
 }
 
+// GitHub or the network can stop sending without closing the connection, which
+// would leave the source downloading for good: give up when nothing has come
+// for this long, before the answer or within the archive.
+const ARCHIVE_STALL_MS = 60_000;
+
 async function fetchArchive(s: CheatsheetSource, dest: string) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const progressed = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(), ARCHIVE_STALL_MS);
+  };
+  progressed();
+  try {
+    await downloadArchive(s, dest, controller.signal, progressed);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`GitHub sent nothing for ${ARCHIVE_STALL_MS / 1000} seconds; try again later`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function downloadArchive(s: CheatsheetSource, dest: string, signal: AbortSignal, progressed: () => void) {
   const url = `https://api.github.com/repos/${s.owner}/${s.repo}/tarball${
     s.ref ? `/${encodeURIComponent(s.ref)}` : ''
   }`;
   const res = await fetch(url, {
     headers: { 'User-Agent': 'ui-apt-mirror', Accept: 'application/vnd.github+json' },
     redirect: 'follow',
+    signal,
   });
+  progressed();
   if (res.status === 404) {
     throw new Error(
       s.ref
@@ -291,6 +318,7 @@ async function fetchArchive(s: CheatsheetSource, dest: string) {
   let bytes = 0;
   const limit = new Transform({
     transform(chunk, _enc, cb) {
+      progressed();
       bytes += chunk.length;
       if (bytes > MAX_ARCHIVE_BYTES) {
         cb(new Error(`Repository archive is larger than ${MAX_ARCHIVE_BYTES / 1024 / 1024} MB`));
