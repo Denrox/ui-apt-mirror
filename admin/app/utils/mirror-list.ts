@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import fs from 'fs/promises';
 import { giveToDirOwner } from './file-owner';
-import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
+import { MirrorConfig, isPathToken, type RepositoryInput } from '~/utils/mirror-config';
 
 /**
  * Thin helpers for the apt-mirror2 `mirror.list` file.
@@ -52,8 +52,12 @@ export function getSectionTitles(content: string): string[] {
  * Validate user input for a new repository. Returns an error string, or null
  * when the input is valid.
  */
-const CONTROL_RE = /[\u0000-\u001f\u007f]/;
-const TOKEN_RE = /^[A-Za-z0-9._+~\/-]+$/;
+// C0/C1 controls (incl. U+0085 NEL) and the Unicode line/paragraph separators U+2028/U+2029:
+// line terminators to some readers (Python's splitlines, JS `.`), so none may reach the file.
+const CONTROL_RE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
+// URL characters (RFC 3986) without whitespace, `?` and `#`: any other character could be read
+// differently by apt-mirror2 (Python splits on Unicode whitespace) than by this app.
+const BASE_URL_RE = /^[A-Za-z0-9\-._~:\/@!$&'()*+,;=%\[\]]+$/;
 
 export function validateRepositoryInput(
   input: NewRepositoryInput,
@@ -71,11 +75,8 @@ export function validateRepositoryInput(
     return 'Values cannot contain line breaks or control characters';
   }
   const pathTokens = [...input.suites, ...input.components, ...(input.arches ?? [])];
-  if (pathTokens.some((t) => !TOKEN_RE.test(t))) {
-    return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ /';
-  }
-  if (pathTokens.some((t) => t.split('/').includes('..'))) {
-    return 'Suites, components and architectures cannot contain ".."';
+  if (!pathTokens.every(isPathToken)) {
+    return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ / (no "." or ".." parts)';
   }
   if ((input.description?.trim().length ?? 0) > 500) {
     return 'Description is too long (max 500 characters)';
@@ -94,6 +95,10 @@ export function validateRepositoryInput(
   const base = input.baseUrl?.trim() ?? '';
   if (!base) return 'Base URL is required';
   if (/\s/.test(base)) return 'Base URL cannot contain spaces';
+  if (base.includes('#') || base.includes('?')) {
+    return 'Base URL cannot contain a query or fragment';
+  }
+  if (!BASE_URL_RE.test(base)) return 'Base URL may only contain plain ASCII URL characters';
   let parsed: URL;
   try {
     parsed = new URL(base);
@@ -103,16 +108,13 @@ export function validateRepositoryInput(
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return 'Base URL must use http or https';
   }
-  if (base.includes('#') || base.includes('?')) {
-    return 'Base URL cannot contain a query or fragment';
+  if (parsed.username || parsed.password) return 'Base URL cannot contain credentials';
+  if (base.replace(/^[a-z]+:\/\/[^/]*/i, '').split('/').some((p) => /^(\.|%2e){1,2}$/i.test(p))) {
+    return 'Base URL cannot contain "." or ".." parts';
   }
 
   if (!input.suites.length) return 'At least one suite is required';
   if (!input.components.length) return 'At least one component is required';
-  if (input.suites.some((s) => s.includes('#'))) return 'Invalid suite name';
-  if (input.components.some((c) => c.includes('#'))) {
-    return 'Invalid component name';
-  }
 
   return null;
 }

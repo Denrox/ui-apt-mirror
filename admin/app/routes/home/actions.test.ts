@@ -1,0 +1,186 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MirrorConfig } from '~/utils/mirror-config';
+
+const state = vi.hoisted(() => ({ dir: '', syncRunning: false }));
+
+vi.mock('~/config/config.json', () => ({
+  default: {
+    get mirrorListPath() {
+      return `${state.dir}/mirror.list`;
+    },
+    get gpgKeysIndex() {
+      return `${state.dir}/keys.json`;
+    },
+    get mirrorRoot() {
+      return `${state.dir}/mirror`;
+    },
+    hosts: [{ id: 'mirror', address: 'mirror.intra' }],
+  },
+}));
+vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => undefined }));
+vi.mock('~/utils/sync', () => ({ checkLockFile: async () => state.syncRunning }));
+
+const { action } = await import('./actions');
+
+const MULTI = [
+  '# ---start---Debian Trixie---',
+  '## Debian 13',
+  '#deb http://deb.debian.org/debian trixie main',
+  '#deb http://security.debian.org/debian-security trixie-security main',
+  '# Usage start',
+  '#Types: deb',
+  '# Usage end',
+  '# ---end---Debian Trixie---',
+];
+const SIMPLE = (enabled: boolean) => [
+  '# ---start---Simple---',
+  '## A simple one',
+  `${enabled ? '' : '#'}deb http://example.com/debian stable main`,
+  '# ---end---Simple---',
+];
+
+function writeList(...sections: string[][]) {
+  const body = [...sections.flatMap((s) => [...s, '']), 'clean http://example.com/debian', ''].join('\n');
+  fs.writeFileSync(`${state.dir}/mirror.list`, body);
+}
+const readList = () => fs.readFileSync(`${state.dir}/mirror.list`, 'utf-8');
+function revisionOf(title: string): string {
+  const config = MirrorConfig.parse(readList());
+  return config.sectionRevision(config.getSection(title)!);
+}
+
+async function post(fields: Record<string, string>) {
+  const body = new FormData();
+  for (const [k, v] of Object.entries(fields)) body.append(k, v);
+  return (await action({ request: new Request('http://admin/home.data', { method: 'POST', body }) })) as {
+    success?: boolean;
+    error?: string;
+    message?: string;
+  };
+}
+
+const editFields = (originalTitle: string, revision?: string) => ({
+  action: 'editRepository',
+  originalTitle,
+  ...(revision ? { revision } : {}),
+  title: originalTitle,
+  description: 'edited',
+  baseUrl: 'http://example.com/debian',
+  suites: 'stable',
+  components: 'main',
+});
+
+beforeEach(() => {
+  state.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uam-actions-'));
+  state.syncRunning = false;
+});
+afterEach(() => fs.rmSync(state.dir, { recursive: true, force: true }));
+
+describe('editRepository guards', () => {
+  it('refuses a section the form cannot represent and leaves the file alone', async () => {
+    writeList(MULTI);
+    const before = readList();
+    const result = await post({ ...editFields('Debian Trixie', revisionOf('Debian Trixie')) });
+    expect(result.error).toMatch(/cannot be edited/);
+    expect(readList()).toBe(before);
+  });
+
+  it('keeps a disabled section disabled', async () => {
+    writeList(SIMPLE(false));
+    const result = await post(editFields('Simple', revisionOf('Simple')));
+    expect(result.success).toBe(true);
+    const config = MirrorConfig.parse(readList());
+    const section = config.getSection('Simple')!;
+    expect(config.isSectionEnabled(section)).toBe(false);
+    expect(readList()).toContain('## edited');
+  });
+
+  it('keeps an enabled section enabled', async () => {
+    writeList(SIMPLE(true));
+    expect((await post(editFields('Simple', revisionOf('Simple')))).success).toBe(true);
+    const config = MirrorConfig.parse(readList());
+    expect(config.isSectionEnabled(config.getSection('Simple')!)).toBe(true);
+  });
+});
+
+describe('revision is required for changes to an existing section', () => {
+  it.each([
+    ['editRepository', (rev?: string) => editFields('Simple', rev)],
+    ['deleteRepository', (rev?: string) => ({ action: 'deleteRepository', sectionTitle: 'Simple', ...(rev ? { revision: rev } : {}) })],
+    ['removeRepository', (rev?: string) => ({ action: 'removeRepository', sectionTitle: 'Simple', ...(rev ? { revision: rev } : {}) })],
+  ])('%s without a revision is refused', async (_name, fields) => {
+    writeList(SIMPLE(true));
+    const before = readList();
+    expect((await post(fields())).error).toMatch(/Reload the page/);
+    expect(readList()).toBe(before);
+    expect((await post(fields(revisionOf('Simple')))).success).toBe(true);
+  });
+});
+
+describe('changes while a sync runs', () => {
+  it.each(['addRepository', 'editRepository', 'removeRepository', 'deleteRepository', 'restoreRepository'])(
+    '%s is refused',
+    async (name) => {
+      writeList(SIMPLE(true));
+      state.syncRunning = true;
+      const before = readList();
+      const result = await post({ ...editFields('Simple', revisionOf('Simple')), action: name, sectionTitle: 'Simple' });
+      expect(result.error).toMatch(/sync is running/);
+      expect(readList()).toBe(before);
+    },
+  );
+});
+
+describe('deleteGpgKey', () => {
+  it('says there is no key instead of claiming it deleted one', async () => {
+    const result = await post({ action: 'deleteGpgKey', host: 'nokey.example.com' });
+    expect(result.success).toBeUndefined();
+    expect(result.error).toMatch(/no signing key for nokey\.example\.com/);
+  });
+});
+
+describe('removeRepository with deleteData', () => {
+  const OTHER = [
+    '# ---start---Other---',
+    'deb http://example.com/debian testing main',
+    '# ---end---Other---',
+  ];
+  function seedData() {
+    for (const root of ['mirror', 'skel']) {
+      fs.mkdirSync(`${state.dir}/${root}/example.com/debian/dists/stable`, { recursive: true });
+      fs.writeFileSync(`${state.dir}/${root}/example.com/debian/dists/stable/Release`, 'x');
+      fs.mkdirSync(`${state.dir}/${root}/keep.org/debian`, { recursive: true });
+    }
+  }
+  const remove = (deleteData: boolean) =>
+    post({ action: 'removeRepository', sectionTitle: 'Simple', revision: revisionOf('Simple'), ...(deleteData ? { deleteData: 'true' } : {}) });
+
+  it('keeps the files unless asked', async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    expect((await remove(false)).success).toBe(true);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian`)).toBe(true);
+  });
+
+  it('deletes the mirrored and skel files of an upstream nothing else uses', async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    const result = await remove(true);
+    expect(result.message).toMatch(/mirrored files deleted/);
+    for (const root of ['mirror', 'skel']) {
+      expect(fs.existsSync(`${state.dir}/${root}/example.com`)).toBe(false);
+      expect(fs.existsSync(`${state.dir}/${root}/keep.org/debian`)).toBe(true);
+    }
+  });
+
+  it('keeps files another enabled repository still uses', async () => {
+    writeList(SIMPLE(true), OTHER);
+    seedData();
+    const result = await remove(true);
+    expect(result.message).toMatch(/kept because another enabled repository/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
+  });
+});

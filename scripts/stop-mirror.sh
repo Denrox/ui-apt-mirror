@@ -13,12 +13,16 @@ fi
 
 echo "Stopping mirror sync..."
 
-pid=$(pgrep -f "/usr/bin/python3.*apt-mirror" | head -1)
+# mirror-sync.sh treats the run as stopped even if apt-mirror exits 0 on TERM.
+touch /var/run/apt-mirror.stop
+
+# Anchored at the interpreter, so the `timeout ... python3 apt-mirror-signed.py` parent never matches.
+pid=$(pgrep -f "^/usr/bin/python3.*apt-mirror" | head -1)
 if [ -z "$pid" ]; then
-    pid=$(pgrep -f "python3.*apt-mirror" | head -1)
+    pid=$(pgrep -f "^[^ ]*python3[^ ]* .*apt-mirror" | head -1)
 fi
 if [ -z "$pid" ]; then
-    pid=$(pgrep -f "python.*apt-mirror" | head -1)
+    pid=$(pgrep -f "^[^ ]*python[^ ]* .*apt-mirror" | head -1)
 fi
 
 if [ -n "$pid" ]; then
@@ -38,9 +42,9 @@ else
 fi
 
 echo "Killing any remaining apt-mirror2 processes..."
-pkill -TERM -f "apt-mirror2" 2>/dev/null || true
+pkill -TERM -f "apt-mirror2|apt-mirror-signed" 2>/dev/null || true
 sleep 2
-pkill -KILL -f "apt-mirror2" 2>/dev/null || true
+pkill -KILL -f "apt-mirror2|apt-mirror-signed" 2>/dev/null || true
 
 rm -f "/var/run/apt-mirror.lock"
 

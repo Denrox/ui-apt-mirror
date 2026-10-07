@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { validateRepositoryInput } from './mirror-list';
+import { closureOptionsError } from '~/lib/dep-closure';
 
 const valid = {
   title: 'Trixie Updates',
@@ -26,6 +27,11 @@ describe('validateRepositoryInput', () => {
     ['title', { title: 'Repo\nclean http://x' }],
     ['filter value', { filters: { include_binary_packages: ['pkg\nset x y'] } }],
     ['other control characters', { description: 'bell\u0007' }],
+    ['description (U+2028 line separator)', { description: 'x\u2028deb http://evil/ trixie main' }],
+    ['description (U+2029 paragraph separator)', { description: 'x\u2029y' }],
+    ['title (U+2028 line separator)', { title: 'Repo\u2028x' }],
+    ['base URL (U+0085 next line)', { baseUrl: 'http://deb.debian.org/debian\u0085' }],
+    ['filter value (U+2029)', { filters: { include_binary_packages: ['pkg\u2029x'] } }],
   ])('rejects a line break or control character in the %s', (_name, change) => {
     expect(validateRepositoryInput({ ...valid, ...change }, [])).toMatch(/line breaks|control/);
   });
@@ -66,7 +72,40 @@ describe('validateRepositoryInput', () => {
     expect(validateRepositoryInput({ ...valid, description: 'x'.repeat(500) }, [])).toBeNull();
   });
 
-  it('accepts flat-repository and nested component paths', () => {
-    expect(validateRepositoryInput({ ...valid, suites: ['./'], components: ['main/debian-installer'] }, [])).toBeNull();
+  it('accepts nested suite and component paths', () => {
+    expect(
+      validateRepositoryInput({ ...valid, suites: ['bookworm/updates'], components: ['main/debian-installer'] }, []),
+    ).toBeNull();
+  });
+
+  // The same rule as /api/resolve-deps (closureOptionsError).
+  it.each([['.'], ['./'], ['a/./b'], ['a//b'], ['/trixie']])('rejects the suite %j', (suite) => {
+    expect(validateRepositoryInput({ ...valid, suites: [suite] }, [])).toMatch(/Suites, components/);
+    expect(
+      closureOptionsError({ baseUrl: valid.baseUrl, suite, components: ['main'], arches: ['amd64'] } as never),
+    ).not.toBeNull();
+  });
+
+  it.each([
+    ['a non-ASCII character', 'http://deb.debian.org/d\u00e9bian'],
+    ['a non-ASCII host', 'http://dеb.debian.org/debian'],
+    ['a backslash', 'http://deb.debian.org\\debian'],
+  ])('rejects a base URL with %s', (_name, baseUrl) => {
+    expect(validateRepositoryInput({ ...valid, baseUrl }, [])).not.toBeNull();
+  });
+
+  it('rejects credentials in the base URL', () => {
+    expect(validateRepositoryInput({ ...valid, baseUrl: 'http://user:pw@example.com/debian' }, [])).toMatch(/credentials/);
+  });
+
+  it.each(['http://example.com/a/../b', 'http://example.com/./debian', 'http://example.com/%2E%2e/x'])(
+    'rejects the dot segments in %s',
+    (baseUrl) => {
+      expect(validateRepositoryInput({ ...valid, baseUrl }, [])).toMatch(/"\." or "\.\."/);
+    },
+  );
+
+  it('accepts an upper-case scheme and host (stored lower-case)', () => {
+    expect(validateRepositoryInput({ ...valid, baseUrl: 'HTTP://DEB.debian.org/debian/' }, [])).toBeNull();
   });
 });

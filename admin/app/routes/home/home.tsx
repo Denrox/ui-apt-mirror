@@ -54,6 +54,7 @@ export default function Home() {
     title: string;
     revision: string;
   } | null>(null);
+  const [deleteMirrorData, setDeleteMirrorData] = useState(false);
   const [isActionInProgress, setIsActionInProgress] = useState(false);
   const [showRepoModal, setShowRepoModal] = useState(false);
   const [repoModalMode, setRepoModalMode] = useState<'add' | 'edit'>('add');
@@ -91,6 +92,9 @@ export default function Home() {
     }
   }, [actionData?.success, actionData?.error, actionData?.message]);
 
+  // Deleting mirrored files is chosen anew for every removal.
+  useEffect(() => setDeleteMirrorData(false), [confirmTarget]);
+
   const handleConfirm = () => {
     if (isActionInProgress || !confirmTarget) return;
 
@@ -99,6 +103,9 @@ export default function Home() {
     formData.append('action', confirmTarget.action);
     formData.append('sectionTitle', confirmTarget.title);
     formData.append('revision', confirmTarget.revision);
+    if (confirmTarget.action === 'removeRepository' && deleteMirrorData) {
+      formData.append('deleteData', 'true');
+    }
     submit(formData, { method: 'post' });
   };
 
@@ -715,7 +722,22 @@ export default function Home() {
           confirmTarget?.action === 'removeRepository' ? 'Remove' : 'Disable'
         }
         isLoading={isActionInProgress}
-      />
+      >
+        {confirmTarget?.action === 'removeRepository' && (
+          <label className="flex items-start gap-2 mb-6 text-sm text-on-surface-variant">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={deleteMirrorData}
+              onChange={(e) => setDeleteMirrorData(e.target.checked)}
+            />
+            <span>
+              Also delete its mirrored files. Syncs never clean an upstream that is no longer
+              configured. Files still used by another enabled repository are kept.
+            </span>
+          </label>
+        )}
+      </DeleteConfirmationModal>
     </PageLayoutFull>
   );
 }

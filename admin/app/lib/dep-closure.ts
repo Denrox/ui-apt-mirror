@@ -1,6 +1,7 @@
 import zlib from 'zlib';
 import { spawn } from 'child_process';
 import { checkUpstreamUrl, fetchUpstream, UpstreamFetchError } from './upstream-fetch';
+import { isPathToken } from '~/utils/mirror-config';
 
 /**
  * Dependency-closure resolver for apt repositories.
@@ -222,8 +223,6 @@ export function closureFromGraph(
   };
 }
 
-const PATH_TOKEN_RE = /^[A-Za-z0-9._+~-]+(\/[A-Za-z0-9._+~-]+)*$/;
-
 /** Why the options cannot be resolved (bad URL, path traversal), or null. */
 export function closureOptionsError(opts: ClosureOptions): string | null {
   try {
@@ -233,7 +232,7 @@ export function closureOptionsError(opts: ClosureOptions): string | null {
   }
   if (/[?#]/.test(opts.baseUrl)) return 'Base URL cannot contain a query or fragment';
   const tokens = [opts.suite, ...opts.components, ...opts.arches];
-  if (tokens.some((t) => !PATH_TOKEN_RE.test(t) || t.split('/').some((p) => p === '..' || p === '.'))) {
+  if (!tokens.every(isPathToken)) {
     return 'Suites, components and architectures may only contain letters, digits and . _ - + ~ / (no "..")';
   }
   return null;

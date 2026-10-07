@@ -19,6 +19,31 @@ export function normalizeUrl(url: string): string {
   return url.replace(/\/+$/, '');
 }
 
+/**
+ * The form a base URL is written to mirror.list in: lower-case scheme and host, no
+ * credentials, query or fragment, no trailing slash. Two spellings of one upstream then
+ * share one `clean` line and match the Usage snippet.
+ */
+export function canonicalBaseUrl(url: string): string {
+  try {
+    const u = new URL(url.trim());
+    return normalizeUrl(`${u.protocol}//${u.host}${u.pathname}`);
+  } catch {
+    return normalizeUrl(url.trim());
+  }
+}
+
+const PATH_TOKEN_RE = /^[A-Za-z0-9._+~-]+(\/[A-Za-z0-9._+~-]+)*$/;
+
+/**
+ * Whether a suite, component or architecture is a safe relative path: ASCII letters, digits
+ * and . _ + ~ -, `/`-separated, with no empty, `.` or `..` segment. Shared by the repository
+ * form and /api/resolve-deps so both accept the same values.
+ */
+export function isPathToken(token: string): boolean {
+  return PATH_TOKEN_RE.test(token) && !token.split('/').some((p) => p === '.' || p === '..');
+}
+
 /** Hostname of a deb source URI, or null when it is not a parseable URL. */
 function hostOf(uri: string): string | null {
   try {
@@ -204,7 +229,11 @@ export class MirrorConfig {
    */
   setSectionEnabled(title: string, enabled: boolean, revision?: string): boolean {
     const section = this.getSection(title, revision);
-    if (!section) return false;
+    return section ? this.setEnabled(section, enabled) : false;
+  }
+
+  /** {@link setSectionEnabled} for a section node already in hand. */
+  setEnabled(section: SectionNode, enabled: boolean): boolean {
     let changed = false;
     for (const child of section.children) {
       if ((child.kind === 'deb' || child.kind === 'filter') && child.enabled !== enabled) {
@@ -224,7 +253,7 @@ export class MirrorConfig {
     const section = buildSection(input, mirrorDomain);
     const anchor = this.cleanBlockAnchor();
     this.nodes.splice(anchor, 0, section, { kind: 'blank' });
-    this.ensureClean(normalizeUrl(input.baseUrl.trim()));
+    this.ensureClean(canonicalBaseUrl(input.baseUrl));
   }
 
   /**
@@ -268,7 +297,7 @@ export class MirrorConfig {
     section.startRaw = rebuilt.startRaw;
     section.endRaw = rebuilt.endRaw;
 
-    const newUrl = normalizeUrl(input.baseUrl.trim());
+    const newUrl = canonicalBaseUrl(input.baseUrl);
     this.ensureClean(newUrl);
     for (const url of oldUrls) {
       if (url !== newUrl) this.pruneCleanIfUnreferenced(url);
@@ -367,7 +396,7 @@ function buildSection(
   mirrorDomain: string,
 ): SectionNode {
   const title = input.title.trim();
-  const base = normalizeUrl(input.baseUrl.trim());
+  const base = canonicalBaseUrl(input.baseUrl);
   const children: SectionChild[] = [];
 
   if (input.description && input.description.trim()) {

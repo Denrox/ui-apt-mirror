@@ -7,6 +7,9 @@ MIRROR_CONFIG="/etc/apt/mirror.list"
 MIRROR_LOG="/var/log/apt-mirror/apt-mirror.log"
 SYNC_FREQUENCY="${SYNC_FREQUENCY:-3600}"  # Default: 1 hour
 LOCK_FILE="/var/run/apt-mirror.lock"
+FLOCK_FILE="/var/run/apt-mirror.flock"
+# Written by stop-mirror.sh: the running sync was stopped, whatever exit code apt-mirror returns.
+STOP_FILE="/var/run/apt-mirror.stop"
 LOG_MAX_SIZE=2097152  # 2 MB
 LOG_MAX_ROTATIONS=3
 
@@ -81,6 +84,14 @@ remove_lock() {
     exec 8>&-
 }
 
+# Re-sign Release files for every host that has a GPG key registered.
+sign_releases() {
+    [ -x /usr/local/bin/sign-releases.sh ] || return 0
+    log "Signing Release files..."
+    /usr/local/bin/sign-releases.sh 2>&1 | tee -a "$MIRROR_LOG"
+    [ "${PIPESTATUS[0]}" -eq 0 ] || log "WARN: sign-releases.sh exited non-zero"
+}
+
 # Function to perform sync
 do_sync() {
     log "Starting apt-mirror2 sync..."
@@ -91,30 +102,45 @@ do_sync() {
     fi
     
     # Held for the whole sync, so two runs can never overlap however they were started.
-    exec 8>/var/run/apt-mirror.flock
-    if ! flock -n 8; then
-        log "Sync already running"
-        return 1
+    # start-mirror.sh takes it before it answers and hands it over on fd 8.
+    if [ "${MIRROR_SYNC_FLOCK_HELD:-}" = 1 ] && { true >&8; } 2>/dev/null; then
+        unset MIRROR_SYNC_FLOCK_HELD
+    else
+        exec 8>"$FLOCK_FILE"
+        if ! flock -n 8; then
+            log "Sync already running"
+            return 1
+        fi
     fi
+    rm -f "$STOP_FILE"
     create_lock
     
     # Set environment variables for better performance
     export PYTHONUNBUFFERED=1
     export PYTHONIOENCODING=utf-8
     
-    # Run apt-mirror2 using Python version with timeout
+    # Run apt-mirror2 with timeout. The wrapper signs each repository's Release files as
+    # apt-mirror2 publishes them, so clients that trust only our key keep working mid-sync.
     rotate_log
-    timeout 36000 apt-mirror "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"
+    local runner=(apt-mirror)
+    if [ -f /usr/local/bin/apt-mirror-signed.py ]; then
+        runner=(python3 /usr/local/bin/apt-mirror-signed.py)
+    fi
+    timeout 36000 "${runner[@]}" "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"
     local exit_code=${PIPESTATUS[0]}
-    if [ "$exit_code" -eq 0 ]; then
-        log "Sync completed successfully"
+    # apt-mirror2 exits 0 when TERM reaches it during a retry wait; the stop request decides.
+    local stop_requested=0
+    if [ -f "$STOP_FILE" ]; then
+        stop_requested=1
+        rm -f "$STOP_FILE"
+    fi
 
-        # Re-sign Release files for every host that has a GPG key registered.
-        if [ -x /usr/local/bin/sign-releases.sh ]; then
-            log "Signing Release files..."
-            /usr/local/bin/sign-releases.sh 2>&1 | tee -a "$MIRROR_LOG" || \
-                log "WARN: sign-releases.sh exited non-zero"
-        fi
+    # Re-sign after every run, failed or stopped ones too: a repository published before the
+    # failure would otherwise serve upstream signatures until the next good sync.
+    sign_releases
+
+    if [ "$exit_code" -eq 0 ] && [ "$stop_requested" -eq 0 ]; then
+        log "Sync completed successfully"
 
         # Update last sync timestamp
         date > /var/spool/apt-mirror/last-sync.txt
@@ -126,7 +152,9 @@ do_sync() {
             log "Total mirror size: $total_size"
         fi
     else
-        if [ "$exit_code" -eq 124 ]; then
+        if [ "$stop_requested" -eq 1 ]; then
+            log "Sync stopped before completion (stop requested, exit code $exit_code)"
+        elif [ "$exit_code" -eq 124 ]; then
             log "ERROR: Sync timed out after 10 hours"
         elif [ "$exit_code" -eq 143 ] || [ "$exit_code" -eq 137 ]; then
             log "Sync stopped before completion (exit code $exit_code)"
