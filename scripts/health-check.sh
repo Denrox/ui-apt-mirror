@@ -182,11 +182,11 @@ run_once() {
     local health_status=$(do_health_check)
     echo "$health_status"
     
-    if [ "$health_status" = "healthy" ]; then
-        exit 0
-    else
+    # A disk warning still counts as up: Docker should only report the services as down
+    if [ "$health_status" = "unhealthy" ]; then
         exit 1
     fi
+    exit 0
 }
 
 # Function to get detailed status
