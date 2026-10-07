@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import ContentBlock from '~/components/shared/content-block/content-block';
 import PageLayoutFull from '~/components/shared/layout/page-layout-full';
 import FormButton from '~/components/shared/form/form-button';
@@ -33,6 +33,7 @@ import classNames from 'classnames';
 import ChunkedUpload from '~/components/shared/form/chunked-upload';
 import DownloadFile from '~/components/shared/form/download-file';
 import { getHostAddress } from '~/utils/url';
+import { fileUrl, viewOfPath, type FileManagerView } from '~/utils/file-links';
 import { formatDateTime, useHydrated } from '~/utils/use-hydrated';
 import { toast } from 'react-toastify';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -92,52 +93,42 @@ export default function FileManager() {
   const isLockFilePresent = data?.isLockFilePresent || false;
   const healthReport = data?.healthReport;
   const loaderError = data?.error;
+  const page = data?.page ?? 1;
+  const pageCount = data?.pageCount ?? 1;
+  const totalFiles = data?.totalFiles ?? files.length;
   const isPublicRoute = data?.__domain === 'files';
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const getViewFromPath = (
-    pathStr: string | null,
-  ):
-    | 'public-files'
-    | 'private-files'
-    | 'mirrored-packages'
-    | 'npm-packages' => {
-    if (!pathStr) return 'public-files';
-
-    if (pathStr.includes(appConfig.mirroredPackagesDir))
-      return 'mirrored-packages';
-    if (pathStr.includes(appConfig.npmPackagesDir)) return 'npm-packages';
-    if (pathStr.includes(appConfig.privateFilesDir)) return 'private-files';
-    return 'public-files';
-  };
-
-  const initialPath = searchParams.get('path');
-  const [view, setView] = useState<
-    'public-files' | 'private-files' | 'mirrored-packages' | 'npm-packages'
-  >(getViewFromPath(initialPath));
   const revalidator = useRevalidator();
-  const previousViewRef = useRef(view);
 
-  const rootPath = useMemo(() => {
-    if (view === 'mirrored-packages') {
-      return appConfig.mirroredPackagesDir;
-    } else if (view === 'npm-packages') {
-      return appConfig.npmPackagesDir;
-    } else if (view === 'private-files') {
-      return appConfig.privateFilesDir;
-    } else {
+  const rootOfView = useCallback(
+    (v: FileManagerView) => {
+      if (v === 'mirrored-packages') {
+        // The public host only shows the published mirror tree.
+        return isPublicRoute ? appConfig.mirrorRoot : appConfig.mirroredPackagesDir;
+      } else if (v === 'npm-packages') {
+        return appConfig.npmPackagesDir;
+      } else if (v === 'private-files') {
+        return appConfig.privateFilesDir;
+      }
       return appConfig.filesDir;
-    }
-  }, [view]);
+    },
+    [isPublicRoute],
+  );
 
-  useEffect(() => {
-    if (previousViewRef.current !== view) {
-      setSearchParams({ path: rootPath });
-      previousViewRef.current = view;
-    }
-  }, [view, rootPath, setSearchParams]);
+  // The view follows the URL, so Back/Forward and links keep the selector in step.
+  const pathParam = searchParams.get('path');
+  const view = viewOfPath(pathParam, appConfig);
+  const rootPath = rootOfView(view);
+  const currentPath = pathParam ?? rootPath;
+  const setView = (v: FileManagerView) => setSearchParams({ path: rootOfView(v) });
 
-  const currentPath = searchParams.get('path') ?? rootPath;
+  const filesLinkHost = getHostAddress(filesHostAddress);
+  const mirrorLinkHost = getHostAddress(hostOf(hosts, 'mirror'));
+  const urlOf = useCallback(
+    (p: string) => fileUrl(p, appConfig, { files: filesLinkHost, mirror: mirrorLinkHost }),
+    [filesLinkHost, mirrorLinkHost],
+  );
 
   const displayPath = useMemo(() => {
     return currentPath.replace(rootPath, '') || '/';
@@ -151,7 +142,9 @@ export default function FileManager() {
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  // null until the running search answers
+  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [searchTruncated, setSearchTruncated] = useState(false);
 
   useEffect(() => {
     setSearchQuery('');
@@ -202,16 +195,18 @@ export default function FileManager() {
   useEffect(() => {
     if (loaderError) {
       toast.error(loaderError);
-      setSearchParams({ path: rootPath });
+      setSearchParams({ path: appConfig.filesDir }, { replace: true });
     }
-  }, [loaderError, rootPath, setSearchParams]);
+  }, [loaderError, setSearchParams]);
 
   const currentPathFiles = useMemo(() => {
-    if (isSearching && searchResults.length > 0) {
-      return searchResults;
+    if (isSearching) {
+      // No matches is an empty list, not the folder's own contents.
+      return searchResults ?? [];
     }
     return files.filter((file: any) => isChildPath(file.path, currentPath));
   }, [files, currentPath, isSearching, searchResults]);
+  const isSearchPending = isSearching && searchResults === null;
 
   const handleDelete = (filePath: string, fileName: string) => {
     setDeleteTarget({ path: filePath, name: fileName });
@@ -336,6 +331,7 @@ export default function FileManager() {
     if (searchQuery.trim().length < 3) return;
 
     setIsSearching(true);
+    setSearchResults(null);
     const formData = new FormData();
     formData.append('intent', 'searchFiles');
     formData.append('searchQuery', searchQuery.trim());
@@ -347,13 +343,14 @@ export default function FileManager() {
   const handleClearSearch = useCallback(() => {
     setIsSearching(false);
     setSearchQuery('');
-    setSearchResults([]);
+    setSearchResults(null);
   }, []);
 
   useEffect(() => {
     if (searchFetcher.data && searchFetcher.state === 'idle') {
       if (searchFetcher.data.success && searchFetcher.data.results) {
         setSearchResults(searchFetcher.data.results);
+        setSearchTruncated(Boolean(searchFetcher.data.truncated));
       } else if (searchFetcher.data.error) {
         toast.error(searchFetcher.data.error);
         setIsSearching(false);
@@ -413,19 +410,10 @@ export default function FileManager() {
   // No per-type lists here: pass all currentPathFiles and let modals compute
 
   const handlePlayMedia = (item: any) => {
-    const basePath =
-      view === 'mirrored-packages'
-        ? rootPath
-        : view === 'private-files'
-          ? appConfig.privateFilesDir
-          : appConfig.filesDir;
-    const fileUrl =
-      view === 'private-files'
-        ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-        : `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
+    const fileUrl = urlOf(item.path);
     const mediaType = isMediaFile(item.name);
 
-    if (mediaType) {
+    if (mediaType && fileUrl) {
       setMediaPlayer({
         isOpen: true,
         fileUrl,
@@ -470,18 +458,9 @@ export default function FileManager() {
   });
 
   const handlePreviewFile = (item: any) => {
-    const basePath =
-      view === 'mirrored-packages'
-        ? rootPath
-        : view === 'private-files'
-          ? appConfig.privateFilesDir
-          : appConfig.filesDir;
-    const fileUrl =
-      view === 'private-files'
-        ? `/api/download-private?path=${encodeURIComponent(item.path)}`
-        : `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
+    const fileUrl = urlOf(item.path);
     const previewType = getPreviewType(item.name);
-    if (!previewType) return;
+    if (!previewType || !fileUrl) return;
     setFilePreview({
       isOpen: true,
       fileUrl,
@@ -551,13 +530,7 @@ export default function FileManager() {
             label=""
             value={view}
             onChange={(value) =>
-              setView(
-                value as
-                  | 'public-files'
-                  | 'private-files'
-                  | 'mirrored-packages'
-                  | 'npm-packages',
-              )
+              setView(value as FileManagerView)
             }
             options={[
               { value: 'public-files', label: 'Public Files' },
@@ -565,11 +538,12 @@ export default function FileManager() {
                 ? [{ value: 'private-files', label: 'Private Files' }]
                 : []),
               { value: 'mirrored-packages', label: 'Mirrored Packages' },
-              ...(isNpmProxyEnabled
+              ...(isNpmProxyEnabled && !isPublicRoute
                 ? [{ value: 'npm-packages', label: 'Npm Packages' }]
                 : []),
             ]}
-            disabled={Boolean(itemToRename) || Boolean(fileToCut) || isLoading}
+            // Stays enabled while an item is cut, so it can be pasted in another storage.
+            disabled={Boolean(itemToRename) || isLoading}
           />
         </div>
       </div>
@@ -708,7 +682,7 @@ export default function FileManager() {
                     </span>
                     <FormButton
                       onClick={handlePasteClick}
-                      disabled={isOperationInProgress || isLoading}
+                      disabled={isOperationInProgress || isLoading || isManagedView}
                     >
                       Paste
                     </FormButton>
@@ -754,6 +728,12 @@ export default function FileManager() {
               </>
             )}
           </div>
+          {isSearching && searchResults && searchTruncated && (
+            <FileManagerWarning
+              type="info"
+              message={`Showing the first ${searchResults.length} matches; refine the search to see the rest`}
+            />
+          )}
           <div className="border border-outline-variant rounded-lg overflow-hidden">
             {shouldShowSyncPlaceholder ? (
               <div className="p-8 text-center">
@@ -766,6 +746,10 @@ export default function FileManager() {
                 <div className="text-on-surface-variant text-sm">
                   Manual operations will be available after it's complete
                 </div>
+              </div>
+            ) : isSearchPending ? (
+              <div className="p-4 text-center text-on-surface-variant">
+                Searching…
               </div>
             ) : currentPathFiles.length === 0 ? (
               <div className="p-4 text-center text-on-surface-variant">
@@ -824,7 +808,8 @@ export default function FileManager() {
                       >
                         {!item.isDirectory &&
                           isMediaFile(item.name) &&
-                          view !== 'private-files' && (
+                          view !== 'private-files' &&
+                          urlOf(item.path) && (
                             <FormButton
                               type="secondary"
                               size="small"
@@ -840,7 +825,8 @@ export default function FileManager() {
                           )}
                         {!item.isDirectory &&
                           getPreviewType(item.name) &&
-                          view !== 'private-files' && (
+                          view !== 'private-files' &&
+                          urlOf(item.path) && (
                             <FormButton
                               type="secondary"
                               size="small"
@@ -854,7 +840,7 @@ export default function FileManager() {
                               <FontAwesomeIcon icon={faEye} />
                             </FormButton>
                           )}
-                        {!item.isDirectory && (
+                        {!item.isDirectory && urlOf(item.path) && (
                           <FormButton
                             type="secondary"
                             size="small"
@@ -864,27 +850,15 @@ export default function FileManager() {
                               isLoading
                             }
                             onClick={() => {
-                              if (view === 'private-files') {
-                                const link = document.createElement('a');
-                                link.href = `/api/download-private?path=${encodeURIComponent(item.path)}`;
-                                link.target = '_blank';
-                                link.rel = 'noopener noreferrer';
-                                document.body.appendChild(link);
-                                link.click();
-                                document.body.removeChild(link);
-                              } else {
-                                const link = document.createElement('a');
-                                const basePath =
-                                  view === 'mirrored-packages'
-                                    ? rootPath
-                                    : appConfig.filesDir;
-                                link.href = `${getHostAddress(filesHostAddress)}/downloads${item.path.replace(basePath, '')}`;
-                                link.target = '_blank';
-                                link.rel = 'noopener noreferrer';
-                                document.body.appendChild(link);
-                                link.click();
-                                document.body.removeChild(link);
-                              }
+                              const href = urlOf(item.path);
+                              if (!href) return;
+                              const link = document.createElement('a');
+                              link.href = href;
+                              link.target = '_blank';
+                              link.rel = 'noopener noreferrer';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
                             }}
                           >
                             ↓
@@ -959,6 +933,32 @@ export default function FileManager() {
               </TableWrapper>
             )}
           </div>
+          {!isSearching && !shouldShowSyncPlaceholder && pageCount > 1 && (
+            <nav
+              className="flex items-center justify-center gap-3 text-sm text-on-surface-variant"
+              aria-label="Pages"
+            >
+              <FormButton
+                type="secondary"
+                size="small"
+                disabled={page <= 1 || isLoading}
+                onClick={() => setSearchParams({ path: currentPath, page: String(page - 1) })}
+              >
+                ‹ Previous
+              </FormButton>
+              <span>
+                Page {page} of {pageCount} ({totalFiles} items)
+              </span>
+              <FormButton
+                type="secondary"
+                size="small"
+                disabled={page >= pageCount || isLoading}
+                onClick={() => setSearchParams({ path: currentPath, page: String(page + 1) })}
+              >
+                Next ›
+              </FormButton>
+            </nav>
+          )}
         </div>
       </ContentBlock>
 
@@ -998,10 +998,7 @@ export default function FileManager() {
         mediaType={mediaPlayer.mediaType}
         onSelectMedia={handleSelectMediaFile}
         allFiles={currentPathFiles}
-        basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
-        filesHost={getHostAddress(
-          filesHostAddress,
-        )}
+        urlOf={urlOf}
       />
 
       <FilePreviewModal
@@ -1020,10 +1017,7 @@ export default function FileManager() {
           }))
         }
         allFiles={currentPathFiles}
-        basePath={view === 'mirrored-packages' ? rootPath : appConfig.filesDir}
-        filesHost={getHostAddress(
-          filesHostAddress,
-        )}
+        urlOf={urlOf}
       />
 
       {/* Delete Confirmation Modal */}

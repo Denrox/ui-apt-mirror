@@ -46,24 +46,48 @@ export function resolveInside(p: unknown, roots: string[]): string | null {
   return roots.some((root) => isWithin(real, realPathOf(root))) ? real : null;
 }
 
-/** Like resolveInside, but the path must also not be one of the roots themselves. */
-export function resolveBelow(p: unknown, roots: string[]): string | null {
-  const real = resolveInside(p, roots);
-  if (!real) return null;
-  return roots.some((root) => realPathOf(root) === real) ? null : real;
+/**
+ * Location of the directory entry `p` names, for operations on the entry itself (delete,
+ * rename, move): the parent directory is resolved and must be inside one of `roots`, the
+ * last segment is kept as is. A symlink therefore stays the link, never its target.
+ * Returns null for a root itself or anything outside the roots.
+ */
+export function resolveEntry(p: unknown, roots: string[]): string | null {
+  if (typeof p !== 'string' || !p || p.includes('\0')) return null;
+  const absolute = path.resolve(p);
+  const name = path.basename(absolute);
+  if (!name || name === '.' || name === '..') return null;
+  const parent = resolveInside(path.dirname(absolute), roots);
+  if (!parent) return null;
+  const entry = path.join(parent, name);
+  return roots.some((root) => realPathOf(root) === entry) ? null : entry;
+}
+
+/** Real location of the entry `p` names without following a symlink in its last segment. */
+function entryPathOf(p: string): string {
+  const absolute = path.resolve(p);
+  return path.join(realPathOf(path.dirname(absolute)), path.basename(absolute));
+}
+
+/** True when the entry `p` or, for a symlink, its target is `root` or inside it. */
+function touches(p: string, root: string): boolean {
+  const realRoot = realPathOf(root);
+  return isWithin(entryPathOf(p), realRoot) || isWithin(realPathOf(p), realRoot);
 }
 
 export const MANAGED_DIR_ERROR = 'This folder is managed by the mirror; only deletion is allowed here';
 export const SYNC_RUNNING_ERROR = 'A mirror sync is running; try again after it finishes';
 
-/** Why a write to real path `target` is refused: mirror and npm dirs only allow removal, the mirror none during a sync. */
+/** Why a write to the entry `target` is refused: mirror and npm dirs only allow removal, the mirror none during a sync. */
 export function writeBlockedReason(
   target: string,
   op: 'add' | 'remove',
   syncRunning: boolean,
   dirs = { mirror: appConfig.mirroredPackagesDir, npm: appConfig.npmPackagesDir },
 ): string | null {
-  if (syncRunning && resolveInside(target, [dirs.mirror])) return SYNC_RUNNING_ERROR;
-  if (op === 'add' && resolveInside(target, [dirs.mirror, dirs.npm])) return MANAGED_DIR_ERROR;
+  if (syncRunning && touches(target, dirs.mirror)) return SYNC_RUNNING_ERROR;
+  if (op === 'add' && (touches(target, dirs.mirror) || touches(target, dirs.npm))) {
+    return MANAGED_DIR_ERROR;
+  }
   return null;
 }

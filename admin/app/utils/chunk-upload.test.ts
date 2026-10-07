@@ -4,9 +4,11 @@ import os from 'os';
 import path from 'path';
 import {
   abortUpload,
+  isStaleTempDir,
   removeStaleTempDirs,
   sweepStaleUploads,
   uploadTempDir,
+  withBusyTempDir,
   writeChunk,
 } from './chunk-upload';
 
@@ -36,6 +38,30 @@ describe('writeChunk', () => {
     await chunk('b', 1, 3, 'two');
     await chunk('b', 2, 3, 'three');
     expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe('onetwothree');
+  });
+
+  it('appends a chunk once when copies of it arrive while the first is still being written', async () => {
+    const big = (c: string) => c.repeat(2 * 1024 * 1024);
+    await chunk('dup', 0, 3, big('a'));
+    const copies = await Promise.all(Array.from({ length: 6 }, () => chunk('dup', 1, 3, big('b'))));
+    expect(copies).toEqual(Array(6).fill('chunk'));
+    expect(await chunk('dup', 2, 3, big('c'))).toBe('done');
+    expect(fs.readFileSync(path.join(dir, 'f.bin'), 'utf-8')).toBe(big('a') + big('b') + big('c'));
+  });
+
+  it('accepts names up to 255 bytes and an empty file', async () => {
+    const name = 'r2-files-' + 'M'.repeat(246);
+    expect(Buffer.byteLength(name)).toBe(255);
+    expect(await chunk('long', 0, 1, 'x', name)).toBe('done');
+    expect(fs.readFileSync(path.join(dir, name), 'utf-8')).toBe('x');
+    expect(await chunk('empty', 0, 1, '', 'empty.txt')).toBe('done');
+    expect(fs.statSync(path.join(dir, 'empty.txt')).size).toBe(0);
+  });
+
+  it('removes its temp dir when a chunk cannot be stored', async () => {
+    const name = 'x'.repeat(300);
+    await expect(chunk('toolong', 0, 1, 'x', name)).rejects.toThrow();
+    expect(fs.readdirSync(dir)).toEqual([]);
   });
 
   it('restarts cleanly when chunk 0 is sent again', async () => {
@@ -107,5 +133,16 @@ describe('cleanup', () => {
     expect(await removeStaleTempDirs(dir, 60 * 60 * 1000)).toEqual([stale]);
     expect(fs.existsSync(fresh)).toBe(true);
     expect(fs.existsSync(uploadTempDir(dir, 'active'))).toBe(true);
+  });
+
+  it('never treats a temp dir that a move is still writing as stale', async () => {
+    const busy = path.join(dir, '.tmp-move-x');
+    fs.mkdirSync(busy);
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.utimesSync(busy, old, old);
+    await withBusyTempDir(busy, async () => {
+      expect(await isStaleTempDir(busy, 60_000)).toBe(false);
+    });
+    expect(await isStaleTempDir(busy, 60_000)).toBe(true);
   });
 });

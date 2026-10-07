@@ -1,15 +1,11 @@
 import type { Route } from './+types/file-manager';
 import path from 'path';
 import fs from 'fs/promises';
-import fsSync from 'fs';
-import https from 'https';
-import http from 'http';
-import { URL } from 'url';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
-import { resolveBelow, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
+import { resolveEntry, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
 import { moveFile } from '~/utils/move-path';
 import {
@@ -18,11 +14,15 @@ import {
   pathExists,
   removeStaleTempDirs,
   sweepStaleUploads,
+  UPLOAD_TEMP_PREFIX,
   UploadError,
   writeChunk,
 } from '~/utils/chunk-upload';
 import { scanTrees } from '~/utils/health-scan';
+import { searchFiles } from '~/utils/search-files';
 import { giveToDirOwner, mkdirOwned } from '~/utils/file-owner';
+import { getValidationError } from '~/utils/file-name';
+import { startDownload, type Download, type DownloadResult } from '~/utils/url-download';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,37 +42,8 @@ setInterval(() => {
   sweepStaleUploads().catch((error) => console.error('Failed to sweep stale uploads:', error));
 }, 10 * 60 * 1000);
 
-const activeDownloads = new Map<string, { request: any; fileStream: any }>();
-
-setInterval(() => {
-  for (const [destPath, download] of activeDownloads.entries()) {
-    if (download.request.destroyed || download.fileStream?.destroyed) {
-      activeDownloads.delete(destPath);
-    }
-  }
-}, 30000);
-
-async function cancelAndCleanupDownload(destPath: string): Promise<void> {
-  try {
-    const activeDownload = activeDownloads.get(destPath);
-    // Without a running download, destPath is an existing file that is not ours to remove.
-    if (!activeDownload) return;
-
-    activeDownload.request.destroy();
-
-    if (activeDownload.fileStream) {
-      activeDownload.fileStream.destroy();
-    }
-
-    activeDownloads.delete(destPath);
-
-    try {
-      await fs.unlink(destPath);
-    } catch (unlinkError) {}
-  } catch (error) {
-    console.error('Failed to cancel and cleanup download:', error);
-  }
-}
+// Running URL downloads by destination path, so the dialog's Cancel can stop one.
+const activeDownloads = new Map<string, Download>();
 
 async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise<string | null> {
   const syncRunning = await checkLockFile();
@@ -80,29 +51,6 @@ async function writeBlocked(op: 'add' | 'remove', ...targets: string[]): Promise
     const reason = writeBlockedReason(target, op, syncRunning);
     if (reason) return reason;
   }
-  return null;
-}
-
-function isValidFileName(name: string): boolean {
-  const forbiddenPatterns = [/^\./, /\//];
-
-  return !forbiddenPatterns.some((pattern) => pattern.test(name));
-}
-
-export function getValidationError(name: string): string | null {
-  if (!name.trim()) {
-    return 'Name cannot be empty';
-  }
-
-  if (!isValidFileName(name)) {
-    return "Name cannot contain './', '../', or other path traversal characters";
-  }
-
-  const invalidChars = /[<>:"|?*\x00-\x1f]/;
-  if (invalidChars.test(name)) {
-    return 'Name contains invalid characters';
-  }
-
   return null;
 }
 
@@ -135,10 +83,8 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
     const dirPath = path.dirname(oldPath);
     const newPath = path.join(dirPath, newName);
 
-    try {
-      await fs.access(newPath);
-      return false;
-    } catch (error) {}
+    // lstat: a dangling symlink still takes the name
+    if (await pathExists(newPath)) return false;
 
     await fs.rename(oldPath, newPath);
     return true;
@@ -147,52 +93,14 @@ async function renameFile(oldPath: string, newName: string): Promise<boolean> {
   }
 }
 
-async function downloadFile(url: string, destPath: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    let fileStream: fsSync.WriteStream | undefined;
-
-    try {
-      const urlObj = new URL(url);
-      const protocol = urlObj.protocol === 'https:' ? https : http;
-
-      const request = protocol.get(url, (response) => {
-        if (response.statusCode !== 200) {
-          resolve(false);
-          return;
-        }
-
-        fileStream = fsSync.createWriteStream(destPath, { flags: 'wx' });
-        response.pipe(fileStream);
-
-        fileStream.on('finish', () => {
-          fileStream?.close();
-          activeDownloads.delete(destPath);
-          giveToDirOwner(destPath);
-          resolve(true);
-        });
-
-        fileStream.on('error', () => {
-          activeDownloads.delete(destPath);
-          resolve(false);
-        });
-      });
-
-      request.on('error', () => {
-        activeDownloads.delete(destPath);
-        resolve(false);
-      });
-
-      request.setTimeout(30000, () => {
-        request.destroy();
-        activeDownloads.delete(destPath);
-        resolve(false);
-      });
-
-      activeDownloads.set(destPath, { request, fileStream });
-    } catch (error) {
-      resolve(false);
-    }
-  });
+async function downloadFile(url: string, destPath: string): Promise<DownloadResult> {
+  const download = startDownload(url, destPath);
+  activeDownloads.set(destPath, download);
+  try {
+    return await download.done;
+  } finally {
+    if (activeDownloads.get(destPath) === download) activeDownloads.delete(destPath);
+  }
 }
 
 async function uploadFile(filePath: string, file: any): Promise<boolean> {
@@ -307,16 +215,19 @@ async function downloadImage(
   if (!ARCHITECTURES.has(architecture)) {
     throw new Error('Invalid architecture');
   }
+  const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
+  const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
+  const fullPath = path.join(destPath, fileName);
+  // Never replace or delete a file that already has this name.
+  if (await pathExists(fullPath)) {
+    throw new Error(nameTakenError(fileName));
+  }
+  let tempDir: string | null = null;
   try {
     await mkdirOwned(destPath);
-
-    const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
-    const fullPath = path.join(destPath, fileName);
-
-    try {
-      await fs.unlink(fullPath);
-    } catch (unlinkError) {}
+    // Pull to a hidden temp dir and link into place when complete.
+    tempDir = await fs.mkdtemp(path.join(destPath, `${UPLOAD_TEMP_PREFIX}img-`));
+    const tempPath = path.join(tempDir, fileName);
 
     const registryInfo = parseImageUrl(imageUrl);
     if (!registryInfo) {
@@ -326,13 +237,23 @@ async function downloadImage(
     }
 
     const sourceImage = `${registryInfo.registry}/${registryInfo.repository}:${imageTag}`;
-    const skopeoCopy = (image: string) =>
-      execFileAsync('skopeo', ['copy', '--override-arch', architecture, `docker://${image}`, `docker-archive:${fullPath}`]);
+    const skopeoCopy = async (image: string) => {
+      await fs.rm(tempPath, { force: true });
+      await execFileAsync('skopeo', ['copy', '--override-arch', architecture, `docker://${image}`, `docker-archive:${tempPath}`]);
+    };
+    const store = async () => {
+      try {
+        await fs.link(tempPath, fullPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(nameTakenError(fileName));
+        throw error;
+      }
+      giveToDirOwner(fullPath);
+      return true;
+    };
 
     try {
       await skopeoCopy(sourceImage);
-      giveToDirOwner(fullPath);
-      return true;
     } catch (dockerError) {
       if (
         registryInfo.registry === 'docker.io' &&
@@ -343,8 +264,6 @@ async function downloadImage(
 
         try {
           await skopeoCopy(gcrImage);
-          giveToDirOwner(fullPath);
-          return true;
         } catch (gcrError) {
           throw dockerError;
         }
@@ -352,19 +271,9 @@ async function downloadImage(
         throw dockerError;
       }
     }
+    return await store();
   } catch (error) {
     console.error('Failed to download image:', error);
-
-    try {
-      const imageName = imageUrl.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const fileName = `${imageName}_${imageTag}_${architecture}.tar`;
-      const fullPath = path.join(destPath, fileName);
-
-      const stats = await fs.stat(fullPath);
-      if (stats.size === 0) {
-        await fs.unlink(fullPath);
-      }
-    } catch (cleanupError) {}
 
     const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -385,9 +294,13 @@ async function downloadImage(
       throw new Error(
         'Download timed out. Please try again or check your network connection.',
       );
+    } else if (errorMessage.includes('already exists here')) {
+      throw error;
     }
 
     return false;
+  } finally {
+    if (tempDir) await fs.rm(tempDir, { recursive: true, force: true });
   }
 }
 
@@ -434,66 +347,13 @@ function parseImageUrl(imageUrl: string): RegistryInfo | null {
   };
 }
 
-async function searchFiles(rootPath: string, searchQuery: string): Promise<any[]> {
-  const results: any[] = [];
-  const lowerQuery = searchQuery.toLowerCase();
-  // Real paths already walked, so symlink cycles can't recurse forever
-  const visited = new Set<string>();
-
-  async function searchDirectory(dirPath: string): Promise<void> {
-    try {
-      const realDirPath = await fs.realpath(dirPath);
-      if (visited.has(realDirPath)) return;
-      visited.add(realDirPath);
-
-      const items = await fs.readdir(dirPath);
-      
-      for (const itemName of items) {
-        // Skip hidden files except .tmp- directories
-        if (itemName.startsWith('.') && !itemName.startsWith('.tmp-')) {
-          continue;
-        }
-
-        const itemPath = path.join(dirPath, itemName);
-        
-        try {
-          const stats = await fs.stat(itemPath);
-          
-          // Check if the item name matches the search query
-          if (itemName.toLowerCase().includes(lowerQuery)) {
-            results.push({
-              name: itemName,
-              path: itemPath,
-              size: stats.isFile() ? stats.size : 0,
-              modified: stats.mtime,
-              isDirectory: stats.isDirectory(),
-            });
-          }
-          
-          // Recursively search subdirectories (but not .tmp- directories)
-          if (stats.isDirectory() && !itemName.startsWith('.tmp-')) {
-            await searchDirectory(itemPath);
-          }
-        } catch (itemError) {
-          // Skip items we can't access
-          console.error(`Error processing item: ${itemPath}`, itemError);
-        }
-      }
-    } catch (readError) {
-      console.error(`Error reading directory: ${dirPath}`, readError);
-    }
-  }
-
-  await searchDirectory(rootPath);
-  return results;
-}
-
 export async function action({ request }: Route.ActionArgs): Promise<{
   success: boolean;
   message?: string;
   error?: string;
   output?: string;
   results?: any[];
+  truncated?: boolean;
 }> {
   await requireAuthMiddleware(request);
   const roots = storageRoots();
@@ -531,7 +391,8 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to create folder' };
       }
     } else if (intent === 'deleteFile') {
-      const filePath = resolveBelow(formData.get('filePath'), roots);
+      // The entry itself: deleting a symlink removes the link, never its target.
+      const filePath = resolveEntry(formData.get('filePath'), roots);
       if (!filePath) {
         return { success: false, error: OUTSIDE };
       }
@@ -546,7 +407,7 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         return { success: false, error: 'Failed to delete file' };
       }
     } else if (intent === 'renameFile') {
-      const filePath = resolveBelow(formData.get('filePath'), roots);
+      const filePath = resolveEntry(formData.get('filePath'), roots);
       const newName = formData.get('newName') as string;
       if (!filePath) {
         return { success: false, error: OUTSIDE };
@@ -579,15 +440,17 @@ export async function action({ request }: Route.ActionArgs): Promise<{
         };
       }
     } else if (intent === 'moveFile') {
-      const sourcePath = resolveBelow(formData.get('sourcePath'), roots);
+      const sourcePath = resolveEntry(formData.get('sourcePath'), roots);
       const destinationPath = resolveInside(formData.get('destinationPath'), roots);
 
       if (!sourcePath || !destinationPath) {
         return { success: false, error: OUTSIDE };
       }
 
+      // Moving out of the mirror or npm cache is not deletion (it could publish the signing key),
+      // so the source's folder must allow adding too.
       const blocked =
-        (await writeBlocked('remove', sourcePath)) ||
+        (await writeBlocked('add', path.dirname(sourcePath))) ||
         (await writeBlocked('add', path.join(destinationPath, path.basename(sourcePath))));
       if (blocked) {
         return { success: false, error: blocked };
@@ -646,7 +509,9 @@ export async function action({ request }: Route.ActionArgs): Promise<{
           return { success: false, error: blocked };
         }
 
-        await cancelAndCleanupDownload(fullPath);
+        // Only a running download is cancelled; its partial data is never under the final
+        // name, so an existing file there is not touched.
+        activeDownloads.get(fullPath)?.cancel();
 
         return { success: true, message: 'Download cleanup completed' };
       } catch (error) {
@@ -689,12 +554,12 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       if (await pathExists(destPath)) {
         return { success: false, error: nameTakenError(fileName) };
       }
-      const success = await downloadFile(url, destPath);
+      const result = await downloadFile(url, destPath);
 
-      if (success) {
+      if (result.ok) {
         return { success: true, message: 'File downloaded successfully' };
       } else {
-        return { success: false, error: 'Failed to download file' };
+        return { success: false, error: `Failed to download file: ${result.error}` };
       }
     } else if (intent === 'downloadImage') {
       const imageUrl = formData.get('imageUrl') as string;
@@ -870,8 +735,8 @@ export async function action({ request }: Route.ActionArgs): Promise<{
       }
 
       try {
-        const results = await searchFiles(rootPath, searchQuery.trim());
-        return { success: true, results };
+        const { results, truncated } = await searchFiles(rootPath, searchQuery.trim(), roots);
+        return { success: true, results, truncated };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);

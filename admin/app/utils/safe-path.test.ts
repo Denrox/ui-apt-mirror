@@ -5,7 +5,7 @@ import path from 'path';
 import {
   isWithin,
   MANAGED_DIR_ERROR,
-  resolveBelow,
+  resolveEntry,
   resolveInside,
   SYNC_RUNNING_ERROR,
   writeBlockedReason,
@@ -64,11 +64,37 @@ describe('resolveInside', () => {
   });
 });
 
-describe('resolveBelow', () => {
+describe('resolveEntry', () => {
   it('never returns a root itself', () => {
-    expect(resolveBelow(files, [files])).toBeNull();
-    expect(resolveBelow(`${files}/`, [files])).toBeNull();
-    expect(resolveBelow(path.join(files, 'docs'), [files])).toBe(path.join(files, 'docs'));
+    expect(resolveEntry(files, [files])).toBeNull();
+    expect(resolveEntry(`${files}/`, [files])).toBeNull();
+    expect(resolveEntry(`${files}/.`, [files])).toBeNull();
+    expect(resolveEntry(`${files}/docs/..`, [files])).toBeNull();
+    expect(resolveEntry(path.join(files, 'docs'), [files])).toBe(path.join(files, 'docs'));
+  });
+
+  it('keeps a symlink as the link, not its target', () => {
+    expect(resolveEntry(path.join(files, 'docs-link'), [files])).toBe(path.join(files, 'docs-link'));
+    expect(resolveEntry(path.join(files, 'escape'), [files])).toBe(path.join(files, 'escape'));
+  });
+
+  it('resolves symlinks in the parent directories', () => {
+    expect(resolveEntry(path.join(files, 'docs-link', 'a.txt'), [files])).toBe(path.join(files, 'docs', 'a.txt'));
+  });
+
+  it.each([
+    ['traversal', () => path.join(files, '..', 'outside', 'x')],
+    ['entry below a symlink leading outside', () => path.join(files, 'escape', 'x.txt')],
+    ['private files when not allowed', () => path.join(priv, 'secret.txt')],
+    ['sibling whose name starts with the root name', () => `${files}-x/a.txt`],
+    ['the parent of a root', () => base],
+  ])('rejects %s', (_name, p) => {
+    expect(resolveEntry(p(), [files])).toBeNull();
+  });
+
+  it('rejects non-strings and NUL bytes', () => {
+    expect(resolveEntry(undefined, [files])).toBeNull();
+    expect(resolveEntry(`${files}/a\0b`, [files])).toBeNull();
   });
 });
 
@@ -85,6 +111,16 @@ describe('writeBlockedReason', () => {
       expect(writeBlockedReason(path.join(dir, 'x'), 'add', false, dirs())).toBe(MANAGED_DIR_ERROR);
       expect(writeBlockedReason(path.join(dir, 'x'), 'remove', false, dirs())).toBeNull();
     }
+  });
+
+  it('judges a symlink by where it is and where it points', () => {
+    const d = dirs();
+    fs.mkdirSync(path.join(d.npm, 'pkg'), { recursive: true });
+    fs.symlinkSync(path.join(d.npm, 'pkg'), path.join(files, 'npm-link'));
+    fs.symlinkSync(files, path.join(d.npm, 'files-link'));
+    expect(writeBlockedReason(path.join(files, 'npm-link'), 'add', false, d)).toBe(MANAGED_DIR_ERROR);
+    expect(writeBlockedReason(path.join(d.npm, 'files-link'), 'add', false, d)).toBe(MANAGED_DIR_ERROR);
+    expect(writeBlockedReason(path.join(files, 'npm-link'), 'remove', false, d)).toBeNull();
   });
 
   it('blocks every write in the mirror while a sync runs, but not in npm', () => {
