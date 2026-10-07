@@ -730,13 +730,16 @@ export async function action({ request }: ActionFunctionArgs) {
         username = decodeURIComponent(username);
       } catch {}
 
-      const bodyText = await request.text();
-      const body = JSON.parse(bodyText);
+      const body = parseJsonObject(await request.text());
+      if (!body) {
+        return jsonResponse({ error: 'Bad request', reason: 'Request body must be a JSON object' }, 400);
+      }
+      const password = typeof body.password === 'string' ? body.password : '';
 
       // The token is issued for the user whose password was checked.
       const login =
         body.name === undefined || body.name === username
-          ? await attemptLogin(request, { username, password: body.password })
+          ? await attemptLogin(request, { username, password })
           : { ok: false };
 
       if (login.retryAfter) {
@@ -787,19 +790,9 @@ export async function action({ request }: ActionFunctionArgs) {
         },
       );
     } catch (error) {
+      // Log the exception, but do not send its text to the client.
       console.error('NPM login error:', error);
-      return new Response(
-        JSON.stringify({
-          error: 'Bad request',
-          reason: error instanceof Error ? error.message : 'Invalid request',
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
+      return jsonResponse({ error: 'Login failed', reason: 'Login failed' }, 500);
     }
   }
 
