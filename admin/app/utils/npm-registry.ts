@@ -2,7 +2,12 @@ import { randomBytes } from 'crypto';
 
 // npm's own rules for package names; anything else could escape the storage dirs.
 export const NPM_NAME_RE = /^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/;
-export const NPM_VERSION_RE = /^[0-9A-Za-z.+-]{1,256}$/;
+// Strict semver (semver.org); npm cleans versions before publishing, as npmjs requires.
+const SEMVER_IDENT = '(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)';
+const SEMVER_RE = new RegExp(
+  `^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)` +
+    `(?:-${SEMVER_IDENT}(?:\\.${SEMVER_IDENT})*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$`,
+);
 const DIST_TAG_RE = /^[A-Za-z][A-Za-z0-9._-]{0,127}$/;
 
 export const METADATA_TTL_MS = 10 * 60 * 1000;
@@ -28,6 +33,10 @@ export type DocResult = { doc: PackageDoc } | { status: number; reason: string }
 
 export function isValidName(name: string): boolean {
   return name.length <= 214 && NPM_NAME_RE.test(name);
+}
+
+export function isValidVersion(version: string): boolean {
+  return version.length <= 256 && SEMVER_RE.test(version);
 }
 
 /** A tag may not look like a version or range, or `npm install pkg@tag` becomes ambiguous. */
@@ -98,12 +107,25 @@ export function mergePublish(
   const added = Object.keys(versions);
   if (added.length === 0) return { status: 400, reason: 'No versions to publish' };
 
+  if (added.some((v) => !isValidVersion(v))) return { status: 400, reason: 'Versions must be valid semver' };
+
   const taken = added.filter((v) => existing?.versions?.[v]);
   if (taken.length) {
     return {
       status: 403,
       reason: `You cannot publish over the previously published versions: ${taken.join(', ')}.`,
     };
+  }
+
+  const allVersions = { ...existing?.versions, ...versions };
+  const incomingTags: unknown = incoming['dist-tags'] ?? { latest: added[0] };
+  if (
+    !isObject(incomingTags) ||
+    Object.entries(incomingTags).some(
+      ([tag, version]) => !isValidDistTag(tag) || typeof version !== 'string' || !Object.hasOwn(allVersions, version),
+    )
+  ) {
+    return { status: 400, reason: 'Every dist-tag must name a published version' };
   }
 
   const time = { ...existing?.time };
@@ -117,8 +139,8 @@ export function mergePublish(
       _id: name,
       _rev: nextRev(existing?._rev),
       name,
-      versions: { ...existing?.versions, ...versions },
-      'dist-tags': { ...existing?.['dist-tags'], ...(incoming['dist-tags'] ?? { latest: added[0] }) },
+      versions: allVersions,
+      'dist-tags': { ...existing?.['dist-tags'], ...incomingTags },
       _attachments: {},
       time,
       _publishedBy: publishedBy,
@@ -240,10 +262,29 @@ export function withoutAuditPackages(payload: Record<string, any>, bulk: boolean
   return out;
 }
 
-/** Where an upstream response is cached, relative to the public dir; null for paths never cached. */
+/**
+ * Where an upstream response is cached, relative to the public dir; null for paths never cached.
+ * Every package has a directory of its own (`_packages/<name>/`, like the private store) with the
+ * packument in `package.json` and the tarballs under `-/`; `.meta` files sit next to each. Only
+ * `*.tgz` tarballs are cached, so no tarball can be named like the `.meta` file of another.
+ */
 export function publicCachePath(route: NpmPath): string | null {
-  if (route.kind === 'package' && route.rev === undefined) return route.name;
-  if (route.kind === 'tarball' && route.rev === undefined) {
+  if (route.kind === 'package' && route.rev === undefined) return `_packages/${route.name}/package.json`;
+  if (route.kind === 'tarball' && route.rev === undefined && /^[^/]+\.tgz$/.test(route.file)) {
+    return `_packages/${route.name}/-/${route.file}`;
+  }
+  return null;
+}
+
+/**
+ * Where older versions cached the same response: packuments at `<name>`, tarballs at
+ * `<scope or name>-tarballs/…/-/<file>`. Names could collide there (`x.meta` with x's metadata,
+ * `x-tarballs` with x's tarballs), so whatever is found must be checked before it is used.
+ */
+export function legacyPublicCachePath(route: NpmPath): string | null {
+  if (publicCachePath(route) === null) return null;
+  if (route.kind === 'package') return route.name;
+  if (route.kind === 'tarball') {
     const [first, ...rest] = route.name.split('/');
     return [`${first}-tarballs`, ...rest, '-', route.file].join('/');
   }
@@ -282,4 +323,14 @@ export function privateVersion(doc: PackageDoc, spec: string): Record<string, an
 /** npm tries web login first and falls back to the legacy login when this answers with a 4xx. */
 export function isWebLoginPath(packagePath: string): boolean {
   return /^-\/v1\/(login|done)(\/|$)/.test(packagePath);
+}
+
+/** The scope of a scoped package name without the `@` (`types` for `@types/node`), else null. */
+export function packageScope(name: string): string | null {
+  return /^@([^/]+)\//.exec(name)?.[1] ?? null;
+}
+
+/** Whether npmjs' package list of a scope (`GET /-/org/<scope>/package`, name → access) has the name. */
+export function scopeListsPackage(list: unknown, name: string): boolean {
+  return isObject(list) && Object.hasOwn(list, name);
 }

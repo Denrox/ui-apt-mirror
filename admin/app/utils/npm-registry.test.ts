@@ -5,15 +5,19 @@ import {
   isFresh,
   isRegistryRequest,
   isValidDistTag,
+  isValidVersion,
   isWebLoginPath,
   mergePublish,
   nextRev,
+  packageScope,
   parseJsonObject,
   parseNpmPath,
   pathPackage,
   privateVersion,
+  legacyPublicCachePath,
   publicCachePath,
   revMatches,
+  scopeListsPackage,
   upstreamHeaders,
   withoutAuditPackages,
   type PackageDoc,
@@ -113,6 +117,31 @@ describe('mergePublish', () => {
   it('refuses to publish over an existing version', () => {
     const result = mergePublish(published('1.0.0'), publishBody('@acme/widget', '1.0.0'), 'alice');
     expect(result).toMatchObject({ status: 403 });
+  });
+
+  it('refuses versions that are not semver', () => {
+    for (const v of ['..', '.', '1', '1.0', 'v1.0.0', '01.0.0', '1.0.0-', '1.0.0+', 'latest', '1.0.0-a..b', `1.0.0-${'a'.repeat(260)}`]) {
+      const result = mergePublish(null, publishBody('@acme/widget', v), 'alice', NOW);
+      expect(result, v).toMatchObject({ status: 400 });
+      expect(isValidVersion(v), v).toBe(false);
+    }
+    for (const v of ['0.0.0', '1.2.3', '1.0.0-beta.1', '1.0.0-0.3.7', '1.0.0-x-y.z', '1.0.0+build.5', '99.0.0-r2']) {
+      expect(isValidVersion(v), v).toBe(true);
+    }
+  });
+
+  it('refuses dist-tags that do not name a valid tag and a published version', () => {
+    const bad: Record<string, unknown>[] = [{ latest: '..' }, { latest: '2.0.0' }, { 'v1': '1.0.0' }, { latest: 1 }, { 'a/b': '1.0.0' }];
+    for (const tags of bad) {
+      const body = publishBody('@acme/widget', '1.0.0', tags as Record<string, string>);
+      expect(mergePublish(null, body, 'alice', NOW), JSON.stringify(tags)).toMatchObject({ status: 400 });
+    }
+    const body = { ...publishBody('@acme/widget', '1.1.0'), 'dist-tags': 'latest' };
+    expect(mergePublish(published('1.0.0'), body, 'alice', NOW)).toMatchObject({ status: 400 });
+    // A tag may point at a version published earlier.
+    expect(
+      mergePublish(published('1.0.0'), publishBody('@acme/widget', '1.1.0', { latest: '1.1.0', old: '1.0.0' }), 'alice', NOW),
+    ).toHaveProperty('doc');
   });
 
   it('refuses an empty publish', () => {
@@ -275,15 +304,39 @@ describe('audit payloads', () => {
 });
 
 describe('publicCachePath', () => {
-  it('caches packuments and tarballs in the existing layout', () => {
-    expect(publicCachePath(parseNpmPath('left-pad'))).toBe('left-pad');
-    expect(publicCachePath(parseNpmPath('@babel%2fcore'))).toBe('@babel/core');
+  it('caches each package in a directory of its own', () => {
+    expect(publicCachePath(parseNpmPath('left-pad'))).toBe('_packages/left-pad/package.json');
+    expect(publicCachePath(parseNpmPath('@babel%2fcore'))).toBe('_packages/@babel/core/package.json');
     expect(publicCachePath(parseNpmPath('left-pad/-/left-pad-1.3.0.tgz'))).toBe(
-      'left-pad-tarballs/-/left-pad-1.3.0.tgz',
+      '_packages/left-pad/-/left-pad-1.3.0.tgz',
     );
     expect(publicCachePath(parseNpmPath('@babel/core/-/core-7.0.0.tgz'))).toBe(
+      '_packages/@babel/core/-/core-7.0.0.tgz',
+    );
+  });
+
+  it('gives names that collided in the old layout paths that do not overlap', () => {
+    const names = ['x', 'x.meta', 'x-tarballs', '@s/y', '@s-tarballs/y', '@s/y.meta'];
+    const files = names.flatMap((n) => [
+      publicCachePath(parseNpmPath(n))!,
+      publicCachePath(parseNpmPath(`${n}/-/${n.split('/').pop()}-1.0.0.tgz`))!,
+    ]);
+    const all = files.flatMap((f) => [f, `${f}.meta`]);
+    expect(new Set(all).size).toBe(all.length);
+    for (const a of all) for (const b of all) expect(b.startsWith(`${a}/`), `${a} / ${b}`).toBe(false);
+  });
+
+  it('caches only .tgz tarballs, so none can be named like a .meta file', () => {
+    expect(publicCachePath(parseNpmPath('x/-/x-1.0.0.tgz.meta'))).toBeNull();
+    expect(publicCachePath(parseNpmPath('x/-/sub/x-1.0.0.tgz'))).toBeNull();
+  });
+
+  it('knows where older versions cached the same response', () => {
+    expect(legacyPublicCachePath(parseNpmPath('left-pad'))).toBe('left-pad');
+    expect(legacyPublicCachePath(parseNpmPath('@babel/core/-/core-7.0.0.tgz'))).toBe(
       '@babel-tarballs/core/-/core-7.0.0.tgz',
     );
+    expect(legacyPublicCachePath(parseNpmPath('left-pad/latest'))).toBeNull();
   });
 
   it('does not cache paths that would collide with a packument or depend on the query', () => {
@@ -332,5 +385,21 @@ describe('private package routing', () => {
     expect(isWebLoginPath('-/v1/done/abc')).toBe(true);
     expect(isWebLoginPath('-/v1/search')).toBe(false);
     expect(isWebLoginPath('-/v1/loginx')).toBe(false);
+  });
+});
+
+describe('scoped public names', () => {
+  it('takes the scope from a scoped name only', () => {
+    expect(packageScope('@types/node')).toBe('types');
+    expect(packageScope('@sindresorhus/slugify')).toBe('sindresorhus');
+    expect(packageScope('left-pad')).toBeNull();
+  });
+
+  it('looks a name up in the package list of its scope', () => {
+    const list = { '@types/node': 'write', '@types/react': 'write', 'env-paths': 'write' };
+    expect(scopeListsPackage(list, '@types/node')).toBe(true);
+    expect(scopeListsPackage(list, '@types/not-there')).toBe(false);
+    expect(scopeListsPackage(list, 'constructor')).toBe(false);
+    for (const bad of [null, [], 'x', 1]) expect(scopeListsPackage(bad, '@types/node')).toBe(false);
   });
 });

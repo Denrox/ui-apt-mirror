@@ -14,8 +14,8 @@ import {
   validateNpmAuthToken,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
+import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {
-  NPM_VERSION_RE,
   applyDocUpdate,
   auditPackageNames,
   currentRev,
@@ -24,16 +24,21 @@ import {
   isRegistryRequest,
   isValidDistTag,
   isValidName,
+  isValidVersion,
   isWebLoginPath,
+  legacyPublicCachePath,
   mergePublish,
   nextRev,
+  packageScope,
   parseJsonObject,
   parseNpmPath,
   pathPackage,
   privateVersion,
   publicCachePath,
   revMatches,
+  scopeListsPackage,
   type DocResult,
+  type NpmPath,
   upstreamHeaders,
   withoutAuditPackages,
   type PackageDoc,
@@ -41,6 +46,7 @@ import {
 
 const NPM_REGISTRY_URL = 'https://registry.npmjs.org';
 const PRIVATE_PACKAGES_DIR = path.join(appConfig.npmPackagesDir, 'private');
+const privateStore = new PrivatePackageStore(PRIVATE_PACKAGES_DIR);
 
 function insideDir(dir: string, candidate: string): string {
   const resolved = path.resolve(candidate);
@@ -204,10 +210,6 @@ async function saveToCache(
     }
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    // Older versions cached /<pkg>/<version> under a <pkg>/ directory, which blocks the packument.
-    if ((await fs.stat(filePath).catch(() => null))?.isDirectory()) {
-      await fs.rm(filePath, { recursive: true });
-    }
     await fs.writeFile(filePath, data);
 
     const metaPath = filePath + '.meta';
@@ -257,38 +259,16 @@ async function loadFromCache(
   }
 }
 
-function getPrivatePackagePath(packagePath: string): string {
-  const cleanPath = packagePath.replace(/^\/+/, '').replace(/\/+$/, '');
-  return insideDir(PRIVATE_PACKAGES_DIR, path.join(PRIVATE_PACKAGES_DIR, cleanPath));
-}
-
-function privateDocPath(packageName: string): string {
-  return getPrivatePackagePath(`${packageName}.json`);
-}
-
-function privateTarballPath(packageName: string, tarballFile: string): string {
-  return getPrivatePackagePath(`${packageName}/-/${tarballFile}`);
-}
-
 async function isPrivatePackage(packageName: string): Promise<boolean> {
-  return await isCached(privateDocPath(packageName));
+  return privateStore.isPrivate(packageName);
 }
 
 async function readPrivateDoc(packageName: string): Promise<PackageDoc | null> {
-  try {
-    return JSON.parse(await fs.readFile(privateDocPath(packageName), 'utf-8'));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
+  return privateStore.readDoc(packageName);
 }
 
 async function writePrivateDoc(doc: PackageDoc) {
-  const target = privateDocPath(doc.name);
-  const tmp = `${target}.${process.pid}.tmp`;
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.writeFile(tmp, JSON.stringify(doc, null, 2));
-  await fs.rename(tmp, target);
+  await privateStore.writeDoc(doc);
 }
 
 // Publishes and edits are read-modify-write on one JSON file; serialize them per package.
@@ -338,13 +318,27 @@ function tarballUrl(request: Request, packageName: string, tarballFile: string):
 }
 
 /**
- * Whether an unscoped name already belongs to a public package (upstream, or in our cache when
- * offline). Publishing such a name privately would replace the real package for every client.
+ * Whether a name already belongs to a public package (upstream, or in our cache when offline).
+ * Publishing such a name privately would replace the real package for every client.
+ *
+ * A scoped name is never sent upstream: npmjs is asked only for the packages of its scope, and the
+ * name is looked up in that list here. Unscoped names have no such list and are checked directly.
  */
 async function isPublicPackageName(packageName: string): Promise<boolean> {
-  if (packageName.startsWith('@')) return false;
-  if (await isCached(path.join(PUBLIC_PACKAGES_DIR, packageName))) return true;
+  const cached = await publicCacheFile({ kind: 'package', name: packageName });
+  if (cached && (await isCached(cached))) return true;
   try {
+    const scope = packageScope(packageName);
+    if (scope) {
+      const res = await fetch(`${NPM_REGISTRY_URL}/-/org/${encodeURIComponent(scope)}/package`, {
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.status !== 200) {
+        await res.body?.cancel();
+        return false;
+      }
+      return scopeListsPackage(await res.json(), packageName);
+    }
     const res = await fetch(`${NPM_REGISTRY_URL}/${packageName}`, {
       method: 'HEAD',
       signal: AbortSignal.timeout(5000),
@@ -364,7 +358,7 @@ async function loadPrivatePackage(
 
   if (tarballFile !== undefined) {
     try {
-      const data = await fs.readFile(privateTarballPath(packageName, tarballFile));
+      const data = await privateStore.readTarball(packageName, tarballFile);
       return { data, headers: { ...headers, 'content-type': 'application/octet-stream' } };
     } catch {
       return null;
@@ -387,13 +381,50 @@ async function loadPrivatePackage(
   };
 }
 
+/**
+ * Moves a response cached by an older version into the current layout, so a mirror that is offline
+ * after the upgrade still has it. The old layout let names collide, so a packument is taken over only
+ * if it names this package (`x.meta` used to hold x's metadata) and a tarball only if it is a file.
+ */
+async function adoptLegacyCache(route: NpmPath, cachePath: string): Promise<void> {
+  const legacy = legacyPublicCachePath(route);
+  if (!legacy || (await isCached(cachePath))) return;
+  const from = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, legacy));
+  if (!(await fs.lstat(from).catch(() => null))?.isFile()) return;
+  if (route.kind === 'package') {
+    const doc = parseJsonObject(await fs.readFile(from, 'utf-8'));
+    if (doc?.name !== route.name) return;
+  }
+
+  await fs.mkdir(path.dirname(cachePath), { recursive: true });
+  // Metadata first: if this is interrupted, the data is still found in the old place next time.
+  await fs.rename(`${from}.meta`, `${cachePath}.meta`).catch(() => {});
+  await fs.rename(from, cachePath).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  });
+  // Drop the directories the old layout leaves empty (<name>-tarballs/…/-/).
+  for (let dir = path.dirname(from); dir !== path.resolve(PUBLIC_PACKAGES_DIR); dir = path.dirname(dir)) {
+    if (!(await fs.rmdir(dir).then(() => true, () => false))) break;
+  }
+}
+
+/** The cache file of a route in the public dir, or null for paths that are never cached. */
+async function publicCacheFile(route: NpmPath): Promise<string | null> {
+  const cacheFile = publicCachePath(route);
+  if (!cacheFile) return null;
+  const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cacheFile));
+  await adoptLegacyCache(route, cachePath).catch((error) => {
+    console.error(`Could not move the cached ${cacheFile} into the current layout:`, error);
+  });
+  return cachePath;
+}
+
 /** Cached upstream response; metadata is revalidated after a TTL, tarballs never change. */
 async function loadPublicPackage(
   packagePath: string,
-  cacheFile: string,
+  cachePath: string,
   originalHeaders: Record<string, string>,
 ): Promise<Upstream> {
-  const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cacheFile));
   const cached = await loadFromCache(cachePath).catch(() => null);
   if (cached && (packagePath.includes('/-/') || isFresh(cached.headers['x-cached-at']))) {
     return { ...cached, status: 200 };
@@ -508,9 +539,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
       return version ? jsonResponse(version) : notFound();
     } else {
       // Packuments and tarballs are cached; anything else (search, /<pkg>/<version>, …) is proxied.
-      const cacheFile = publicCachePath(route);
-      ({ data, headers, status } = cacheFile
-        ? await loadPublicPackage(packagePath, cacheFile, originalHeaders)
+      const cachePath = await publicCacheFile(route);
+      ({ data, headers, status } = cachePath
+        ? await loadPublicPackage(packagePath, cachePath, originalHeaders)
         : await fetchFromNpm(packagePath + url.search));
       headers['x-cache'] ??= 'BYPASS';
     }
@@ -563,7 +594,7 @@ async function publishPackage(
 
   if (
     packageDocument.name !== packageName ||
-    Object.keys(versions).some((v) => !NPM_VERSION_RE.test(v))
+    Object.keys(versions).some((v) => !isValidVersion(v))
   ) {
     return jsonResponse({ error: 'Invalid package name or version' }, 400);
   }
@@ -572,7 +603,9 @@ async function publishPackage(
     return jsonResponse(
       {
         error: 'Forbidden',
-        reason: `"${packageName}" is a public npm package; publish private packages under a scope (e.g. @yourorg/${packageName})`,
+        reason: packageName.startsWith('@')
+          ? `"${packageName}" is a public npm package; publish private packages under a scope of your own`
+          : `"${packageName}" is a public npm package; publish private packages under a scope (e.g. @yourorg/${packageName})`,
       },
       403,
     );
@@ -595,9 +628,7 @@ async function publishPackage(
     }
 
     for (const [tarballName, tarballBuffer] of tarballs) {
-      const tarballFullPath = privateTarballPath(packageName, tarballName);
-      await fs.mkdir(path.dirname(tarballFullPath), { recursive: true });
-      await fs.writeFile(tarballFullPath, tarballBuffer);
+      await privateStore.writeTarball(packageName, tarballName, tarballBuffer);
       console.log(`Saved tarball: ${tarballName} (${tarballBuffer.length} bytes)`);
     }
 
@@ -638,9 +669,7 @@ async function unpublishPackage(
     }
 
     if (tarballFile === undefined) {
-      await fs.rm(privateDocPath(packageName));
-      await fs.rm(getPrivatePackagePath(`${packageName}/-`), { recursive: true, force: true });
-      await fs.rmdir(getPrivatePackagePath(packageName)).catch(() => {});
+      await privateStore.removePackage(packageName);
       console.log(`Unpublished ${packageName}`);
       return jsonResponse({ ok: true });
     }
@@ -652,7 +681,7 @@ async function unpublishPackage(
       return jsonResponse({ error: 'Unpublish the version before deleting its tarball' }, 400);
     }
     try {
-      await fs.rm(privateTarballPath(packageName, tarballFile));
+      await privateStore.removeTarball(packageName, tarballFile);
     } catch {
       return jsonResponse({ error: 'Not found' }, 404);
     }
@@ -737,13 +766,16 @@ export async function action({ request }: ActionFunctionArgs) {
         username = decodeURIComponent(username);
       } catch {}
 
-      const bodyText = await request.text();
-      const body = JSON.parse(bodyText);
+      const body = parseJsonObject(await request.text());
+      if (!body) {
+        return jsonResponse({ error: 'Bad request', reason: 'Request body must be a JSON object' }, 400);
+      }
+      const password = typeof body.password === 'string' ? body.password : '';
 
       // The token is issued for the user whose password was checked.
       const login =
         body.name === undefined || body.name === username
-          ? await attemptLogin(request, { username, password: body.password })
+          ? await attemptLogin(request, { username, password })
           : { ok: false };
 
       if (login.retryAfter) {
@@ -794,19 +826,9 @@ export async function action({ request }: ActionFunctionArgs) {
         },
       );
     } catch (error) {
+      // Log the exception, but do not send its text to the client.
       console.error('NPM login error:', error);
-      return new Response(
-        JSON.stringify({
-          error: 'Bad request',
-          reason: error instanceof Error ? error.message : 'Invalid request',
-        }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        },
-      );
+      return jsonResponse({ error: 'Login failed', reason: 'Login failed' }, 500);
     }
   }
 

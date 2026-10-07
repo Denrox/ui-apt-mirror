@@ -1,0 +1,157 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'events';
+import { promises as fs } from 'fs';
+import path from 'path';
+
+const env = vi.hoisted(() => {
+  const { mkdtempSync } = require('fs') as typeof import('fs');
+  const { join } = require('path') as typeof import('path');
+  const { tmpdir } = require('os') as typeof import('os');
+  return {
+    npm: mkdtempSync(join(tmpdir(), 'npm-public-')),
+    online: true,
+    upstream: new Map<string, string>(),
+    requests: [] as string[],
+  };
+});
+
+vi.mock('~/config/config.json', async (importOriginal) => {
+  const original = (await importOriginal<{ default: Record<string, unknown> }>()).default;
+  return { default: { ...original, npmPackagesDir: env.npm } };
+});
+
+vi.mock('~/utils/server-auth', () => ({
+  attemptLogin: vi.fn(),
+  createNpmAuthToken: vi.fn(),
+  validateNpmAuthToken: vi.fn(async () => null),
+}));
+
+// A fake npmjs: serves `env.upstream` by path, or fails every request while offline.
+vi.mock('https', () => {
+  const request = (options: { path: string }, onResponse: (res: EventEmitter) => void) => {
+    const req = Object.assign(new EventEmitter(), {
+      setTimeout: () => req,
+      destroy: () => {},
+      end: () => {
+        const key = decodeURIComponent(options.path.replace(/^\//, ''));
+        env.requests.push(key);
+        setImmediate(() => {
+          if (!env.online) return req.emit('error', new Error('offline'));
+          const body = env.upstream.get(key);
+          const res = Object.assign(new EventEmitter(), {
+            statusCode: body === undefined ? 404 : 200,
+            headers: { 'content-type': 'application/octet-stream', etag: `"${key}"` },
+          });
+          onResponse(res);
+          if (body !== undefined) res.emit('data', Buffer.from(body));
+          res.emit('end');
+        });
+      },
+    });
+    return req;
+  };
+  return { default: { request }, request };
+});
+
+const { loader } = await import('./npm');
+
+const HOST = 'npm.mirror.intra';
+
+async function get(urlPath: string): Promise<{ status: number; body: string; cache: string | null }> {
+  const req = new Request(`http://${HOST}${urlPath}`);
+  req.headers.set('host', HOST);
+  const res = (await loader({ request: req } as any)) as Response;
+  return { status: res.status, body: await res.text(), cache: res.headers.get('x-cache') };
+}
+
+const packument = (name: string) => JSON.stringify({ name, versions: {}, 'dist-tags': {} });
+
+beforeAll(() => {
+  process.env.NPM_PROXY_ENABLED = 'true';
+});
+
+beforeEach(() => {
+  env.online = true;
+  env.requests.length = 0;
+  env.upstream.clear();
+});
+
+afterAll(async () => {
+  await fs.rm(env.npm, { recursive: true, force: true });
+});
+
+describe('public npm cache', () => {
+  it('keeps x, x.meta and x-tarballs apart, and serves all of them offline', async () => {
+    for (const name of ['x', 'x.meta', 'x-tarballs', '@s/y', '@s-tarballs/y']) env.upstream.set(name, packument(name));
+    env.upstream.set('x/-/x-1.0.0.tgz', 'x tarball');
+    env.upstream.set('@s/y/-/y-1.0.0.tgz', 'y tarball');
+
+    const paths = ['x', 'x/-/x-1.0.0.tgz', 'x.meta', 'x-tarballs', '@s%2fy', '@s/y/-/y-1.0.0.tgz', '@s-tarballs%2fy'];
+    for (const p of paths) expect((await get(`/${p}`)).status, p).toBe(200);
+
+    env.online = false;
+    const expected: Record<string, string> = {
+      x: packument('x'),
+      'x/-/x-1.0.0.tgz': 'x tarball',
+      'x.meta': packument('x.meta'),
+      'x-tarballs': packument('x-tarballs'),
+      '@s%2fy': packument('@s/y'),
+      '@s/y/-/y-1.0.0.tgz': 'y tarball',
+      '@s-tarballs%2fy': packument('@s-tarballs/y'),
+    };
+    const served: Record<string, string> = {};
+    for (const p of Object.keys(expected)) {
+      const res = await get(`/${p}`);
+      served[p] = res.status === 200 ? res.body : `HTTP ${res.status}`;
+    }
+    expect(served).toEqual(expected);
+  });
+
+  it('does not serve the cache metadata of a package as the package <name>.meta', async () => {
+    env.upstream.set('w', packument('w'));
+    expect((await get('/w')).status).toBe(200);
+    env.online = false;
+    expect((await get('/w.meta')).status).not.toBe(200);
+  });
+
+  it('does not serve the cache metadata of a tarball as a tarball', async () => {
+    env.upstream.set('z/-/z-1.0.0.tgz', 'z tarball');
+    expect((await get('/z/-/z-1.0.0.tgz')).body).toBe('z tarball');
+    const meta = await get('/z/-/z-1.0.0.tgz.meta');
+    expect(meta.status).toBe(404);
+    expect(env.requests).toContain('z/-/z-1.0.0.tgz.meta');
+  });
+
+  it('keeps serving what older versions cached, offline, and moves it into the new layout', async () => {
+    const pub = path.join(env.npm, 'public');
+    const write = async (rel: string, content: string) => {
+      await fs.mkdir(path.dirname(path.join(pub, rel)), { recursive: true });
+      await fs.writeFile(path.join(pub, rel), content);
+    };
+    const meta = JSON.stringify({ headers: { 'content-type': 'application/json' }, cachedAt: '2026-01-01T00:00:00Z' });
+    await write('old', packument('old'));
+    await write('old.meta', meta);
+    await write('old-tarballs/-/old-1.0.0.tgz', 'old tarball');
+    await write('old-tarballs/-/old-1.0.0.tgz.meta', meta);
+    await write('@s/z', packument('@s/z'));
+    await write('@s-tarballs/z/-/z-1.0.0.tgz', 'z tarball');
+    // v.meta is v's metadata, not a package called v.meta.
+    await write('v', packument('v'));
+    await write('v.meta', meta);
+
+    env.online = false;
+    expect((await get('/old')).body).toBe(packument('old'));
+    expect((await get('/old/-/old-1.0.0.tgz')).body).toBe('old tarball');
+    expect((await get('/@s%2fz')).body).toBe(packument('@s/z'));
+    expect((await get('/@s/z/-/z-1.0.0.tgz')).body).toBe('z tarball');
+    expect((await get('/v.meta')).status).not.toBe(200);
+    expect((await get('/v')).body).toBe(packument('v'));
+
+    for (const rel of ['old', 'old.meta', 'old-tarballs', '@s/z', '@s-tarballs', 'v', 'v.meta']) {
+      await expect(fs.lstat(path.join(pub, rel)), rel).rejects.toThrow();
+    }
+    const moved = path.join(pub, '_packages');
+    expect(await fs.readFile(path.join(moved, 'old/-/old-1.0.0.tgz.meta'), 'utf-8')).toBe(meta);
+    expect(await fs.readFile(path.join(moved, '@s/z/-/z-1.0.0.tgz'), 'utf-8')).toBe('z tarball');
+  });
+});
