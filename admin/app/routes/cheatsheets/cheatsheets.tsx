@@ -35,6 +35,14 @@ import type { SearchResult } from '~/routes/api.cheatsheets.search';
 import { fetchSearch } from '~/lib/search-fetch';
 import { onlySheetChanged, parseSheetParam, plural, sheetSearch, SHEET_PARAM } from '~/lib/cheatsheets';
 import { useHydrated } from '~/utils/use-hydrated';
+import { hostOf, useRuntimeConfig } from '~/utils/use-runtime-config';
+import { getHostAddress } from '~/utils/url';
+import {
+  DESKTOP_OPEN_MAX_SOURCES,
+  initialSourcesOpen,
+  readSourcesOpen,
+  rememberSourcesOpen,
+} from '~/utils/sources-open';
 
 export { loader, action };
 
@@ -80,7 +88,11 @@ export default function Cheatsheets() {
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [sourcesOpen, setSourcesOpen] = useState(sources.length === 0);
+  // null until hydrated: the default depends on the screen width and on the
+  // choice remembered in this browser, which the server can't know.
+  const [sourcesOpen, setSourcesOpen] = useState<boolean | null>(null);
+  const { hosts } = useRuntimeConfig();
+  const publicHost = hostOf(hosts, 'cheatsheets');
   const [urlParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -132,6 +144,28 @@ export default function Cheatsheets() {
     () => browsable.find((s) => s.id === activeSource)?.categories ?? [],
     [browsable, activeSource],
   );
+
+  useEffect(() => {
+    setSourcesOpen(
+      initialSourcesOpen(
+        readSourcesOpen(),
+        sources.length,
+        window.matchMedia('(min-width: 768px)').matches,
+      ),
+    );
+    // Only once: a revalidation (download progress) must not reopen it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleSources = () => {
+    const open = !sourcesExpanded;
+    setSourcesOpen(open);
+    rememberSourcesOpen(open);
+  };
+  // Before hydration the CSS gives the default (initialSourcesOpen without a
+  // remembered choice); only a few sources on desktop differ from a phone.
+  const desktopOnly = sourcesOpen === null && sources.length > 0 && sources.length <= DESKTOP_OPEN_MAX_SOURCES;
+  const sourcesExpanded = sourcesOpen ?? sources.length === 0;
 
   const downloading = sources.some((s) => s.status === 'downloading');
   useEffect(() => {
@@ -219,22 +253,41 @@ export default function Cheatsheets() {
         <Title title={'Cheatsheets'} />
       </div>
 
+      {!isPublic && publicHost && (
+        <p className="px-[12px] mb-3 text-sm text-on-surface-variant">
+          Everyone on the network can read these cheatsheets, without a login, at{' '}
+          <a
+            href={getHostAddress(publicHost)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary break-all"
+          >
+            {getHostAddress(publicHost)}
+          </a>
+        </p>
+      )}
+
       {!isPublic && (
         <ContentBlock className="flex-none mb-4">
-          {/* Collapsed on phones, where it would push the search box screens down. */}
+          {/* Collapsible everywhere; by default collapsed on phones, and on desktop
+              once there are many sources, so the search box stays in view. */}
           <button
             type="button"
-            className="w-full text-left text-sm font-medium text-on-surface-variant flex items-center gap-2 md:pointer-events-none"
-            aria-expanded={sourcesOpen}
-            onClick={() => setSourcesOpen((open) => !open)}
+            className="w-full text-left text-sm font-medium text-on-surface-variant flex items-center gap-2"
+            aria-expanded={sourcesExpanded}
+            aria-controls="cheatsheet-sources"
+            onClick={toggleSources}
           >
             <FontAwesomeIcon icon={faBook} /> Sources ({sources.length})
             <FontAwesomeIcon
-              icon={sourcesOpen ? faChevronUp : faChevronDown}
-              className="ml-auto md:hidden"
+              icon={sourcesExpanded ? faChevronUp : faChevronDown}
+              className={`ml-auto ${desktopOnly ? 'md:hidden' : ''}`}
             />
           </button>
-          <div className={`mt-3 ${sourcesOpen ? '' : 'hidden md:block'}`}>
+          <div
+            id="cheatsheet-sources"
+            className={`mt-3 ${sourcesExpanded ? '' : desktopOnly ? 'hidden md:block' : 'hidden'}`}
+          >
             <SourcesPanel sources={sources} />
           </div>
         </ContentBlock>
