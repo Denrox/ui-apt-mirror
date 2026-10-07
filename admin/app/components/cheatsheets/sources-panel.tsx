@@ -97,7 +97,7 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                 }
                 title={
                   <div className="flex flex-col min-w-0">
-                    <div className="font-medium text-on-surface">{s.name}</div>
+                    <div className="font-medium text-on-surface break-words">{s.name}</div>
                     <a
                       href={s.url}
                       target="_blank"
@@ -142,6 +142,7 @@ export default function SourcesPanel({ sources }: { sources: SourceView[] }) {
                       size="small"
                       disabled={busy || s.status === 'downloading'}
                       onClick={() => setToRemove(s)}
+                      ariaLabel={`Remove ${s.name}`}
                     >
                       <FontAwesomeIcon icon={faTrash} />
                     </FormButton>

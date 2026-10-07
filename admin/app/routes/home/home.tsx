@@ -384,12 +384,14 @@ export default function Home() {
                       {config.hosts.length > 0 && (
                         <Dropdown
                           trigger={
-                            <span
+                            <button
+                              type="button"
                               className="cursor-pointer text-on-surface-variant transition-colors hover:text-primary"
                               title="GPG signing options"
+                              aria-label="GPG signing options"
                             >
                               <FontAwesomeIcon icon={faKey} />
-                            </span>
+                            </button>
                           }
                           disabled={isActionInProgress}
                         >

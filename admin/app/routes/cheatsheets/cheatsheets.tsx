@@ -288,7 +288,8 @@ export default function Cheatsheets() {
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     <Tag
-                      label={`All (${totalPages})`}
+                      label="All"
+                      count={totalPages}
                       size="medium"
                       variant={selectedSource === null ? 'selected' : 'default'}
                       onClick={() => selectSource(null)}
@@ -296,7 +297,8 @@ export default function Cheatsheets() {
                     {browsable.map((s) => (
                       <Tag
                         key={s.id}
-                        label={`${s.name} (${s.fileCount})`}
+                        label={s.name}
+                        count={s.fileCount}
                         size="medium"
                         variant={selectedSource === s.id ? 'selected' : 'default'}
                         onClick={() => selectSource(selectedSource === s.id ? null : s.id)}
@@ -316,7 +318,8 @@ export default function Cheatsheets() {
                     {categories.map((c) => (
                       <Tag
                         key={c.name}
-                        label={`${c.name} (${c.count})`}
+                        label={c.name}
+                        count={c.count}
                         variant={selectedCategory === c.name ? 'selected' : 'default'}
                         onClick={() =>
                           setSelectedCategory(selectedCategory === c.name ? null : c.name)
@@ -410,6 +413,7 @@ export default function Cheatsheets() {
                             type="secondary"
                             size="small"
                             onClick={() => showPage(r)}
+                            ariaLabel={`Open ${r.title}`}
                           >
                             <FontAwesomeIcon icon={faEye} />
                           </FormButton>
