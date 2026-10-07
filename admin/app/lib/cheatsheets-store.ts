@@ -114,6 +114,19 @@ export async function giveTreeToOwner(target: string, owner?: { uid: number; gid
   }
 }
 
+/**
+ * rm -rf in a child process: fs.rm of a 40,000-page source runs one
+ * callback per file on the event loop, back to back, and held every other
+ * request for half a second.
+ */
+async function removeTree(target: string) {
+  try {
+    await execFileAsync('rm', ['-rf', '--', target]);
+  } catch {
+    await fs.rm(target, { recursive: true, force: true });
+  }
+}
+
 function withRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
   const run = registryLock.then(fn);
   registryLock = run.catch(() => undefined);
@@ -139,13 +152,13 @@ export function cleanLeftovers(): Promise<void> {
     for (const e of work) {
       const id = /^\.tmp-(.+)-\d+$/.exec(e.name)?.[1];
       if (e.isDirectory() && id && !active.has(id)) {
-        await fs.rm(path.join(root(), e.name), { recursive: true, force: true });
+        await removeTree(path.join(root(), e.name));
       }
     }
     const dirs = await fs.readdir(path.join(root(), 'sources'), { withFileTypes: true }).catch(() => []);
     for (const e of dirs) {
       if (e.isDirectory() && !known.has(e.name) && !active.has(e.name)) {
-        await fs.rm(sourceDir(e.name), { recursive: true, force: true });
+        await removeTree(sourceDir(e.name));
       }
     }
   });
@@ -226,7 +239,7 @@ export async function removeSource(id: string) {
     sources.splice(i, 1);
   });
   indexCache.delete(id);
-  await fs.rm(sourceDir(id), { recursive: true, force: true });
+  await removeTree(sourceDir(id));
 }
 
 /** The caller has already added `id` to `active`. */
@@ -294,6 +307,7 @@ async function fetchArchive(s: CheatsheetSource, dest: string) {
 
 /** GNU tar's "escape" quoting (with LC_ALL=C: \\, \n, \ooo for bytes) back to the name. */
 export function unescapeTarName(name: string): string {
+  if (!name.includes('\\')) return name;
   const bytes: number[] = [];
   const simple: Record<string, number> = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11, '\\': 92, '"': 34, "'": 39, '?': 63 };
   for (let i = 0; i < name.length; i++) {
@@ -329,14 +343,21 @@ export interface ExtractionPlan {
  * of the archive's top directory. Symlinks and other entries are never unpacked.
  */
 export function planExtraction(lines: Iterable<string>, folder: string): ExtractionPlan {
-  const members: string[] = [];
-  let bytes = 0;
-  let folderFound = false;
+  const planner = extractionPlanner(folder);
+  for (const line of lines) planner.add(line);
+  return planner.plan;
+}
+
+const TAR_LINE_RE = /^(\S)\S*\s+\S+\s+(\d+)\s+\d{4}-\d\d-\d\d\s+\d\d:\d\d(?::\d\d)?\s(.*)$/;
+
+/** planExtraction one line at a time, so the listing can be read as tar writes it. */
+function extractionPlanner(folder: string) {
+  const plan: ExtractionPlan = { members: [], bytes: 0, folderFound: false };
   let prefix: string | null = null;
   let entries = 0;
-  for (const line of lines) {
-    const m = /^(\S)\S*\s+\S+\s+(\d+)\s+\d{4}-\d\d-\d\d\s+\d\d:\d\d(?::\d\d)?\s(.*)$/.exec(line);
-    if (!m) continue;
+  const add = (line: string) => {
+    const m = TAR_LINE_RE.exec(line);
+    if (!m) return;
     if (++entries > MAX_ARCHIVE_ENTRIES) {
       throw new Error(`The repository has more than ${MAX_ARCHIVE_ENTRIES} files; pick a smaller folder`);
     }
@@ -346,24 +367,24 @@ export function planExtraction(lines: Iterable<string>, folder: string): Extract
       const top = name.split('/')[0];
       prefix = folder ? `${top}/${folder}/` : `${top}/`;
     }
-    if (!name.startsWith(prefix) && name !== prefix.slice(0, -1)) continue;
-    folderFound = true;
-    if (type !== '-') continue;
+    if (!name.startsWith(prefix) && name !== prefix.slice(0, -1)) return;
+    plan.folderFound = true;
+    if (type !== '-') return;
     const rel = name.slice(prefix.length);
     const wanted = /\.md$/i.test(rel) || rel === 'categories.json';
-    if (!wanted || Number(size) > MAX_FILE_BYTES) continue;
-    members.push(quoted);
-    bytes += Number(size);
-    if (members.length > MAX_FILES + 1) {
+    if (!wanted || Number(size) > MAX_FILE_BYTES) return;
+    plan.members.push(quoted);
+    plan.bytes += Number(size);
+    if (plan.members.length > MAX_FILES + 1) {
       throw new Error(`More than ${MAX_FILES} markdown files; pick a smaller folder`);
     }
-    if (bytes > MAX_EXTRACTED_BYTES) {
+    if (plan.bytes > MAX_EXTRACTED_BYTES) {
       throw new Error(
         `The markdown files are larger than ${MAX_EXTRACTED_BYTES / 1024 / 1024} MB in total; pick a smaller folder`,
       );
     }
-  }
-  return { members, bytes, folderFound };
+  };
+  return { add, plan };
 }
 
 const TAR_ENV = { ...process.env, LC_ALL: 'C' };
@@ -382,15 +403,10 @@ async function listArchive(archive: string, folder: string): Promise<ExtractionP
   });
   try {
     const lines = createInterface({ input: tar.stdout, crlfDelay: Infinity });
-    const collected: string[] = [];
-    let count = 0;
-    for await (const line of lines) {
-      collected.push(line);
-      if (++count > MAX_ARCHIVE_ENTRIES) {
-        throw new Error(`The repository has more than ${MAX_ARCHIVE_ENTRIES} files; pick a smaller folder`);
-      }
-    }
-    const plan = planExtraction(collected, folder);
+    const planner = extractionPlanner(folder);
+    // Lines come a pipe buffer at a time, so other requests get turns in between.
+    for await (const line of lines) planner.add(line);
+    const { plan } = planner;
     const code = await exited;
     if (code !== 0) throw new Error(`Could not read the repository archive: ${stderr.trim() || `tar exited ${code}`}`);
     return plan;
@@ -514,7 +530,7 @@ async function downloadSource(id: string) {
 
     return { fileCount: index.length, revision, title };
   } finally {
-    await fs.rm(work, { recursive: true, force: true });
+    await removeTree(work);
   }
 }
 
