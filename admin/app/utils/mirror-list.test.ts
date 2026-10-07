@@ -109,3 +109,28 @@ describe('validateRepositoryInput', () => {
     expect(validateRepositoryInput({ ...valid, baseUrl: 'HTTP://DEB.debian.org/debian/' }, [])).toBeNull();
   });
 });
+
+describe('titles with characters that do not show (r3-repos-6)', () => {
+  it.each([
+    ['U+200B zero width space', 'Debian​ Trixie'],
+    ['U+202E right-to-left override', 'r3-repos-v57‮x'],
+    ['U+2066 left-to-right isolate', 'a⁦b'],
+    ['U+FEFF inside the text', 'Deb﻿ian'],
+    ['U+E000 private use', 'Debian'],
+    ['U+FFFC object replacement', 'Debian￼'],
+    ['U+3164 Hangul filler', 'Debianㅤ'],
+    ['U+0378 unassigned', 'Debian͸'],
+  ])('rejects a title with %s', (_name, title) => {
+    expect(validateRepositoryInput({ ...valid, title }, [])).toMatch(/invisible, bidirectional or private-use/);
+  });
+
+  it('catches duplicates that differ only in compatibility forms or spacing', () => {
+    expect(validateRepositoryInput({ ...valid, title: 'Ｔｒｉｘｉｅ Updates' }, ['Trixie Updates'])).toMatch(/already exists/);
+    expect(validateRepositoryInput({ ...valid, title: 'Trixie Updates' }, ['Trixie Updates'])).toMatch(/already exists/);
+    expect(validateRepositoryInput({ ...valid, title: 'Trixie  Updates' }, ['trixie updates'])).toMatch(/already exists/);
+  });
+
+  it('still accepts accented and non-Latin titles', () => {
+    expect(validateRepositoryInput({ ...valid, title: 'Дебіан Trixie é 日本' }, [])).toBeNull();
+  });
+});
