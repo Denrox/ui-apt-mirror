@@ -49,6 +49,22 @@ describe('getValidationError', () => {
     expect(getValidationError(`r3-files-a${char}b`)).not.toBeNull();
   });
 
+  it.each([
+    ['Braille blank', '\u2800'],
+    ['combining grapheme joiner', '\u034F'],
+    ['variation selector', '\uFE0F'],
+    ['variation selector supplement', '\u{E0100}'],
+    ['musical null notehead', '\u{1D159}'],
+  ])('rejects a name with a blank or ignorable %s', (_kind, char) => {
+    expect(getValidationError(`a${char}b`)).toMatch(/invisible/);
+    expect(getValidationError(`${char}name.txt`)).toMatch(/invisible/);
+  });
+
+  it('rejects a name starting with a combining mark, but keeps accents on letters', () => {
+    expect(getValidationError('\u0301name')).toMatch(/invisible/);
+    expect(getValidationError('Cafe\u0301.txt')).toBeNull();
+  });
+
   it.each([' r3-files-lead', 'r3-files-trail ', 'r3-files-nbsp\u00A0', '\u3000r3-files-ideo'])(
     'rejects leading or trailing whitespace in %j (r3-files-7)',
     (name) => {
