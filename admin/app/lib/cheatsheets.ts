@@ -314,7 +314,9 @@ function countMatches(re: RegExp, text: string): number {
   return n;
 }
 
-const byScore = (a: SearchHit, b: SearchHit) => b.score - a.score || a.entry.title.localeCompare(b.entry.title);
+// Intl.Collator().compare is many times faster than localeCompare on long result lists.
+export const compareTitles = new Intl.Collator().compare;
+const byScore = (a: SearchHit, b: SearchHit) => b.score - a.score || compareTitles(a.entry.title, b.entry.title);
 
 export function searchEntries(entries: IndexEntry[], query: string): SearchHit[] {
   const search = prepareSearch(entries, query);
@@ -339,6 +341,7 @@ export async function searchEntriesAsync(
   query: string,
   signal?: AbortSignal,
 ): Promise<SearchHit[]> {
+  signal?.throwIfAborted();
   const search = prepareSearch(entries, query);
   if (!search) return [];
   const hits: SearchHit[] = [];
@@ -346,10 +349,14 @@ export async function searchEntriesAsync(
   for (let i = 0; i < entries.length; i++) {
     const hit = scoreEntry(entries[i], search);
     if (hit) hits.push(hit);
-    if ((i & 31) === 31 && performance.now() - sliceStart > SLICE_MS) {
-      await nextTick();
+    if ((i & 31) === 31) {
+      // A gone client stops the search within 32 pages, not a whole slice.
       signal?.throwIfAborted();
-      sliceStart = performance.now();
+      if (performance.now() - sliceStart > SLICE_MS) {
+        await nextTick();
+        signal?.throwIfAborted();
+        sliceStart = performance.now();
+      }
     }
   }
   return hits.sort(byScore);

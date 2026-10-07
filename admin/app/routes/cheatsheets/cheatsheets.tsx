@@ -32,6 +32,7 @@ import CheatsheetModal, {
 } from '~/components/cheatsheets/cheatsheet-modal';
 import SourcesPanel from '~/components/cheatsheets/sources-panel';
 import type { SearchResult } from '~/routes/api.cheatsheets.search';
+import { fetchSearch } from '~/lib/search-fetch';
 import { onlySheetChanged, parseSheetParam, plural, sheetSearch, SHEET_PARAM } from '~/lib/cheatsheets';
 import { useHydrated } from '~/utils/use-hydrated';
 
@@ -166,10 +167,8 @@ export default function Cheatsheets() {
     const params = searchParams;
     setSearching(true);
     setSearchError(null);
-    fetch(`/api/cheatsheets/search?${params}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Search failed');
-        const body = (await response.json()) as { total: number; results: SearchResult[] };
+    fetchSearch(`/api/cheatsheets/search?${params}`, controller.signal)
+      .then((body) => {
         setResults(body.results);
         setTotal(body.total);
       })
@@ -186,10 +185,8 @@ export default function Cheatsheets() {
   const loadMore = () => {
     const gen = searchGenRef.current;
     setLoadingMore(true);
-    fetch(`/api/cheatsheets/search?${searchParams}&offset=${results.length}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Search failed');
-        const body = (await response.json()) as { total: number; results: SearchResult[] };
+    fetchSearch(`/api/cheatsheets/search?${searchParams}&offset=${results.length}`)
+      .then((body) => {
         if (searchGenRef.current !== gen) return;
         setResults((prev) => [...prev, ...body.results]);
         setTotal(body.total);

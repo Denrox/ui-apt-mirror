@@ -298,6 +298,31 @@ describe('searchEntries', () => {
     setTimeout(() => controller.abort(), 5);
     await expect(searchEntriesAsync(big, 'the help', controller.signal)).rejects.toThrow();
   });
+
+  it('does no work for a request that is already aborted', async () => {
+    const big = Array.from({ length: 20000 }, (_, i) => entry(`Page ${i}`, 'the help '.repeat(400)));
+    const started = performance.now();
+    await expect(searchEntriesAsync(big, 'the help', AbortSignal.abort())).rejects.toThrow();
+    expect(performance.now() - started).toBeLessThan(5);
+  });
+
+  it('stops within a few pages of the abort, not at the end of a slice', async () => {
+    const pages = Array.from({ length: 2000 }, (_, i) => entry(`Page ${i}`, 'the help'));
+    const controller = new AbortController();
+    let scored = 0;
+    // Abort while the first slice is running: count how many titles get read after it.
+    const tracked = pages.map((p, i) =>
+      Object.defineProperty({ ...p }, 'title', {
+        get() {
+          scored++;
+          if (i === 100) controller.abort();
+          return p.title;
+        },
+      }),
+    );
+    await expect(searchEntriesAsync(tracked, 'the help', controller.signal)).rejects.toThrow();
+    expect(scored).toBeLessThan(200);
+  });
 });
 
 describe('isSafeRelativeMdPath', () => {
