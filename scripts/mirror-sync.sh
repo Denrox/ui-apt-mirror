@@ -7,6 +7,9 @@ MIRROR_CONFIG="/etc/apt/mirror.list"
 MIRROR_LOG="/var/log/apt-mirror/apt-mirror.log"
 SYNC_FREQUENCY="${SYNC_FREQUENCY:-3600}"  # Default: 1 hour
 LOCK_FILE="/var/run/apt-mirror.lock"
+FLOCK_FILE="/var/run/apt-mirror.flock"
+# Written by stop-mirror.sh: the running sync was stopped, whatever exit code apt-mirror returns.
+STOP_FILE="/var/run/apt-mirror.stop"
 LOG_MAX_SIZE=2097152  # 2 MB
 LOG_MAX_ROTATIONS=3
 
@@ -99,11 +102,12 @@ do_sync() {
     fi
     
     # Held for the whole sync, so two runs can never overlap however they were started.
-    exec 8>/var/run/apt-mirror.flock
+    exec 8>"$FLOCK_FILE"
     if ! flock -n 8; then
         log "Sync already running"
         return 1
     fi
+    rm -f "$STOP_FILE"
     create_lock
     
     # Set environment variables for better performance
@@ -119,12 +123,18 @@ do_sync() {
     fi
     timeout 36000 "${runner[@]}" "$MIRROR_CONFIG" 2>&1 | tee -a "$MIRROR_LOG"
     local exit_code=${PIPESTATUS[0]}
+    # apt-mirror2 exits 0 when TERM reaches it during a retry wait; the stop request decides.
+    local stop_requested=0
+    if [ -f "$STOP_FILE" ]; then
+        stop_requested=1
+        rm -f "$STOP_FILE"
+    fi
 
     # Re-sign after every run, failed or stopped ones too: a repository published before the
     # failure would otherwise serve upstream signatures until the next good sync.
     sign_releases
 
-    if [ "$exit_code" -eq 0 ]; then
+    if [ "$exit_code" -eq 0 ] && [ "$stop_requested" -eq 0 ]; then
         log "Sync completed successfully"
 
         # Update last sync timestamp
@@ -137,7 +147,9 @@ do_sync() {
             log "Total mirror size: $total_size"
         fi
     else
-        if [ "$exit_code" -eq 124 ]; then
+        if [ "$stop_requested" -eq 1 ]; then
+            log "Sync stopped before completion (stop requested, exit code $exit_code)"
+        elif [ "$exit_code" -eq 124 ]; then
             log "ERROR: Sync timed out after 10 hours"
         elif [ "$exit_code" -eq 143 ] || [ "$exit_code" -eq 137 ]; then
             log "Sync stopped before completion (exit code $exit_code)"
