@@ -19,6 +19,7 @@ describe('passwords openssl would not store as typed', () => {
     expect(passwordError('\nabcd')).toMatch(/control characters/);
     expect(passwordError('ab\nxxxx')).toMatch(/control characters/);
     expect(passwordError('tab\there')).toMatch(/control characters/);
+    expect(passwordError('c1\u0085here')).toMatch(/control characters/);
     expect(isHashablePassword('Long\nSecretPart')).toBe(false);
   });
 

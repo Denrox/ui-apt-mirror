@@ -6,6 +6,8 @@ const MAX_USERNAME_LENGTH = 64;
 const USERNAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+// New passwords also leave out the C1 controls, which no keyboard types.
+const C1_CONTROL_CHARS = /[\u0080-\u009f]/;
 
 /** Whether `password` can be hashed as typed: no line breaks or other control characters, not too long. */
 export function isHashablePassword(password: string): boolean {
@@ -20,7 +22,7 @@ export function passwordError(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) {
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters long`;
   }
-  if (CONTROL_CHARS.test(password)) {
+  if (CONTROL_CHARS.test(password) || C1_CONTROL_CHARS.test(password)) {
     return 'Password must not contain line breaks, tabs or other control characters';
   }
   if (!isHashablePassword(password)) {
