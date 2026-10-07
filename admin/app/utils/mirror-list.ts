@@ -61,7 +61,7 @@ const BASE_URL_RE = /^[A-Za-z0-9\-._~:\/@!$&'()*+,;=%\[\]]+$/;
 const INVISIBLE_RE = /[\p{Cf}\p{Co}\p{Cn}\p{Cs}\u115F\u1160\u2800\u3164\uFFA0\uFFFC\uFFFD]/u;
 
 /** A title as it is compared for duplicates: NFKC-normalised, case-folded, single spaces. */
-export function titleKey(title: string): string {
+function titleKey(title: string): string {
   return title.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 

@@ -76,7 +76,7 @@ const FETCH_TIMEOUT_MS = 60_000;
 const MAX_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 const MAX_INDEX_BYTES = 512 * 1024 * 1024;
 /** Most component × architecture combinations one resolve may load (each also loads binary-all). */
-export const MAX_INDEX_COMBINATIONS = 6;
+const MAX_INDEX_COMBINATIONS = 6;
 
 // Only these fields of a stanza matter for the closure; the rest is skipped unread.
 const WANTED_FIELDS = new Set(['package', 'depends', 'pre-depends', 'recommends', 'provides']);

@@ -6,7 +6,7 @@ import { checkLockFile } from '~/utils/sync';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 
 /** Entries per page: a whole large folder (npm cache, mirror pool) makes the page unusable. */
-export const PAGE_SIZE = 200;
+const PAGE_SIZE = 200;
 
 /** One page of `items`; a page past the end shows the last one. */
 export function pageOf<T>(items: T[], requested: number, pageSize = PAGE_SIZE) {
@@ -78,7 +78,7 @@ export function canonicalPath(p: string): string {
 }
 
 /** What the anonymous files host may browse: public files and the published mirror tree. */
-export function publicRoots(): string[] {
+function publicRoots(): string[] {
   return [appConfig.filesDir, appConfig.mirrorRoot];
 }
 

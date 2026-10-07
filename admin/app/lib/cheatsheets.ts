@@ -75,7 +75,7 @@ export function parseGithubUrl(input: string): GithubSource {
 
 const INVISIBLE_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
 
-export const MAX_SOURCE_NAME = 100;
+const MAX_SOURCE_NAME = 100;
 /** Combining marks kept on one character; more only stack into a line drawn over other rows. */
 const MAX_MARKS = 3;
 

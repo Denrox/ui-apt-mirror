@@ -12,7 +12,7 @@ export interface SearchResult {
 }
 
 /** Most matches a search returns; a broad term in a large tree can match tens of thousands. */
-export const MAX_SEARCH_RESULTS = 500;
+const MAX_SEARCH_RESULTS = 500;
 
 /**
  * Finds entries below `rootPath` whose name contains `query` (case-insensitive). Symlinks are

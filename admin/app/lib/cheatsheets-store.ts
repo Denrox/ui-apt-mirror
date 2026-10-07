@@ -53,7 +53,7 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 /** Unpacked size of the files taken from an archive (only .md files and categories.json are). */
 export const MAX_EXTRACTED_BYTES = 512 * 1024 * 1024;
 /** Entries an archive may list at all, whatever is taken from it. */
-export const MAX_ARCHIVE_ENTRIES = 500_000;
+const MAX_ARCHIVE_ENTRIES = 500_000;
 const MAX_INDEXED_TEXT = 20_000;
 const SKIP_FILES = new Set([
   'readme.md',
@@ -325,7 +325,7 @@ export function unescapeTarName(name: string): string {
   return Buffer.from(bytes).toString('utf-8');
 }
 
-export interface ExtractionPlan {
+interface ExtractionPlan {
   /** As tar lists them (quoted), for tar -T. */
   members: string[];
   bytes: number;

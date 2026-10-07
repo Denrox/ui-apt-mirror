@@ -7,7 +7,7 @@ import { pipeline } from 'stream/promises';
 import { nameTakenError, UPLOAD_TEMP_PREFIX } from './chunk-upload';
 import { giveToDirOwner } from './file-owner';
 
-export const DOWNLOAD_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}dl-`;
+const DOWNLOAD_TEMP_PREFIX = `${UPLOAD_TEMP_PREFIX}dl-`;
 export const DOWNLOAD_CANCELLED = 'Download cancelled';
 
 export type DownloadResult = { ok: true } | { ok: false; error: string };
