@@ -110,3 +110,61 @@ describe('closureFromGraph', () => {
     expect(res.packages.length).toBeLessThanOrEqual(2);
   });
 });
+
+describe('resource limits (r3-repos-7)', () => {
+  it('parses an index split into arbitrary chunks the same way', async () => {
+    const { PackagesParser } = await import('./dep-closure');
+    const whole = graphFrom(PACKAGES, true);
+    const graph: DepGraph = { pkgs: new Map(), provides: new Map() };
+    const parser = new PackagesParser(graph, true);
+    const bytes = Buffer.from(PACKAGES.replace(/\n/g, '\r\n'));
+    for (let i = 0; i < bytes.length; i += 7) parser.push(bytes.subarray(i, i + 7));
+    parser.end();
+    expect(graph.pkgs).toEqual(whole.pkgs);
+    expect(graph.provides).toEqual(whole.provides);
+  });
+
+  it('keeps only the dependency fields', () => {
+    const { pkgs } = graphFrom('Package: a\nDescription: long\n text\nDepends: b\n');
+    expect(pkgs.get('a')).toEqual({ deps: ['b'] });
+  });
+
+  it('caps the component × architecture combinations of one request', async () => {
+    const { closureOptionsError } = await import('./dep-closure');
+    const opts = (components: string[], arches: string[]) => ({
+      baseUrl: 'http://deb.debian.org/debian',
+      suite: 'trixie',
+      components,
+      arches,
+      seeds: ['sl'],
+    });
+    expect(closureOptionsError(opts(['main', 'contrib', 'non-free'], ['amd64', 'i386']))).toBeNull();
+    expect(closureOptionsError(opts(['main', 'contrib', 'non-free'], ['amd64', 'i386', 'arm64']))).toMatch(
+      /at most 6/,
+    );
+  });
+
+  it('runs resolves one at a time and turns away a crowd', async () => {
+    const { runResolveExclusive, ResolveBusyError } = await import('./dep-closure');
+    let running = 0;
+    let most = 0;
+    const releases: Array<() => void> = [];
+    const job = () =>
+      new Promise<void>((resolve) => {
+        running++;
+        most = Math.max(most, running);
+        releases.push(() => {
+          running--;
+          resolve();
+        });
+      });
+    const runs = [1, 2, 3].map(() => runResolveExclusive(job));
+    await expect(runResolveExclusive(job)).rejects.toBeInstanceOf(ResolveBusyError);
+    for (let i = 0; i < 3; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      releases.shift()!();
+    }
+    await Promise.all(runs);
+    expect(most).toBe(1);
+  });
+});
