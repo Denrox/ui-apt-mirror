@@ -22,6 +22,8 @@ const MAX_USER_FAILURES = 20;
 const WINDOW_MS = 15 * 60 * 1000;
 const KNOWN_IP_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_KEYS = 50000;
+// No limit is higher than this, so older failures in a bucket never matter.
+const MAX_KEPT_FAILURES = MAX_USER_FAILURES;
 
 interface Failure {
   t: number;
@@ -31,6 +33,7 @@ interface Failure {
 const attempts = new Map<string, Failure[]>();
 // "<user>@<ip>" -> time of the last successful login from there.
 const knownIps = new Map<string, number>();
+let lastSweep = -Infinity;
 
 function recent(key: string, now: number): Failure[] {
   const list = (attempts.get(key) ?? []).filter((f) => f.t > now - WINDOW_MS);
@@ -58,13 +61,24 @@ function limitFor(key: string, ip: string, username: string, now: number): numbe
   return isKnownIp(ip, username, now) ? Infinity : MAX_USER_FAILURES;
 }
 
+/** Drops expired buckets and known addresses, so idle entries don't pile up. */
+function sweep(now: number): void {
+  for (const key of [...attempts.keys()]) recent(key, now);
+  // Oldest first: loginSucceeded() re-inserts an address it refreshes.
+  for (const [known, last] of knownIps) {
+    if (last > now - KNOWN_IP_MS) break;
+    knownIps.delete(known);
+  }
+  lastSweep = now;
+}
+
 /**
  * Makes room when the map is full. Buckets with the fewest failures go first
  * (oldest first among equals), so a flood of one-off guesses at made-up names
  * can't push out a bucket that is close to its limit.
  */
 function makeRoom(now: number): void {
-  for (const key of [...attempts.keys()]) recent(key, now);
+  sweep(now);
   if (attempts.size < MAX_KEYS) return;
   const byCount = [...attempts].map(([key, list], order) => ({ key, n: list.length, order }));
   byCount.sort((a, b) => a.n - b.n || a.order - b.order);
@@ -97,9 +111,10 @@ export function beginLoginAttempt(
   }
   if (retryAfter > 0) return retryAfter;
 
+  if (now - lastSweep >= WINDOW_MS) sweep(now);
   if (attempts.size >= MAX_KEYS) makeRoom(now);
   for (const key of keys(ip, username)) {
-    attempts.set(key, [...recent(key, now), { t: now, user: username }]);
+    attempts.set(key, [...recent(key, now), { t: now, user: username }].slice(-MAX_KEPT_FAILURES));
   }
   return 0;
 }
@@ -177,8 +192,14 @@ export function isSharedAddress(ip: string): boolean {
   );
 }
 
+/** The buckets held right now (for tests). */
+export function loginLimiterKeys(): string[] {
+  return [...attempts.keys()];
+}
+
 export function resetLoginLimiter(sharedGateways?: string[]): void {
   attempts.clear();
   knownIps.clear();
+  lastSweep = -Infinity;
   gateways = sharedGateways ? new Set(sharedGateways) : null;
 }

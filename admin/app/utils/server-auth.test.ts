@@ -24,6 +24,7 @@ import {
   validateNpmAuthToken,
 } from './server-auth';
 import { hashPassword, writePrivateFile } from './htpasswd';
+import { loginLimiterKeys } from './login-limiter';
 
 afterAll(() =>
   fs.rmSync(path.dirname(htpasswdPath), { recursive: true, force: true }),
@@ -128,6 +129,19 @@ describe('attemptLogin', () => {
         ).retryAfter,
       ).toBeUndefined();
     }
+  });
+
+  it('refuses a name no account can have without keeping it', async () => {
+    writePrivateFile(htpasswdPath, `frank:${await hashPassword('right')}\n`);
+    const huge = `frank${'a'.repeat(1_000_000)}`;
+    for (const username of [huge, 'u'.repeat(65), 'frank ', 'fr\nank']) {
+      expect(await attemptLogin(request('6.6.6.6'), { username, password: 'right' })).toEqual({ ok: false });
+    }
+    expect(loginLimiterKeys().every((key) => key.length < 100)).toBe(true);
+    // They still count as failures of that address.
+    const blocked = await attemptLogin(request('6.6.6.6'), { username: huge, password: 'x' });
+    expect(blocked.retryAfter).toBeUndefined();
+    expect((await attemptLogin(request('6.6.6.6'), { username: 'frank', password: 'right' })).retryAfter).toBeGreaterThan(0);
   });
 });
 

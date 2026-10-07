@@ -3,6 +3,7 @@ import {
   beginLoginAttempt,
   clientIp,
   isSharedAddress,
+  loginLimiterKeys,
   loginSucceeded,
   parseDefaultGateways,
   resetLoginLimiter,
@@ -93,6 +94,13 @@ describe('login limiter', () => {
     for (let i = 0; i < 60000; i++) beginLoginAttempt(GATEWAY, `junk${i}`, 0);
     expect(beginLoginAttempt('10.0.1.1', 'victim', 0)).toBe(0);
     expect(beginLoginAttempt('10.0.1.2', 'victim', 0)).toBeGreaterThan(0);
+  });
+
+  it('drops expired buckets without waiting for the table to fill', () => {
+    for (let i = 0; i < 100; i++) fail(`10.1.${i}.1`, `guess${i}`, 1);
+    expect(loginLimiterKeys()).toHaveLength(200);
+    fail('10.2.0.1', 'later', 1, 15 * MIN + 1);
+    expect(loginLimiterKeys().sort()).toEqual(['ip:10.2.0.1', 'user:later']);
   });
 
   it('says how long to wait', () => {

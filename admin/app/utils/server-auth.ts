@@ -13,6 +13,7 @@ import {
   TOKEN_MAX_AGE_MS,
 } from './htpasswd';
 import { beginLoginAttempt, clientIp, loginSucceeded } from './login-limiter';
+import { usernameError } from './password-rules';
 import { assertSameOrigin, isPublicHostRequest } from './request-guard';
 
 // Per-install secret, created on first use next to .htpasswd. Never ship one
@@ -65,14 +66,21 @@ export function validateCredentials(
   });
 }
 
+// Not a valid username, so it can't clash with an account.
+const INVALID_USERNAME = '<invalid>';
+
 /** validateCredentials behind the per-IP and per-user failure limit. */
 export async function attemptLogin(
   request: Request,
   credentials: LoginCredentials,
 ): Promise<{ ok: boolean; retryAfter?: number }> {
   const ip = clientIp(request);
-  const retryAfter = beginLoginAttempt(ip, credentials.username);
+  // A name no account can have is counted under one fixed name, so the
+  // limiter never keeps what a client typed there (up to the body size).
+  const valid = !usernameError(credentials.username);
+  const retryAfter = beginLoginAttempt(ip, valid ? credentials.username : INVALID_USERNAME);
   if (retryAfter > 0) return { ok: false, retryAfter };
+  if (!valid) return { ok: false };
   const ok = await validateCredentials(credentials);
   if (ok) loginSucceeded(ip, credentials.username);
   return { ok };
