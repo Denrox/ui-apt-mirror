@@ -16,9 +16,9 @@ const GATEWAY = '172.18.0.1';
 
 beforeEach(() => resetLoginLimiter([GATEWAY]));
 
-function fail(ip: string, user: string, times: number, now = 0) {
+function fail(ip: string, user: string, times: number, now = 0, device?: string) {
   for (let i = 0; i < times; i++)
-    expect(beginLoginAttempt(ip, user, now)).toBe(0);
+    expect(beginLoginAttempt(ip, user, now, device)).toBe(0);
 }
 
 describe('login limiter', () => {
@@ -91,7 +91,7 @@ describe('login limiter', () => {
 
   it('keeps a bucket near its limit when made-up names flood the table', () => {
     for (let i = 0; i < 19; i++) fail(`10.0.0.${i}`, 'victim', 1);
-    for (let i = 0; i < 60000; i++) beginLoginAttempt(GATEWAY, `junk${i}`, 0);
+    for (let i = 0; i < 60000; i++) beginLoginAttempt(`10.1.${i >> 8}.${i & 255}`, `junk${i}`, 0);
     expect(beginLoginAttempt('10.0.1.1', 'victim', 0)).toBe(0);
     expect(beginLoginAttempt('10.0.1.2', 'victim', 0)).toBeGreaterThan(0);
   });
@@ -138,6 +138,34 @@ describe('shared addresses (r3-auth-3)', () => {
     loginSucceeded(GATEWAY, 'admin', 0);
     for (let i = 0; i < 20; i++) fail(`10.0.${i}.1`, 'admin', 1);
     expect(beginLoginAttempt(GATEWAY, 'admin', 0)).toBeGreaterThan(0);
+  });
+
+  it('limits guesses across usernames through the gateway', () => {
+    for (let i = 0; i < 50; i++) fail(GATEWAY, `name${i}`, 1);
+    expect(beginLoginAttempt(GATEWAY, 'name50', 0)).toBe(15 * 60);
+    expect(beginLoginAttempt(GATEWAY, 'admin', MIN)).toBe(14 * 60);
+    // Addresses of their own are not affected.
+    expect(beginLoginAttempt('10.0.0.1', 'admin', MIN)).toBe(0);
+  });
+
+  it('limits a browser that signed in before on its own', () => {
+    fail(GATEWAY, 'admin', 5);
+    for (let i = 0; i < 45; i++) fail(GATEWAY, `name${i}`, 1);
+    expect(beginLoginAttempt(GATEWAY, 'admin', 0)).toBeGreaterThan(0);
+    expect(beginLoginAttempt(GATEWAY, 'bob', 0)).toBeGreaterThan(0);
+    // The owner's browser gets in through the full buckets...
+    expect(beginLoginAttempt(GATEWAY, 'admin', 0, 'dev1')).toBe(0);
+    loginSucceeded(GATEWAY, 'admin', 0, 'dev1');
+    // ...and has five tries of its own, which no other client can use up.
+    fail(GATEWAY, 'admin', 5, MIN);
+    fail('::1', 'admin', 5, MIN, 'dev1');
+    expect(beginLoginAttempt('::1', 'admin', MIN, 'dev1')).toBe(15 * 60);
+    expect(beginLoginAttempt(GATEWAY, 'admin', MIN, 'dev2')).toBe(0);
+  });
+
+  it('ignores the device on an address of its own', () => {
+    fail('10.0.0.1', 'admin', 5);
+    expect(beginLoginAttempt('10.0.0.1', 'admin', 0, 'dev1')).toBe(15 * 60);
   });
 
   it('reads the default gateway from /proc/net/route', () => {

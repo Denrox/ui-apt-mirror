@@ -3,6 +3,7 @@ import {
   attemptLogin,
   createAuthToken,
   createAuthCookie,
+  createDeviceCookie,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
 import { assertAdminHost, assertSameOrigin } from '~/utils/request-guard';
@@ -37,12 +38,8 @@ export async function action({ request }: { request: Request }): Promise<any> {
   }
 
   const token = await createAuthToken(username);
-  const cookie = createAuthCookie(token);
-  return new Response(null, {
-    status: 302,
-    headers: {
-      'Set-Cookie': cookie,
-      Location: '/',
-    },
-  });
+  const headers = new Headers({ Location: '/' });
+  headers.append('Set-Cookie', createAuthCookie(token));
+  headers.append('Set-Cookie', await createDeviceCookie(username));
+  return new Response(null, { status: 302, headers });
 }

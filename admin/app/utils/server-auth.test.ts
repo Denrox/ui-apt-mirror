@@ -16,6 +16,7 @@ vi.mock('../config/config.json', () => ({ default: { htpasswdPath } }));
 import {
   attemptLogin,
   createAuthToken,
+  createDeviceCookie,
   createNpmAuthToken,
   requireAuth,
   revokeSession,
@@ -142,6 +143,29 @@ describe('attemptLogin', () => {
     const blocked = await attemptLogin(request('6.6.6.6'), { username: huge, password: 'x' });
     expect(blocked.retryAfter).toBeUndefined();
     expect((await attemptLogin(request('6.6.6.6'), { username: 'frank', password: 'right' })).retryAfter).toBeGreaterThan(0);
+  });
+
+  it('lets a browser that signed in before past what others behind a shared address filled', async () => {
+    writePrivateFile(
+      htpasswdPath,
+      `gina:${await hashPassword('right')}\nhal:${await hashPassword('right')}\n`,
+    );
+    const shared = (cookie?: string) =>
+      new Request('http://admin/login', {
+        headers: { 'X-Real-IP': '127.0.0.1', ...(cookie ? { Cookie: cookie } : {}) },
+      });
+    for (let i = 0; i < 5; i++) await attemptLogin(shared(), { username: 'gina', password: 'no' });
+    expect((await attemptLogin(shared(), { username: 'gina', password: 'right' })).retryAfter).toBeGreaterThan(0);
+
+    const device = (await createDeviceCookie('gina')).split(';')[0];
+    expect(await attemptLogin(shared(`auth_token=x; ${device}`), { username: 'gina', password: 'right' })).toEqual({ ok: true });
+    // Only for the name it was issued to.
+    for (let i = 0; i < 5; i++) await attemptLogin(shared(), { username: 'hal', password: 'no' });
+    expect((await attemptLogin(shared(device), { username: 'hal', password: 'right' })).retryAfter).toBeGreaterThan(0);
+    // Not after the user's tokens were revoked (password change, deletion).
+    revokeUserTokens('gina');
+    for (let i = 0; i < 5; i++) await attemptLogin(shared(), { username: 'gina', password: 'no' });
+    expect((await attemptLogin(shared(device), { username: 'gina', password: 'right' })).retryAfter).toBeGreaterThan(0);
   });
 });
 
