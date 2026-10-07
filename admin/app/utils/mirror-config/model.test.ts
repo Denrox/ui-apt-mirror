@@ -587,7 +587,7 @@ deb http://deb.debian.org/debian trixie main
 include_binary_packages http://deb.debian.org/debian hello
 # ---end---Hello---
 # ---start---Updates---
-deb [arch=amd64] http://DEB.debian.org/debian/ trixie-updates main
+deb [arch=amd64] http://deb.debian.org/debian/ trixie-updates main
 # ---end---Updates---
 # ---start---Off---
 #deb http://deb.debian.org/debian bookworm main
@@ -605,9 +605,56 @@ deb http://archive.ubuntu.com/ubuntu noble main
 
   it('reports a filtered and an unfiltered section on one upstream', () => {
     const cfg = MirrorConfig.parse(LIST);
-    expect(cfg.filterConflict(cfg.getSection('Updates')!)).toMatch(/"Updates" has no package filter/);
-    expect(cfg.filterConflict(cfg.getSection('Hello')!)).toMatch(/"Updates" would only get the packages "Hello" selects/);
-    expect(cfg.filterConflict(cfg.getSection('Off')!)).toBeNull();
-    expect(cfg.filterConflict(cfg.getSection('Ubuntu')!)).toBeNull();
+    expect(cfg.upstreamConflict(cfg.getSection('Updates')!)).toMatch(/"Updates" has no package filter/);
+    expect(cfg.upstreamConflict(cfg.getSection('Hello')!)).toMatch(/"Updates" would only get the packages "Hello" selects/);
+    expect(cfg.upstreamConflict(cfg.getSection('Off')!)).toBeNull();
+    expect(cfg.upstreamConflict(cfg.getSection('Ubuntu')!)).toBeNull();
+  });
+});
+
+describe('base URLs that share a mirror folder', () => {
+  const LIST = `# ---start---Trixie---
+deb http://deb.debian.org/debian trixie main
+# ---end---Trixie---
+# ---start---Backports---
+deb https://deb.debian.org/debian trixie-backports main
+# ---end---Backports---
+# ---start---Nested---
+#deb http://deb.debian.org/debian/extra trixie main
+# ---end---Nested---
+# ---start---Security---
+deb http://deb.debian.org/debian-security trixie-security main
+# ---end---Security---
+`;
+
+  it('counts http and https spellings of one upstream as the same upstream', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamNeighbours(cfg.getSection('Trixie')!)).toEqual([{ title: 'Backports', filtered: false }]);
+  });
+
+  it('reports two base URLs stored in one folder, even without filters', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    expect(cfg.upstreamConflict(cfg.getSection('Backports')!)).toMatch(
+      /"Backports" \(https:\/\/deb\.debian\.org\/debian\) and "Trixie" \(http:\/\/deb\.debian\.org\/debian\) are stored in the same mirror folder \(deb\.debian\.org\/debian\).*Use the base URL http:\/\/deb\.debian\.org\/debian for both/,
+    );
+    expect(cfg.mirrorDirConflict(cfg.getSection('Security')!)).toBeNull();
+    expect(cfg.mirrorDirConflict(cfg.getSection('Nested')!)).toBeNull();
+  });
+
+  it('reports a base URL whose folder lies inside another enabled one', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    cfg.setSectionEnabled('Backports', false);
+    cfg.setSectionEnabled('Nested', true);
+    expect(cfg.mirrorDirConflict(cfg.getSection('Nested')!)).toMatch(
+      /nested mirror folders \(deb\.debian\.org\/debian\/extra and deb\.debian\.org\/debian\)/,
+    );
+  });
+
+  it('writes default ports, case and trailing slashes as one base URL, so they never clash', () => {
+    const cfg = MirrorConfig.parse(LIST);
+    cfg.setSectionEnabled('Backports', false);
+    cfg.addSection(input({ title: 'Updates', baseUrl: 'HTTP://Deb.Debian.org:80/debian/', suites: ['trixie-updates'] }), 'mirror.intra');
+    expect(cfg.upstreamConflict(cfg.getSection('Updates')!)).toBeNull();
+    expect(cfg.upstreamNeighbours(cfg.getSection('Updates')!)).toEqual([{ title: 'Trixie', filtered: false }]);
   });
 });

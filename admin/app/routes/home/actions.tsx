@@ -198,7 +198,7 @@ export async function action({ request }: { request: Request }) {
         const section = config.getSection(sectionTitle, formRevision(formData))!;
         config.setEnabled(section, enable);
         // Enabling can put an unfiltered and a filtered repository on one upstream.
-        const conflict = config.filterConflict(section);
+        const conflict = config.upstreamConflict(section);
         if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
@@ -241,7 +241,7 @@ export async function action({ request }: { request: Request }) {
 
         config.addSection(input, mirrorDomain());
         const added = config.sections().filter((s) => s.title === input.title.trim()).pop();
-        const conflict = added && config.filterConflict(added);
+        const conflict = added && config.upstreamConflict(added);
         if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
@@ -292,7 +292,7 @@ export async function action({ request }: { request: Request }) {
         config.editSection(originalTitle, input, mirrorDomain(), formRevision(formData));
         // Editing never enables a disabled repository (the next sync would download it).
         if (!wasEnabled) config.setEnabled(section, false);
-        const conflict = config.filterConflict(section);
+        const conflict = config.upstreamConflict(section);
         if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 

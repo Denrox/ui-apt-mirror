@@ -73,6 +73,22 @@ export function filterNote(
   return lines;
 }
 
+/** A message as `# ` comment lines of at most about 95 characters, for a card's snippet. */
+export function commentLines(text: string): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line && line.length + word.length + 1 > 93) {
+      lines.push(`# ${line}`);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(`# ${line}`);
+  return lines;
+}
+
 function rewriteSignedByHint(
   content: string[],
   signedHosts: RepositoryHost[],
@@ -188,6 +204,7 @@ async function parseRepositoryConfigs(): Promise<{
         content: [
           ...usage,
           ...filterNote(config.isSectionFiltered(section), config.upstreamNeighbours(section)),
+          ...commentLines(config.mirrorDirConflict(section) ?? ''),
         ],
         editable: config.sectionToInput(section),
       });

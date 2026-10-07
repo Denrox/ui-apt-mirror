@@ -4,6 +4,7 @@ import FormButton from '~/components/shared/form/form-button';
 import FormField from '~/components/shared/form/form-field';
 import FormInput from '~/components/shared/form/form-input';
 import FormCheckbox from '~/components/shared/form/form-checkbox';
+import { canonicalBaseUrl, mirrorDirOf, mirrorDirsOverlap } from '~/utils/mirror-config/upstream';
 
 export interface NewRepoValues {
   title: string;
@@ -36,16 +37,6 @@ interface AddRepoModalProps {
   readonly upstreams?: readonly { url: string; title: string; filtered: boolean }[];
 }
 
-/** Base URL as the server writes it (lower-case scheme and host, no trailing slash). */
-function canonicalUrl(url: string): string {
-  try {
-    const u = new URL(url.trim());
-    return `${u.protocol}//${u.host}${u.pathname}`.replace(/\/+$/, '');
-  } catch {
-    return url.trim().replace(/\/+$/, '');
-  }
-}
-
 /** Package filters as the server counts them (architectures are not a filter). */
 const hasPackageFilter = (v: NewRepoValues): boolean =>
   Boolean(
@@ -56,8 +47,10 @@ const hasPackageFilter = (v: NewRepoValues): boolean =>
   );
 
 /**
- * apt-mirror2 keeps one package filter per upstream: a warning when this repository and an
- * enabled one on the same base URL differ in being filtered (the server refuses that).
+ * A warning about a combination the server refuses: this repository and an enabled one stored
+ * in the same mirror folder under different base URLs (e.g. http:// and https://), or on the
+ * same upstream with one filtered and the other not (apt-mirror2 keeps one package filter per
+ * upstream).
  */
 export function sharedFilterWarning(
   values: NewRepoValues,
@@ -65,9 +58,20 @@ export function sharedFilterWarning(
   ownTitle?: string,
 ): string | null {
   if (!values.baseUrl.trim()) return null;
-  const url = canonicalUrl(values.baseUrl);
+  const url = canonicalBaseUrl(values.baseUrl);
+  const dir = mirrorDirOf(url);
+  const sameDir = upstreams.filter((u) => {
+    const other = mirrorDirOf(u.url);
+    return u.title !== ownTitle && dir !== null && other !== null && mirrorDirsOverlap(dir, other);
+  });
+  const clash = sameDir.find((u) => u.url !== url);
+  if (clash) {
+    return `"${clash.title}" is stored in the same mirror folder under the base URL ${clash.url}. apt-mirror2 would sync the two as separate repositories that delete each other's files: ${
+      mirrorDirOf(clash.url) === dir ? `use ${clash.url} here` : 'mirror them under one base URL'
+    }, or disable "${clash.title}" first.`;
+  }
   const filtered = hasPackageFilter(values);
-  const others = upstreams.filter((u) => u.url === url && u.title !== ownTitle && u.filtered !== filtered);
+  const others = sameDir.filter((u) => u.filtered !== filtered);
   if (!others.length) return null;
   const names = [...new Set(others.map((o) => `"${o.title}"`))].join(', ');
   return filtered

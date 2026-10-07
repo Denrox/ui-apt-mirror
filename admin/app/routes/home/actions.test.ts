@@ -245,6 +245,39 @@ describe('package filters shared through one upstream (r3-repos-3)', () => {
   });
 });
 
+describe('base URLs that share a mirror folder', () => {
+  it('refuses an https repository next to the same http upstream', async () => {
+    writeList(SIMPLE(true));
+    const result = await post({
+      action: 'addRepository',
+      title: 'Secure',
+      baseUrl: 'https://example.com/debian',
+      suites: 'testing',
+      components: 'main',
+    });
+    expect(result.error).toMatch(/same mirror folder \(example\.com\/debian\).*Use the base URL http:\/\/example\.com\/debian/);
+    expect(readList()).not.toContain('Secure');
+  });
+
+  it('refuses to enable a repository into such a clash, and accepts the same spelling', async () => {
+    writeList(SIMPLE(false), [
+      '# ---start---Secure---',
+      'deb https://example.com/debian testing main',
+      '# ---end---Secure---',
+    ]);
+    const result = await post({ action: 'restoreRepository', sectionTitle: 'Simple', revision: revisionOf('Simple') });
+    expect(result.error).toMatch(/same mirror folder/);
+    const ok = await post({
+      action: 'addRepository',
+      title: 'Backports',
+      baseUrl: 'HTTPS://Example.com:443/debian/',
+      suites: 'testing-backports',
+      components: 'main',
+    });
+    expect(ok.success).toBe(true);
+  });
+});
+
 describe('disabling a repository with deleteData', () => {
   const OTHER = (enabled: boolean) => [
     '# ---start---Other---',

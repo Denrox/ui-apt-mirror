@@ -38,3 +38,22 @@ describe('sharedFilterWarning (r3-repos-3)', () => {
     expect(sharedFilterWarning(values({ arches: 'amd64' }), upstreams)).toMatch(/"Hello"/);
   });
 });
+
+describe('sharedFilterWarning for base URLs that share a mirror folder', () => {
+  it('warns about https next to the same http upstream, filtered or not', () => {
+    expect(sharedFilterWarning(values({ baseUrl: 'https://deb.debian.org/debian' }), upstreams)).toMatch(
+      /same mirror folder under the base URL http:\/\/deb\.debian\.org\/debian.*use http:\/\/deb\.debian\.org\/debian here/,
+    );
+    expect(
+      sharedFilterWarning(values({ baseUrl: 'https://deb.debian.org/debian', includeBinaryPackages: 'sl' }), upstreams),
+    ).toMatch(/delete each other's files/);
+  });
+  it('warns about a nested folder', () => {
+    expect(sharedFilterWarning(values({ baseUrl: 'http://deb.debian.org/debian/sub' }), upstreams)).toMatch(
+      /mirror them under one base URL/,
+    );
+  });
+  it('is quiet for another spelling of the same base URL', () => {
+    expect(sharedFilterWarning(values({ baseUrl: 'HTTP://deb.debian.org:80/debian/', includeBinaryPackages: 'x' }), upstreams)).toBeNull();
+  });
+});

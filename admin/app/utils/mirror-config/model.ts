@@ -13,25 +13,9 @@ import {
   type SectionNode,
   type UsageNode,
 } from './types';
+import { canonicalBaseUrl, mirrorDirOf, mirrorDirsOverlap, normalizeUrl } from './upstream';
 
-/** Strip trailing slashes so URLs compare and render consistently. */
-export function normalizeUrl(url: string): string {
-  return url.replace(/\/+$/, '');
-}
-
-/**
- * The form a base URL is written to mirror.list in: lower-case scheme and host, no
- * credentials, query or fragment, no trailing slash. Two spellings of one upstream then
- * share one `clean` line and match the Usage snippet.
- */
-export function canonicalBaseUrl(url: string): string {
-  try {
-    const u = new URL(url.trim());
-    return normalizeUrl(`${u.protocol}//${u.host}${u.pathname}`);
-  } catch {
-    return normalizeUrl(url.trim());
-  }
-}
+export { canonicalBaseUrl, mirrorDirOf, mirrorDirsOverlap, normalizeUrl };
 
 const PATH_TOKEN_RE = /^[A-Za-z0-9._+~-]+(\/[A-Za-z0-9._+~-]+)*$/;
 
@@ -131,28 +115,63 @@ export class MirrorConfig {
   /**
    * apt-mirror2 keeps one package filter per upstream (base URL): the filters of every enabled
    * section on that URL are combined and restrict all of them. The other enabled sections on
-   * the same upstream as this one, with whether each is filtered.
+   * the same upstream as this one, with whether each is filtered. Sections count as one
+   * upstream when apt-mirror2 stores them in the same (or a nested) mirror folder, whatever
+   * the spelling of their base URLs.
    */
   upstreamNeighbours(section: SectionNode): { title: string; filtered: boolean }[] {
-    const urls = new Set(baseUrlsOf(section, true).map(canonicalBaseUrl));
-    if (!urls.size) return [];
+    const dirs = mirrorDirsOf(section);
+    if (!dirs.length) return [];
     return this.sections()
       .filter(
         (other) =>
           other !== section &&
           this.isSectionEnabled(other) &&
-          baseUrlsOf(other, true).some((u) => urls.has(canonicalBaseUrl(u))),
+          mirrorDirsOf(other).some((d) => dirs.some((own) => mirrorDirsOverlap(own, d))),
       )
       .map((other) => ({ title: other.title, filtered: this.isSectionFiltered(other) }));
   }
 
   /**
-   * Why an enabled section cannot be mirrored as configured: it shares its upstream with an
+   * Why an enabled section and another enabled one would delete each other's files: their
+   * base URLs differ (e.g. `http://` and `https://`), so apt-mirror2 syncs them as two
+   * repositories, but it stores both in the same (or a nested) mirror folder and each one's
+   * clean removes what the other downloaded. Null when there is no such clash.
+   */
+  mirrorDirConflict(section: SectionNode): string | null {
+    if (!this.isSectionEnabled(section)) return null;
+    for (const own of baseUrlsOf(section, true)) {
+      const ownDir = mirrorDirOf(own);
+      if (!ownDir) continue;
+      for (const other of this.sections()) {
+        if (other === section || !this.isSectionEnabled(other)) continue;
+        for (const url of baseUrlsOf(other, true)) {
+          const dir = mirrorDirOf(url);
+          if (!dir || url === own || !mirrorDirsOverlap(ownDir, dir)) continue;
+          const where =
+            dir === ownDir ? `the same mirror folder (${dir})` : `nested mirror folders (${ownDir} and ${dir})`;
+          const fix = dir === ownDir ? `Use the base URL ${url} for both` : 'Mirror them under one base URL';
+          return (
+            `"${section.title}" (${own}) and "${other.title}" (${url}) are stored in ${where}. ` +
+            `apt-mirror2 syncs different base URLs as separate repositories, so each sync would delete ` +
+            `the other's files. ${fix}, or disable or remove one of them.`
+          );
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Why an enabled section cannot be mirrored as configured: it shares its mirror folder with
+   * another enabled section under a different base URL, or it shares its upstream with an
    * enabled section that is filtered while it is not (or the other way round), so one
    * repository's filter would silently restrict the other. Null when there is no such clash.
    */
-  filterConflict(section: SectionNode): string | null {
+  upstreamConflict(section: SectionNode): string | null {
     if (!this.isSectionEnabled(section)) return null;
+    const dirConflict = this.mirrorDirConflict(section);
+    if (dirConflict) return dirConflict;
     const filtered = this.isSectionFiltered(section);
     const clash = this.upstreamNeighbours(section).find((n) => n.filtered !== filtered);
     if (!clash) return null;
@@ -431,6 +450,11 @@ function baseUrlsOf(section: SectionNode, enabledOnly = false): string[] {
     if (!enabledOnly || deb.enabled) urls.add(normalizeUrl(deb.uri));
   }
   return Array.from(urls);
+}
+
+/** Mirror folders of a section's active deb directives. */
+function mirrorDirsOf(section: SectionNode): string[] {
+  return baseUrlsOf(section, true).flatMap((u) => mirrorDirOf(u) ?? []);
 }
 
 /** Build a complete section node from user input. */
