@@ -6,7 +6,7 @@ import appConfig from '../config/config.json';
 import { giveToDirOwner } from './file-owner';
 import { checkCredentials, isTokenCurrent, revokeTokens } from './htpasswd';
 import { beginLoginAttempt, clientIp, loginSucceeded } from './login-limiter';
-import { assertSameOrigin } from './request-guard';
+import { assertSameOrigin, isPublicHostRequest } from './request-guard';
 
 // Per-install secret, created on first use next to .htpasswd. Never ship one
 // in config: whoever knows it can forge an admin login.
@@ -149,8 +149,12 @@ export function extractAuthToken(cookieHeader: string | null): string | null {
   return null;
 }
 
-/** The signed-in web user, or null. Throws 403 for a cross-origin state-changing request. */
+/**
+ * The signed-in web user, or null. Always null on the public hosts, which
+ * serve no admin pages. Throws 403 for a cross-origin state-changing request.
+ */
 export async function requireAuth(request: Request): Promise<AuthUser | null> {
+  if (isPublicHostRequest(request)) return null;
   assertSameOrigin(request);
 
   const cookieHeader = request.headers.get('Cookie');

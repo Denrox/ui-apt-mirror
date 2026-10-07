@@ -3,8 +3,21 @@
 // SameSite=Strict only stops cross-site requests. All of the app's hosts
 // (admin., files., cheatsheets., ...) are one site, so a page on the files
 // host could post to the admin host with the admin's cookie attached.
+//
+// The admin UI must also stay off the public hosts. nginx blocks its routes
+// there, but React Router matches paths case-insensitively and a custom site
+// config can drop the block, so the app refuses them as well.
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/** First DNS labels of the hosts that serve the public pages, never the admin UI. */
+const PUBLIC_HOST_LABELS = new Set(['files', 'cheatsheets']);
+
+/** True when the request came in on a public host (files., cheatsheets.). */
+export function isPublicHostRequest(request: Request): boolean {
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  return PUBLIC_HOST_LABELS.has(hostname.split('.')[0]);
+}
 
 /**
  * Why a state-changing request must be refused as cross-origin, or null.
@@ -48,5 +61,12 @@ export function assertSameOrigin(request: Request): void {
       status: 403,
       headers: { 'Content-Type': 'text/plain' },
     });
+  }
+}
+
+/** Throws a redirect to the public page for an admin-only route on a public host. */
+export function assertAdminHost(request: Request): void {
+  if (isPublicHostRequest(request)) {
+    throw new Response(null, { status: 302, headers: { Location: '/' } });
   }
 }

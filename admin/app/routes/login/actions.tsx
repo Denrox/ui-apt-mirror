@@ -5,9 +5,11 @@ import {
   createAuthCookie,
 } from '~/utils/server-auth';
 import { tooManyAttemptsMessage } from '~/utils/login-limiter';
-import { assertSameOrigin } from '~/utils/request-guard';
+import { assertAdminHost, assertSameOrigin } from '~/utils/request-guard';
 
 export async function action({ request }: { request: Request }): Promise<any> {
+  // No admin sessions on the public hosts, which also serve user uploads.
+  assertAdminHost(request);
   // Another host on the site must not sign the browser in as someone else.
   assertSameOrigin(request);
   const formData = await request.formData();

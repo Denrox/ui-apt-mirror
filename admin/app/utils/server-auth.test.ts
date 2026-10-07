@@ -121,6 +121,12 @@ describe('requireAuth', () => {
     await expect(requireAuth(request)).rejects.toMatchObject({ status: 403 });
   });
 
+  it('ignores the session cookie on the public hosts', async () => {
+    for (const url of ['http://files.mirror.intra/Users', 'http://cheatsheets.mirror.intra/Home']) {
+      expect(await requireAuth(await withCookie({ url }))).toBeNull();
+    }
+  });
+
   it('accepts same-origin posts and plain gets', async () => {
     const post = await withCookie({
       method: 'POST',

@@ -3,6 +3,7 @@
  */
 export async function requireAuthMiddleware(request: Request) {
   const { requireAuth } = await import('./server-auth');
+  const { isPublicHostRequest } = await import('./request-guard');
 
   const user = await requireAuth(request);
 
@@ -10,7 +11,8 @@ export async function requireAuthMiddleware(request: Request) {
     throw new Response(null, {
       status: 302,
       headers: {
-        Location: '/login',
+        // The public hosts have no login page.
+        Location: isPublicHostRequest(request) ? '/' : '/login',
       },
     });
   }

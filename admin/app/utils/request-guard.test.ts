@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assertSameOrigin, crossOriginError } from './request-guard';
+import { assertAdminHost, assertSameOrigin, crossOriginError, isPublicHostRequest } from './request-guard';
 
 const post = (headers: Record<string, string>, url = 'http://admin.mirror.intra/users') =>
   new Request(url, { method: 'POST', headers });
@@ -58,5 +58,32 @@ describe('assertSameOrigin', () => {
     }
     expect(thrown).toBeInstanceOf(Response);
     expect((thrown as Response).status).toBe(403);
+  });
+});
+
+describe('public hosts', () => {
+  it('recognises the files and cheatsheets hosts, whatever the case or domain', () => {
+    for (const url of [
+      'http://files.mirror.intra/Users',
+      'http://CHEATSHEETS.mirror.intra/Login',
+      'http://files.example.lan/',
+    ]) {
+      expect(isPublicHostRequest(new Request(url))).toBe(true);
+    }
+    for (const url of ['http://admin.mirror.intra/users', 'http://filesystem.lan/', 'http://localhost:5173/']) {
+      expect(isPublicHostRequest(new Request(url))).toBe(false);
+    }
+  });
+
+  it('sends admin-only routes on a public host back to /', () => {
+    let thrown: unknown;
+    try {
+      assertAdminHost(new Request('http://files.mirror.intra/Login', { method: 'POST' }));
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as Response).status).toBe(302);
+    expect((thrown as Response).headers.get('Location')).toBe('/');
+    expect(() => assertAdminHost(new Request('http://admin.mirror.intra/login'))).not.toThrow();
   });
 });
