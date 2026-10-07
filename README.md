@@ -274,9 +274,9 @@ instead (same format, merged on top by `start.sh`). To change an nginx site,
 copy it from the running container (`docker exec ui-apt-mirror cat
 /etc/nginx/sites-available/files.mirror.intra.conf`) to
 `data/conf/nginx/custom/files.mirror.intra.conf` and edit it there; delete the
-file to go back to the stock config. An override that is an unedited stock
-config of an earlier release (2.4.x upgrades created those) is moved to
-`data/conf/nginx/custom.unedited-<date>/` and the current stock config is used.
+file to go back to the stock config. An override that is the previous
+release's stock config, unedited, is removed on upgrade and the current stock
+config is used.
 
 #### Upgrading from older versions
 
@@ -345,6 +345,21 @@ ui-apt-mirror/
         ├── apt-mirror/      # APT mirror logs
         └── nginx/           # Nginx logs
 ```
+
+## Releasing
+
+An upgrade recognises the previous release's stock nginx site configs among
+the overrides in `data/conf/nginx/custom/` and replaces them with the new
+stock configs. After tagging a release, replace the list of those configs with
+the new release's and commit it, so the next version recognises them:
+
+```bash
+git tag v3.0.0
+nginx/sites-setup/update-released-sites.sh v3.0.0
+git commit -m "List the stock nginx site configs of v3.0.0" nginx/sites-setup/released-sites.sha256
+```
+
+`nginx/sites-setup/test.sh` checks that the list matches the tag it names.
 
 ## License
 
