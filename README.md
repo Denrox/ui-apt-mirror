@@ -85,6 +85,15 @@ are kept.
   - Cheatsheet sources (add GitHub repositories, update, remove)
   - User management and settings
 
+Failed logins (web and `npm login`) are limited per client address and per
+username. The container has no IPv6 address, so Docker's userland proxy
+connects IPv6 clients and clients on the Docker host itself (`127.0.0.1`,
+`::1`) from the network gateway, and they all reach the mirror with that one
+address. The limit for the gateway is per username, so one of those clients
+can't lock the others out, but they can't be told apart either. The same goes
+for a reverse proxy in front of the mirror: its clients share its address, and
+the mirror ignores `X-Forwarded-For` because any client can send one.
+
 ### File Repository (files.mirror.intra)
 
 - **URL**: `http://files.mirror.intra`
