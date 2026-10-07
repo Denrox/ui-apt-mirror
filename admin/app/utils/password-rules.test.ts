@@ -46,7 +46,5 @@ describe('usernameError', () => {
     expect(usernameError('')).not.toBeNull();
     expect(usernameError('admin ')).not.toBeNull();
     expect(usernameError('x 1\nvictim 99999999999999')).not.toBeNull();
-    expect(usernameError('u'.repeat(65), { anyLength: true })).toBeNull();
-    expect(usernameError('x 1\nvictim 1', { anyLength: true })).not.toBeNull();
   });
 });

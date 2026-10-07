@@ -11,7 +11,6 @@ const SEMVER_RE = new RegExp(
 const DIST_TAG_RE = /^[A-Za-z][A-Za-z0-9._-]{0,127}$/;
 
 export const METADATA_TTL_MS = 10 * 60 * 1000;
-const LEGACY_REV = '0-legacy';
 
 export interface PackageDoc {
   _id?: string;
@@ -87,12 +86,8 @@ export function nextRev(rev?: string): string {
   return `${(parseInt(rev ?? '', 10) || 0) + 1}-${randomBytes(8).toString('hex')}`;
 }
 
-export function currentRev(doc: PackageDoc): string {
-  return doc._rev ?? LEGACY_REV;
-}
-
 export function revMatches(doc: PackageDoc, rev: string | undefined): boolean {
-  return rev === undefined || rev === currentRev(doc);
+  return rev === undefined || rev === doc._rev;
 }
 
 /** Add the versions of a publish request to the stored document; existing versions are immutable. */
@@ -272,21 +267,6 @@ export function publicCachePath(route: NpmPath): string | null {
   if (route.kind === 'package' && route.rev === undefined) return `_packages/${route.name}/package.json`;
   if (route.kind === 'tarball' && route.rev === undefined && /^[^/]+\.tgz$/.test(route.file)) {
     return `_packages/${route.name}/-/${route.file}`;
-  }
-  return null;
-}
-
-/**
- * Where older versions cached the same response: packuments at `<name>`, tarballs at
- * `<scope or name>-tarballs/…/-/<file>`. Names could collide there (`x.meta` with x's metadata,
- * `x-tarballs` with x's tarballs), so whatever is found must be checked before it is used.
- */
-export function legacyPublicCachePath(route: NpmPath): string | null {
-  if (publicCachePath(route) === null) return null;
-  if (route.kind === 'package') return route.name;
-  if (route.kind === 'tarball') {
-    const [first, ...rest] = route.name.split('/');
-    return [`${first}-tarballs`, ...rest, '-', route.file].join('/');
   }
   return null;
 }

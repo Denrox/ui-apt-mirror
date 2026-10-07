@@ -184,19 +184,6 @@ describe('revokeSession (logout)', () => {
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 
-  it('revokes tokens issued before jti existed', async () => {
-    writePrivateFile(htpasswdPath, 'admin:x\nfrank:y\n');
-    const { default: jwt } = await import('jsonwebtoken');
-    const { getJwtSecret } = await import('./server-auth');
-    const legacy = jwt.sign(
-      { username: 'frank', type: 'web', iatMs: Date.now(), exp: Math.floor(Date.now() / 1000) + 3600 },
-      getJwtSecret(),
-    );
-    expect(await validateAuthToken(legacy)).not.toBeNull();
-    await revokeSession(cookieRequest(legacy));
-    expect(await validateAuthToken(legacy)).toBeNull();
-  });
-
   it('ignores requests without a valid cookie', async () => {
     await expect(revokeSession(cookieRequest('garbage'))).resolves.toBeUndefined();
     await expect(

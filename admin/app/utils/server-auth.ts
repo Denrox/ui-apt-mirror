@@ -42,10 +42,9 @@ const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000;
 export interface AuthUser {
   username: string;
   exp: number;
-  type?: 'web' | 'npm';
-  iat?: number;
-  iatMs?: number;
-  jti?: string;
+  type: 'web' | 'npm';
+  iatMs: number;
+  jti: string;
 }
 
 export interface LoginCredentials {
@@ -121,16 +120,16 @@ export async function validateAuthToken(
       return null;
     }
     // npm tokens live a year; they must not open web sessions (and vice versa).
-    if ((decoded.type ?? 'web') !== type) {
+    if (decoded.type !== type) {
       return null;
     }
-    const issuedAtMs =
-      decoded.iatMs ?? (decoded.iat !== undefined ? decoded.iat * 1000 : undefined);
-    if (!isTokenCurrent(appConfig.htpasswdPath, decoded.username, issuedAtMs)) {
+    if (typeof decoded.iatMs !== 'number' || typeof decoded.jti !== 'string' || !/^[\w-]{1,64}$/.test(decoded.jti)) {
       return null;
     }
-    const id = tokenId(decoded);
-    if (id && isTokenRevoked(appConfig.htpasswdPath, id)) {
+    if (!isTokenCurrent(appConfig.htpasswdPath, decoded.username, decoded.iatMs)) {
+      return null;
+    }
+    if (isTokenRevoked(appConfig.htpasswdPath, decoded.jti)) {
       return null;
     }
 
@@ -140,22 +139,13 @@ export async function validateAuthToken(
   }
 }
 
-/** What identifies one token in the logout list: its jti, or for tokens made before jti, user and issue time. */
-function tokenId(user: AuthUser): string | null {
-  if (typeof user.jti === 'string' && /^[\w-]{1,64}$/.test(user.jti)) return user.jti;
-  const issued = user.iatMs ?? (user.iat !== undefined ? user.iat * 1000 : undefined);
-  if (typeof user.username !== 'string' || typeof issued !== 'number') return null;
-  return `${encodeURIComponent(user.username)}@${issued}`;
-}
-
 /** Ends the session in the request's cookie for good, not just in this browser. */
 export async function revokeSession(request: Request): Promise<void> {
   const token = extractAuthToken(request.headers.get('Cookie'));
   if (!token) return;
   const user = await validateAuthToken(token);
-  const id = user && tokenId(user);
-  if (!user || !id) return;
-  revokeToken(appConfig.htpasswdPath, id, user.exp, user.username);
+  if (!user) return;
+  revokeToken(appConfig.htpasswdPath, user.jti, user.exp, user.username);
 }
 
 export function createAuthCookie(token: string): string {

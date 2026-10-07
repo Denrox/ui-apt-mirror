@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
-import path from 'path';
 
 const env = vi.hoisted(() => {
   const { mkdtempSync } = require('fs') as typeof import('fs');
@@ -120,38 +119,5 @@ describe('public npm cache', () => {
     const meta = await get('/z/-/z-1.0.0.tgz.meta');
     expect(meta.status).toBe(404);
     expect(env.requests).toContain('z/-/z-1.0.0.tgz.meta');
-  });
-
-  it('keeps serving what older versions cached, offline, and moves it into the new layout', async () => {
-    const pub = path.join(env.npm, 'public');
-    const write = async (rel: string, content: string) => {
-      await fs.mkdir(path.dirname(path.join(pub, rel)), { recursive: true });
-      await fs.writeFile(path.join(pub, rel), content);
-    };
-    const meta = JSON.stringify({ headers: { 'content-type': 'application/json' }, cachedAt: '2026-01-01T00:00:00Z' });
-    await write('old', packument('old'));
-    await write('old.meta', meta);
-    await write('old-tarballs/-/old-1.0.0.tgz', 'old tarball');
-    await write('old-tarballs/-/old-1.0.0.tgz.meta', meta);
-    await write('@s/z', packument('@s/z'));
-    await write('@s-tarballs/z/-/z-1.0.0.tgz', 'z tarball');
-    // v.meta is v's metadata, not a package called v.meta.
-    await write('v', packument('v'));
-    await write('v.meta', meta);
-
-    env.online = false;
-    expect((await get('/old')).body).toBe(packument('old'));
-    expect((await get('/old/-/old-1.0.0.tgz')).body).toBe('old tarball');
-    expect((await get('/@s%2fz')).body).toBe(packument('@s/z'));
-    expect((await get('/@s/z/-/z-1.0.0.tgz')).body).toBe('z tarball');
-    expect((await get('/v.meta')).status).not.toBe(200);
-    expect((await get('/v')).body).toBe(packument('v'));
-
-    for (const rel of ['old', 'old.meta', 'old-tarballs', '@s/z', '@s-tarballs', 'v', 'v.meta']) {
-      await expect(fs.lstat(path.join(pub, rel)), rel).rejects.toThrow();
-    }
-    const moved = path.join(pub, '_packages');
-    expect(await fs.readFile(path.join(moved, 'old/-/old-1.0.0.tgz.meta'), 'utf-8')).toBe(meta);
-    expect(await fs.readFile(path.join(moved, '@s/z/-/z-1.0.0.tgz'), 'utf-8')).toBe('z tarball');
   });
 });

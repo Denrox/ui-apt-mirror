@@ -105,7 +105,7 @@ export async function action({
       return { success: false, error: 'Username is required' };
     }
 
-    const deleteNameError = usernameError(username, { anyLength: true });
+    const deleteNameError = usernameError(username);
     if (deleteNameError) {
       return { success: false, error: deleteNameError };
     }

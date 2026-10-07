@@ -161,6 +161,7 @@ describe('searchEntries', () => {
     title,
     categories: ['General'],
     text,
+    headings: '',
   });
   const entries = [
     entry('Chest Pain', 'Chest pain can be a sign of a heart attack. Call for help.'),
@@ -245,7 +246,7 @@ describe('searchEntries', () => {
       'Appendix A: First Aid Kits',
     ]);
     // Without the headings the short list page wins, as before.
-    expect(searchEntries(list.map((e) => ({ ...e, headings: undefined })), 'tourniquet')[0].entry.title).toBe(
+    expect(searchEntries(list.map((e) => ({ ...e, headings: '' })), 'tourniquet')[0].entry.title).toBe(
       'Appendix A: First Aid Kits',
     );
   });
