@@ -24,6 +24,11 @@ find /var/log/nginx -maxdepth 1 -name '*access-*.log' ! -user www-data -exec cho
 [ -f /var/auth/.htpasswd ] && chmod 600 /var/auth/.htpasswd
 mkdir -p /var/log/apt-mirror
 mkdir -p /var/spool/apt-mirror
+# nginx serves mirror/: until the first sync creates it, / is a 404 and its access log can't be written
+if [ ! -d /var/spool/apt-mirror/mirror ]; then
+    mkdir -p /var/spool/apt-mirror/mirror
+    chown --reference=/var/spool/apt-mirror /var/spool/apt-mirror/mirror 2>/dev/null || true
+fi
 mkdir -p /var/www/mirror.intra
 mkdir -p /var/spool/apt-mirror/gpg/gnupg
 
