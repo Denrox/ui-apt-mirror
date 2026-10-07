@@ -5,6 +5,7 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveInside } from '~/utils/safe-path';
 import appConfig from '~/config/config.json';
 import { Readable } from 'stream';
+import { parseRange } from '~/utils/byte-range';
 
 function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -73,16 +74,45 @@ export async function loader({ request }: { request: Request }) {
 
     const fileName = path.basename(normalizedFilePath);
     const contentType = getContentType(normalizedFilePath);
-    
-    const fileStream = createReadStream(normalizedFilePath);
+    const lastModified = fileStats.mtime.toUTCString();
+    const headers: Record<string, string> = {
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      'Accept-Ranges': 'bytes',
+      'Last-Modified': lastModified,
+    };
+
+    // A single range, so an interrupted download can resume; If-Range for another version
+    // of the file gets the whole file.
+    const ifRange = request.headers.get('if-range');
+    const range =
+      ifRange && ifRange !== lastModified
+        ? null
+        : parseRange(request.headers.get('range'), fileStats.size);
+    if (range === 'unsatisfiable') {
+      return new Response(null, {
+        status: 416,
+        headers: { ...headers, 'Content-Range': `bytes */${fileStats.size}` },
+      });
+    }
+
+    const fileStream = range
+      ? createReadStream(normalizedFilePath, { start: range.start, end: range.end })
+      : createReadStream(normalizedFilePath);
     const webStream = Readable.toWeb(fileStream) as ReadableStream;
 
+    if (range) {
+      return new Response(webStream, {
+        status: 206,
+        headers: {
+          ...headers,
+          'Content-Range': `bytes ${range.start}-${range.end}/${fileStats.size}`,
+          'Content-Length': String(range.end - range.start + 1),
+        },
+      });
+    }
     return new Response(webStream, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
-        'Content-Length': fileStats.size.toString(),
-      },
+      headers: { ...headers, 'Content-Length': fileStats.size.toString() },
     });
   } catch (error) {
     console.error('Error downloading private file:', error);

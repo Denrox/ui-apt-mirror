@@ -77,6 +77,16 @@ detect_architecture() {
     esac
 }
 
+# Version 3 can't upgrade or run a 2.x install (one without the file setup.sh writes
+# since 3.0); stop before anything is changed. README.md explains how to move to 3.
+refuse_2x_install() {
+    [ -f .ui-apt-mirror-version ] && return 0
+    [ -f .env ] || [ -f docker-compose.yml ] || [ -s data/auth/.htpasswd ] || return 0
+    print_error "This directory holds a ui-apt-mirror 2.x install, which version 3 can't start."
+    print_error "Nothing was changed. See \"Moving from 2.x\" in README.md."
+    exit 1
+}
+
 # Function to validate dist directory
 validate_dist() {
     local arch=$1
@@ -163,6 +173,8 @@ main() {
     done
     
     print_status "Starting ui-apt-mirror..."
+
+    refuse_2x_install
 
     # Verify required commands are installed
     require_cmd docker gunzip

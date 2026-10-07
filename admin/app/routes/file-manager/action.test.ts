@@ -31,13 +31,14 @@ vi.mock('~/utils/auth-middleware', () => ({ requireAuthMiddleware: async () => (
 vi.mock('~/utils/sync', () => ({ checkLockFile: async () => false }));
 
 // skopeo stand-in: writes an archive to the docker-archive: path, or fails.
-const skopeo = vi.hoisted(() => ({ fail: false }));
+const skopeo = vi.hoisted(() => ({ fail: false, calls: [] as string[][] }));
 vi.mock('child_process', async (importOriginal) => {
   const original = await importOriginal<typeof import('child_process')>();
   const fs = await import('fs');
   return {
     ...original,
     execFile: (_cmd: string, args: string[], callback: (error: Error | null, out?: unknown) => void) => {
+      skopeo.calls.push(args);
       if (skopeo.fail) return callback(new Error('Failed to retrieve image manifest'));
       const target = args[args.length - 1].replace(/^docker-archive:/, '');
       fs.writeFileSync(target, 'image');
@@ -48,6 +49,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 const { action } = await import('./action');
 const { loader } = await import('./loader');
+const { MAX_FORM_BYTES } = await import('~/utils/limited-form-data');
 
 async function post(fields: Record<string, string | Blob>) {
   const body = new FormData();
@@ -167,6 +169,63 @@ describe('uploads', () => {
   });
 });
 
+describe('request body size (r3-files-3)', () => {
+  it('stores a plain upload', async () => {
+    const res = await post({ intent: 'uploadFile', filePath: dirs.files, file: new File(['hello'], 'plain.txt') });
+    expect(res).toEqual({ success: true, message: 'File uploaded successfully' });
+    expect(fs.readFileSync(path.join(dirs.files, 'plain.txt'), 'utf-8')).toBe('hello');
+  });
+
+  it('refuses a plain upload or a chunk larger than the limit without storing it', async () => {
+    const big = new Uint8Array(MAX_FORM_BYTES + 1);
+    const plain = await post({ intent: 'uploadFile', filePath: dirs.files, file: new File([big], 'big.bin') });
+    expect(plain.success).toBe(false);
+    expect(plain.error).toMatch(/too large/);
+    const chunk = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([big]),
+      chunkIndex: '0',
+      totalChunks: '2',
+      fileName: 'big.bin',
+      fileId: 'big1',
+    });
+    expect(chunk.success).toBe(false);
+    expect(chunk.error).toMatch(/too large/);
+    expect(fs.readdirSync(dirs.files).filter((n) => !n.startsWith('link-') && n !== 'dangling')).toEqual([]);
+  });
+
+  it('accepts a full 10 MB chunk', async () => {
+    const res = await post({
+      intent: 'uploadChunk',
+      filePath: dirs.files,
+      chunk: new Blob([new Uint8Array(10240 * 1024)]),
+      chunkIndex: '0',
+      totalChunks: '1',
+      fileName: 'ten.bin',
+      fileId: 'ten1',
+    });
+    expect(res.success).toBe(true);
+    expect(fs.statSync(path.join(dirs.files, 'ten.bin')).size).toBe(10240 * 1024);
+  });
+});
+
+describe('folder paths (r3-files-5)', () => {
+  it('redirects another spelling of a folder to its canonical path', async () => {
+    fs.mkdirSync(path.join(dirs.files, 'base'));
+    for (const spelling of [`${dirs.files}/base/`, `${dirs.files}//base`, `${dirs.files}/./base`]) {
+      const thrown = await loader({
+        request: new Request(`http://admin.mirror.intra/file-manager?path=${encodeURIComponent(spelling)}&page=2`),
+      }).catch((e: unknown) => e);
+      expect(thrown).toBeInstanceOf(Response);
+      const location = new URL((thrown as Response).headers.get('Location')!, 'http://admin.mirror.intra');
+      expect(location.pathname).toBe('/file-manager');
+      expect(location.searchParams.get('path')).toBe(`${dirs.files}/base`);
+      expect(location.searchParams.get('page')).toBe('2');
+    }
+  });
+});
+
 describe('URL download (r2-files-4)', () => {
   it('cancelling ends the pending request and leaves nothing behind', async () => {
     const http = await import('http');
@@ -225,6 +284,25 @@ describe('container image download (r2-files-6)', () => {
     expect((await pull()).success).toBe(false);
     expect(fs.readdirSync(dirs.files).filter((n) => n.startsWith('.') || n.endsWith('.tar'))).toEqual([]);
   });
+
+  it('pulls from the registry named in the image (r3-files-10)', async () => {
+    skopeo.fail = false;
+    skopeo.calls.length = 0;
+    const res = await post({
+      intent: 'downloadImage',
+      imageUrl: 'quay.io/prometheus/busybox',
+      imageTag: 'latest',
+      currentPath: dirs.files,
+    });
+    expect(res.success).toBe(true);
+    expect(skopeo.calls[0]).toContain('docker://quay.io/prometheus/busybox:latest');
+  });
+
+  it('refuses a tag in the image name with a clear message (r3-files-10)', async () => {
+    const res = await post({ intent: 'downloadImage', imageUrl: 'busybox:1.36', imageTag: 'latest', currentPath: dirs.files });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/Tag field/);
+  });
 });
 
 describe('managed storage and the public host (r2-files-17)', () => {
@@ -264,6 +342,21 @@ describe('managed storage and the public host (r2-files-17)', () => {
     expect(res.error).toMatch(/managed by the mirror/);
     expect(fs.existsSync(key)).toBe(true);
     expect((await post({ intent: 'moveFile', sourcePath: path.join(dirs.npm, 'public'), destinationPath: dirs.files })).success).toBe(false);
-    expect((await post({ intent: 'deleteFile', filePath: key })).success).toBe(true);
+    expect((await post({ intent: 'deleteFile', filePath: path.join(dirs.mirror, 'mirror', 'dists') })).success).toBe(true);
+    expect((await post({ intent: 'deleteFile', filePath: path.join(dirs.npm, 'public') })).success).toBe(true);
+  });
+
+  it('the signing keys and the mirror folders themselves cannot be deleted (r3-files-4)', async () => {
+    fs.writeFileSync(path.join(dirs.mirror, 'gpg', 'keys.json'), '{}');
+    for (const name of ['gpg', 'gpg/keys.json', 'gpg/gnupg', 'mirror', 'mirror/', 'mirror/.']) {
+      const res = await post({ intent: 'deleteFile', filePath: path.join(dirs.mirror, name) });
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/signing keys/);
+    }
+    const rename = await post({ intent: 'renameFile', filePath: path.join(dirs.mirror, 'gpg'), newName: 'gpg-old' });
+    expect(rename.success).toBe(false);
+    expect(fs.existsSync(path.join(dirs.mirror, 'gpg', 'gnupg', 'private-keys-v1.d', 'KEY.key'))).toBe(true);
+    expect(fs.existsSync(path.join(dirs.mirror, 'gpg', 'keys.json'))).toBe(true);
+    expect(fs.existsSync(path.join(dirs.mirror, 'mirror', 'dists'))).toBe(true);
   });
 });

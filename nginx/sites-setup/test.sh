@@ -1,6 +1,7 @@
 #!/bin/bash
-# Tests for render-sites.sh against the stock configs of every release tag.
-# Run from anywhere in a clone with all tags: nginx/sites-setup/test.sh
+# Tests for render-sites.sh: an upgrade from the previous release, simulated as
+# "the previous release shipped the current templates, then the templates changed".
+# Run from anywhere in a clone: nginx/sites-setup/test.sh
 set -uo pipefail
 
 dir=$(cd "$(dirname "$0")" && pwd)
@@ -15,6 +16,26 @@ ok() { passes=$((passes + 1)); }
 fail() { echo "FAIL: $*"; fails=$((fails + 1)); }
 check() { if eval "$2"; then ok; else fail "$1"; fi; }
 
+# shellcheck source=render-sites.sh
+. "$dir/render-sites.sh" --lib
+set +e
+
+# The previous release: today's templates, and the list update-released-sites.sh
+# writes for it. The next release changes every site but npm.
+PREV="$work/prev-templates"
+NEXT="$work/next-templates"
+LIST="$work/released-sites.sha256"
+cp -r "$repo/nginx/sites" "$PREV"
+cp -r "$repo/nginx/sites" "$NEXT"
+echo "# Stock nginx site configs of v0.0.0: <sha256> <site>." > "$LIST"
+for tpl in "$PREV"/*.conf; do
+    echo "$(site_hash mirror.intra < "$tpl") $(basename "$tpl")" >> "$LIST"
+done
+CHANGED="admin.mirror.intra.conf cheatsheets.mirror.intra.conf files.mirror.intra.conf mirror.intra.conf"
+for name in $CHANGED; do
+    sed -i '1i # Changed in the next release' "$NEXT/$name"
+done
+
 # A fresh install dir: $1 = case name. Sets HOST (data/conf/nginx) and SITES.
 new_case() {
     CASE="$work/$1"
@@ -23,56 +44,60 @@ new_case() {
     mkdir -p "$HOST"
 }
 
-# Runs render-sites.sh for the current case with templates from the work tree
+# Runs render-sites.sh for the current case: $1 = domain, $2 = templates (default: next release)
 render() {
-    NGINX_TEMPLATES="$repo/nginx/sites" NGINX_HOSTCONF="$HOST" NGINX_SITES="$SITES" \
+    NGINX_TEMPLATES="${2:-$NEXT}" NGINX_HOSTCONF="$HOST" NGINX_SITES="$SITES" RELEASED_SITES="$LIST" \
         MIRROR_DOMAIN="$1" bash "$dir/render-sites.sh" > "$CASE/log" 2>&1 \
         || fail "$CASE: render-sites.sh exited $?: $(cat "$CASE/log")"
 }
 
-# What the stock template renders to for domain $2
-stock() { sed "s/mirror\.intra/$2/g" "$repo/nginx/sites/$1"; }
+# What the next release's template renders to for domain $2
+stock() { sed "s/mirror\.intra/$2/g" "$NEXT/$1"; }
 
-# Old setup.sh copied the release's sites-available and ran sed s/mirror.intra/<domain>/ once
-legacy_from_tag() {
-    local tag=$1 domain=$2 file
-    mkdir -p "$HOST/sites-available"
-    for file in $(git ls-tree --name-only "$tag" data/conf/nginx/sites-available/ | grep '\.conf$'); do
-        git show "$tag:$file" | sed "s/mirror\.intra/$domain/g" > "$HOST/sites-available/$(basename "$file")"
-    done
+# An override copied from the previous release's container, after a start of that
+# release recorded its template. $1 = site, $2 = domain it was rendered for.
+prev_override() {
+    mkdir -p "$HOST/custom"
+    sed "s/mirror\.intra/$2/g" "$PREV/$1" > "$HOST/custom/$1"
+    sha256sum < "$PREV/$1" | cut -d' ' -f1 > "$HOST/custom/.$1.stock-sha256"
 }
 
 no_overrides() { [ -z "$(ls "$HOST/custom/"*.conf 2>/dev/null)" ]; }
 overrides() { (cd "$HOST/custom" && ls ./*.conf 2>/dev/null | sed 's|^\./||' | tr '\n' ' '); }
 stock_everywhere() {
     local tpl name
-    for tpl in "$repo"/nginx/sites/*.conf; do
+    for tpl in "$NEXT"/*.conf; do
         name=$(basename "$tpl")
         stock "$name" "$1" | cmp -s - "$SITES/$name" || return 1
     done
 }
 
-# 1. The list is current
-check "released-sites.sha256 is up to date" '"$dir/update-released-sites.sh" --check >/dev/null 2>&1'
+# 1. The committed list matches the release it names
+check "released-sites.sha256 matches its release" '"$dir/update-released-sites.sh" --check >/dev/null 2>&1'
 
-# 2. Unedited configs of every release before 2.4, for the default and a custom domain
-for tag in $(git tag --sort=creatordate); do
-    git cat-file -e "$tag:data/conf/nginx/sites-available" 2>/dev/null || continue
-    for domain in mirror.intra d.test; do
-        new_case "legacy-$tag-$domain"
-        legacy_from_tag "$tag" "$domain"
-        render "$domain"
-        check "$tag ($domain): unedited configs become overrides: $(overrides)" no_overrides
-        check "$tag ($domain): sites are not the current stock" "stock_everywhere $domain"
-        check "$tag ($domain): legacy dir not moved aside" '[ ! -d "$HOST/sites-available" ]'
+# 2. Unedited overrides of the previous release, for the default and a custom domain:
+#    removed where the stock changed; npm's is a copy of the current stock and stays
+for domain in mirror.intra d.test; do
+    new_case "unedited-$domain"
+    for tpl in "$PREV"/*.conf; do prev_override "$(basename "$tpl")" "$domain"; done
+    render "$domain"
+    for name in $CHANGED; do
+        check "$domain: unedited $name override removed" '[ ! -e "$HOST/custom/$name" ]'
+        check "$domain: $name records the current stock" \
+            '[ "$(cat "$HOST/custom/.$name.stock-sha256")" = "$(sha256sum < "$NEXT/$name" | cut -d" " -f1)" ]'
     done
+    check "$domain: unchanged npm override kept" '[ "$(overrides)" = "npm.mirror.intra.conf " ]'
+    check "$domain: sites are the current stock" "stock_everywhere $domain"
+    check "$domain: no stock copies" '[ -z "$(ls "$HOST/custom/"*.stock 2>/dev/null)" ]'
+    check "$domain: says why" 'grep -q "custom/files.mirror.intra.conf was the previous release" "$CASE/log"'
 done
 
-# 3. v2.3.1 with one hand edit (the round-2 repro): only that file is kept, and flagged
-new_case edited-v2.3.1
-legacy_from_tag v2.3.1 d.test
-sed -i 's|^    location /downloads/ {|    location /probe/ { return 200 "probe"; }\n&|' "$HOST/sites-available/files.mirror.intra.conf"
-cp "$HOST/sites-available/files.mirror.intra.conf" "$CASE/edited.conf"
+# 3. One hand-edited override among unedited ones: only that one is kept, and flagged
+new_case edited
+for name in $CHANGED; do prev_override "$name" d.test; done
+sed -i 's|^    location /downloads/ {|    location /probe/ { return 200 "probe"; }\n&|' "$HOST/custom/files.mirror.intra.conf"
+check "edited: the probe edit applied" 'grep -q /probe/ "$HOST/custom/files.mirror.intra.conf"'
+cp "$HOST/custom/files.mirror.intra.conf" "$CASE/edited.conf"
 render d.test
 check "edited: only files is an override (got: $(overrides))" '[ "$(overrides)" = "files.mirror.intra.conf " ]'
 check "edited: override is the user's file" 'cmp -s "$CASE/edited.conf" "$HOST/custom/files.mirror.intra.conf"'
@@ -81,57 +106,32 @@ check "edited: other sites are stock" 'stock admin.mirror.intra.conf d.test | cm
 check "edited: stock copy offered" 'stock files.mirror.intra.conf d.test | cmp -s - "$HOST/custom/files.mirror.intra.conf.stock"'
 check "edited: says the stock changed" 'grep -q "The stock files.mirror.intra.conf changed" "$CASE/log"'
 
-# 4. Domain changed after install: files were rendered for the first domain only
+# 4. Domain changed after the override was copied
 new_case domain-changed
-legacy_from_tag v2.2.0 old.test
+prev_override files.mirror.intra.conf old.test
 render new.test
-check "domain changed: unedited configs become overrides: $(overrides)" no_overrides
+check "domain changed: unedited override removed" no_overrides
 
 # 5. An editor that added CRLFs or stripped trailing spaces did not edit the config
 new_case whitespace
-legacy_from_tag v2.3.1 mirror.intra
-sed -i 's/$/\r/' "$HOST/sites-available/admin.mirror.intra.conf"
-sed -i 's/[[:space:]]*$//' "$HOST/sites-available/files.mirror.intra.conf"
+prev_override files.mirror.intra.conf mirror.intra
+prev_override admin.mirror.intra.conf mirror.intra
+sed -i 's/$/\r/' "$HOST/custom/admin.mirror.intra.conf"
+sed -i 's/[[:space:]]*$//' "$HOST/custom/files.mirror.intra.conf"
 render mirror.intra
-check "whitespace-only changes become overrides: $(overrides)" no_overrides
+check "whitespace-only changes: overrides removed (got: $(overrides))" no_overrides
 
-# 6. Overrides 2.4.x made of unedited configs are retired; edited ones stay
-new_case retire
-mkdir -p "$HOST/custom"
-for f in admin cheatsheets files npm; do
-    git show "v2.3.1:data/conf/nginx/sites-available/$f.mirror.intra.conf" > "$HOST/custom/$f.mirror.intra.conf"
-    echo deadbeef > "$HOST/custom/.$f.mirror.intra.conf.stock-sha256"
-    echo old > "$HOST/custom/$f.mirror.intra.conf.stock"
-done
-git show v2.3.1:data/conf/nginx/sites-available/mirror.intra.conf | sed 's/mirror\.intra/d.test/g' > "$HOST/custom/mirror.intra.conf"
-echo '# my edit' >> "$HOST/custom/files.mirror.intra.conf"
-render d.test
-check "retire: only the edited override stays (got: $(overrides))" '[ "$(overrides)" = "files.mirror.intra.conf " ]'
-check "retire: retired files kept aside" '[ "$(ls "$HOST"/custom.unedited-*/ | wc -l)" = 4 ]'
-check "retire: no stale stock copy" '[ ! -e "$HOST/custom/admin.mirror.intra.conf.stock" ]'
-check "retire: retired sites are stock" 'stock mirror.intra.conf d.test | cmp -s - "$SITES/mirror.intra.conf"'
-check "retire: edited override still flagged" '[ -f "$HOST/custom/files.mirror.intra.conf.stock" ]'
+# 6. In-place restart of the same release: unedited and edited overrides both stay
+new_case same-release
+prev_override files.mirror.intra.conf mirror.intra
+prev_override admin.mirror.intra.conf mirror.intra
+echo '# edit' >> "$HOST/custom/admin.mirror.intra.conf"
+render mirror.intra "$PREV"
+check "same release: both overrides kept (got: $(overrides))" \
+    '[ "$(overrides)" = "admin.mirror.intra.conf files.mirror.intra.conf " ]'
+check "same release: no warning" '! grep -q "⚠" "$CASE/log"'
 
-# 7. Overrides that are the 2.4.x stock rendered for the domain: retired unless still current
-for tag in $(git tag --sort=creatordate); do
-    git cat-file -e "$tag:nginx/sites" 2>/dev/null || continue
-    new_case "custom-$tag"
-    mkdir -p "$HOST/custom"
-    for file in $(git ls-tree --name-only "$tag" nginx/sites/ | grep '\.conf$'); do
-        name=$(basename "$file")
-        git show "$tag:$file" | sed 's/mirror\.intra/c.test/g' > "$HOST/custom/$name"
-        if ! git show "$tag:$file" | cmp -s - "$repo/nginx/sites/$name"; then
-            echo "$name" >> "$CASE/expect-retired"
-        fi
-    done
-    render c.test
-    while read -r name; do
-        check "$tag: unedited $name override retired" '[ ! -e "$HOST/custom/$name" ]'
-    done < <(cat "$CASE/expect-retired" 2>/dev/null)
-    check "$tag: sites are the current stock" "stock_everywhere c.test"
-done
-
-# 8. Copying the current stock to custom/ (as the README says) keeps it, with no warning
+# 7. Copying the current stock to custom/ (as the README says) keeps it, with no warning
 new_case new-override
 render e.test
 check "first start records each site's stock" '[ -s "$HOST/custom/.files.mirror.intra.conf.stock-sha256" ]'
@@ -143,7 +143,7 @@ render e.test
 check "new override: no stock copy" '[ ! -e "$HOST/custom/files.mirror.intra.conf.stock" ]'
 check "new override: no warning" '! grep -q "⚠" "$CASE/log"'
 
-# 9. Override with no record (made before records existed): no claim that the stock changed
+# 8. Override with no record (written before the first start): no claim that the stock changed
 new_case unknown-base
 mkdir -p "$HOST/custom"
 { stock files.mirror.intra.conf mirror.intra; echo '# edit'; } > "$HOST/custom/files.mirror.intra.conf"
@@ -152,7 +152,7 @@ check "unknown base: says it is unknown" 'grep -q "not known which version" "$CA
 check "unknown base: does not say the stock changed" '! grep -q "changed since" "$CASE/log"'
 check "unknown base: stock copy offered" '[ -f "$HOST/custom/files.mirror.intra.conf.stock" ]'
 
-# 10. Override recorded against an older template: stock changed
+# 9. Override recorded against an older template: stock changed
 new_case changed-base
 mkdir -p "$HOST/custom"
 { stock files.mirror.intra.conf mirror.intra; echo '# edit'; } > "$HOST/custom/files.mirror.intra.conf"

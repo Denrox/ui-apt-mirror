@@ -19,6 +19,8 @@ DIST_DIR="dist"
 ENV_FILE=".env"
 COMPOSE_HAND_EDITED=""
 COMPOSE_HASH_FILE=".docker-compose.yml.sha256"
+# Written by setup.sh since 3.0; an install without it is a 2.x one (see refuse_2x_install)
+VERSION_FILE=".ui-apt-mirror-version"
 
 # Function to print colored output
 print_status() {
@@ -157,21 +159,43 @@ validate_dist() {
     print_success "Found image file: $tar_file"
 }
 
+# Stops before anything is changed if this directory holds a 2.x install: 3.0 can't
+# upgrade those. Every 2.x setup.sh wrote .env or docker-compose.yml; .htpasswd covers
+# an install whose settings files were deleted.
+refuse_2x_install() {
+    local mode=$1
+    [ -f "$VERSION_FILE" ] && return 0
+    [ -f "$ENV_FILE" ] || [ -f docker-compose.yml ] || [ -s data/auth/.htpasswd ] || return 0
+
+    print_error "This directory holds a ui-apt-mirror 2.x install. Version 3 can't upgrade it;"
+    print_error "your settings and data were not changed, and its container keeps running."
+    if [ "$mode" = "upgrade" ]; then
+        echo "The 2.x upgrade.sh already replaced the scripts, README.md and the image in dist/ with"
+        echo "version 3's. Delete ./tmp (the downloaded release)."
+    fi
+    cat <<'MSG'
+
+To move to version 3, install it fresh (also in README.md, "Moving from 2.x"):
+  1. Back up your settings, users, signing keys and files:
+       tar -czf ../ui-apt-mirror-2.x-backup.tar.gz .env docker-compose*.yml data/conf data/auth \
+           data/data/apt-mirror/gpg data/data/files data/data/files-private
+  2. Install version 3 in a new directory. It stops and replaces the 2.x container,
+     which has the same name and ports:
+       curl -fsSLO https://ui-apt-mirror.dbashkatov.com/downloads/install.sh && bash install.sh
+  3. Copy over what you want to keep with cp -a, then run docker restart ui-apt-mirror:
+       data/data/files, data/data/files-private    public and private files
+       data/data/apt-mirror                         mirrored packages and signing keys
+       data/conf/apt-mirror/mirror.list             repositories
+     Set up users, npm packages and cheatsheet sources again in the admin panel.
+MSG
+    exit 1
+}
+
 # Settings live in .env (read by docker compose); upgrades never touch it.
 
 # Read KEY from a KEY=VALUE file without sourcing it
 env_get() {
     grep -E "^$1=" "$2" 2>/dev/null | tail -n 1 | cut -d= -f2-
-}
-
-# Read "- KEY=value" from a pre-.env docker-compose.yml
-compose_get() {
-    local value
-    value=$(grep -E "^[[:space:]]*-[[:space:]]*$1=" "$2" 2>/dev/null | head -n 1 | sed -E "s/^[[:space:]]*-[[:space:]]*$1=//")
-    case "$value" in
-        *'${'*) echo "" ;;
-        *) echo "$value" ;;
-    esac
 }
 
 # Function to load the current settings, if any
@@ -189,12 +213,6 @@ load_existing_config() {
         CUR_SYNC=$(env_get SYNC_FREQUENCY "$ENV_FILE")
         CUR_TZ=$(env_get TZ "$ENV_FILE")
         CUR_NPM=$(env_get NPM_PROXY_ENABLED "$ENV_FILE")
-    elif [ -f "docker-compose.yml" ]; then
-        CONFIG_SOURCE="docker-compose.yml"
-        CUR_DOMAIN=$(compose_get MIRROR_DOMAIN docker-compose.yml)
-        CUR_SYNC=$(compose_get SYNC_FREQUENCY docker-compose.yml)
-        CUR_TZ=$(compose_get TZ docker-compose.yml)
-        CUR_NPM=$(compose_get NPM_PROXY_ENABLED docker-compose.yml)
     fi
 
     if [ -n "$CONFIG_SOURCE" ] || [ -s data/auth/.htpasswd ]; then
@@ -208,7 +226,7 @@ use_current_config() {
     MIRROR_DOMAIN="${CUR_DOMAIN:-mirror.intra}"
     SYNC_FREQUENCY="${CUR_SYNC:-14400}"
     HOST_TIMEZONE="${CUR_TZ:-$host_timezone}"
-    # Unset means enabled: before NPM_PROXY_ENABLED existed the proxy was always on.
+    # Fresh installs offer the proxy enabled
     if [ "$CUR_NPM" = "false" ]; then ENABLE_NPM_PROXY="n"; else ENABLE_NPM_PROXY="y"; fi
 }
 
@@ -413,69 +431,9 @@ generate_htpasswd() {
     print_success "htpasswd file generated successfully."
 }
 
-
-# Same backup as upgrade.sh; old upgrade.sh versions have none
-backup_config() {
-    local items=()
-    local item
-    # The GPG keys can't be replaced (apt clients pin them with Signed-By)
-    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth \
-        data/data/apt-mirror/gpg data/data/cheatsheets/sources.json; do
-        [ -e "$item" ] && items+=("$item")
-    done
-    if [ ${#items[@]} -eq 0 ]; then
-        return
-    fi
-
-    mkdir -p backups
-    local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
-    print_status "Backing up configuration to $backup..."
-    local skipped
-    if skipped=$(umask 077; tar -czf "$backup" --ignore-failed-read --exclude="data/data/apt-mirror/gpg/gnupg/S.*" "${items[@]}" 2>&1 >/dev/null); then
-        chmod 600 "$backup"
-        if [ -n "$skipped" ]; then
-            print_warning "Some files could not be read and are not in the backup:"
-            echo "$skipped" | sed 's/^/  /'
-        fi
-        print_success "Backup saved: $backup"
-    else
-        [ -n "$skipped" ] && echo "$skipped"
-        print_error "Backup failed; aborting before anything is changed."
-        exit 1
-    fi
-}
-
-# Fingerprints of every released docker-compose.src.yml with values blanked;
-# a pre-.env docker-compose.yml matching one was never edited by hand.
-LEGACY_COMPOSE_FINGERPRINTS="24a1f8ce60550fc1 1a5fddfd8e7c4736 bdd1748a8142e672 67213f824f6d9873 2cabb2f42d493772 830e2a450d30f66d c5ed624d685be465 7fcfd9624207e48d 6d21328162dc297d 8f8e4cf1bb2e2fbb 8311e9dc94b89163"
-
-compose_fingerprint() {
-    sed -E 's/^([[:space:]]*-[[:space:]]*)([A-Z_]+)=.*/\1\2=/' "$1" \
-        | sed -E 's/[[:space:]]+$//' | sha256sum | cut -c1-16
-}
-
 install_docker_compose() {
-    if [ "$CONFIG_SOURCE" = "docker-compose.yml" ]; then
-        mkdir -p backups
-        local backup="backups/docker-compose.yml.before-env-$(date +%Y%m%d%H%M%S)"
-        cp docker-compose.yml "$backup"
-        local fingerprint
-        fingerprint=$(compose_fingerprint docker-compose.yml)
-        case " $LEGACY_COMPOSE_FINGERPRINTS " in
-            *" $fingerprint "*)
-                print_status "docker-compose.yml settings moved to $ENV_FILE (previous file: $backup)."
-                ;;
-            *)
-                COMPOSE_HAND_EDITED="$backup"
-                print_warning "Your docker-compose.yml had hand edits (ports, volumes...)."
-                print_warning "It is saved as $backup."
-                print_warning "Move those edits to docker-compose.override.yml; upgrades never touch that file."
-                ;;
-        esac
-    fi
-
     # Differs from the file we installed last time: hand edits
-    if [ "$CONFIG_SOURCE" = "$ENV_FILE" ] && [ -f docker-compose.yml ]; then
+    if [ -f docker-compose.yml ]; then
         local recorded current
         recorded=$(cat "$COMPOSE_HASH_FILE" 2>/dev/null || true)
         current=$(sha256sum docker-compose.yml | cut -d' ' -f1)
@@ -493,27 +451,6 @@ install_docker_compose() {
     cp docker-compose.src.yml docker-compose.yml
     sha256sum docker-compose.yml | cut -d' ' -f1 > "$COMPOSE_HASH_FILE"
     print_success "docker-compose.yml installed."
-}
-
-# Older versions had no volume for private files; copy them out before the container goes
-preserve_private_files() {
-    if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
-        return
-    fi
-    if docker inspect -f '{{range .Mounts}}{{println .Destination}}{{end}}' "$CONTAINER_NAME" \
-        | grep -qx "/var/www/files-private"; then
-        return
-    fi
-
-    print_status "Copying private files out of the existing container..."
-    mkdir -p data/data/files-private
-    if docker cp "$CONTAINER_NAME:/var/www/files-private/." data/data/files-private/ >/dev/null 2>&1; then
-        local count
-        count=$(find data/data/files-private -type f | wc -l)
-        print_success "Private files saved to data/data/files-private ($count files)."
-    else
-        print_status "No private files found in the existing container."
-    fi
 }
 
 # Function to clean up previous installation
@@ -552,19 +489,6 @@ create_data_dirs() {
     print_success "Data directories created."
 }
 
-
-# Older mirror.list files ran a postmirror script that was never shipped (an error on every
-# sync) and so never ran clean.sh; let apt-mirror2 delete unneeded packages itself.
-migrate_mirror_config() {
-    local list=data/conf/apt-mirror/mirror.list
-    grep -qE '^set[[:space:]]+run_postmirror[[:space:]]+1[[:space:]]*$' "$list" || return 0
-    [ -e data/data/apt-mirror/var/postmirror.sh ] && return 0
-    sed -i -E 's/^set([[:space:]]+)run_postmirror([[:space:]]+)1[[:space:]]*$/set\1run_postmirror\20/' "$list"
-    if ! grep -qE '^set[[:space:]]+_autoclean[[:space:]]' "$list"; then
-        sed -i -E '/^set[[:space:]]+run_postmirror[[:space:]]/a set _autoclean 1' "$list"
-    fi
-    print_status "mirror.list: turned off the missing postmirror script; old packages are now deleted after each sync."
-}
 
 # Function to generate apt-mirror2 configuration
 generate_mirror_config() {
@@ -741,7 +665,7 @@ show_status() {
         print_warning "docker-compose.override.yml, then run ./start.sh."
     fi
 
-    # The container migrates old nginx configs and writes the .stock copies while
+    # The container drops unedited overrides and writes the .stock copies while
     # starting; list the overrides once it is done
     local i
     for i in $(seq 1 60); do
@@ -772,34 +696,6 @@ show_status() {
     print_status "Logs:"
     echo "  docker logs $CONTAINER_NAME"
     echo "  docker compose -f docker-compose.yml logs"
-}
-
-# Things an upgrade from an old release leaves for the admin to do
-print_upgrade_notes() {
-    local mode=$1
-    local cheatsheets=data/data/cheatsheets
-    if [ -n "$(find "$cheatsheets" -maxdepth 1 -type f -name '*.md' -print -quit 2>/dev/null)" ]; then
-        echo ""
-        if ! grep -q '"url"' "$cheatsheets/sources.json" 2>/dev/null; then
-            print_warning "Cheatsheets are no longer bundled. To get the tldr pages back, open Cheatsheets in the"
-            print_warning "admin panel and add https://github.com/tldr-pages/tldr/tree/main/pages as a source."
-        fi
-        print_status "The previously bundled cheatsheets in $cheatsheets/*.md are no longer used. Remove them with:"
-        echo "  find $cheatsheets -maxdepth 1 -type f -name '*.md' -delete"
-    fi
-
-    # Releases before 2.4 run ./setup.sh without --upgrade and then print their own closing lines
-    if [ "$mode" = "default" ] && ps -o args= -p "$PPID" 2>/dev/null | grep -qE '(^|[ /])upgrade\.sh( |$)'; then
-        local domain
-        domain=$(env_get MIRROR_DOMAIN "$ENV_FILE")
-        echo ""
-        print_warning "The previous release's upgrade.sh prints a closing message next; parts of it are outdated:"
-        echo "  - docker-compose.yml is replaced on every upgrade. Keep your changes in"
-        echo "    docker-compose.override.yml instead of re-applying them to docker-compose.yml."
-        if [ -n "$domain" ] && [ "$domain" != "mirror.intra" ]; then
-            echo "  - The addresses are the ones listed above (http://$domain), not mirror.intra."
-        fi
-    fi
 }
 
 # Function to show usage
@@ -872,6 +768,9 @@ main() {
         esac
     done
 
+    refuse_2x_install "$mode"
+    echo 3 > "$VERSION_FILE"
+
     print_status "Starting ui-apt-mirror deployment..."
 
     # Verify required commands are installed
@@ -888,7 +787,6 @@ main() {
     load_existing_config
     if [ "$INSTALL_EXISTS" = true ]; then
         print_status "Existing installation detected; your configuration will be kept."
-        [ -f "$ENV_FILE" ] || backup_config
     fi
 
     resolve_user_config "$mode"
@@ -906,7 +804,6 @@ main() {
         generate_mirror_config "$MIRROR_DOMAIN"
     else
         print_status "Keeping data/conf/apt-mirror/mirror.list (managed in the admin panel)."
-        migrate_mirror_config
     fi
 
     write_env_file
@@ -916,8 +813,6 @@ main() {
         print_success "Configuration completed. Run ./start.sh to start the container."
         exit 0
     fi
-
-    preserve_private_files
 
     # Clean up previous installation
     if [ "$no_cleanup" = false ]; then
@@ -933,7 +828,6 @@ main() {
     show_status
 
     print_success "Deployment completed successfully!"
-    print_upgrade_notes "$mode"
 }
 
 # Run main function with all arguments

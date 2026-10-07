@@ -46,10 +46,6 @@ fi
 if [ ! -L /var/www/mirror.intra/mirror ]; then
     ln -sfn /var/spool/apt-mirror/mirror /var/www/mirror.intra/mirror
 fi
-# Older syncs re-ran that ln without -n and left a mirror/mirror link to itself
-if [ "$(readlink /var/spool/apt-mirror/mirror/mirror 2>/dev/null)" = /var/spool/apt-mirror/mirror ]; then
-    rm -f /var/spool/apt-mirror/mirror/mirror
-fi
 
 # Render nginx sites from the image's templates; data/conf/nginx/custom/<name> overrides one.
 bash /etc/nginx/sites-setup/render-sites.sh

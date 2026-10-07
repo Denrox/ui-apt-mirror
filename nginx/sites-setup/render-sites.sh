@@ -27,20 +27,19 @@ SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 NGINX_TEMPLATES=${NGINX_TEMPLATES:-/etc/nginx/templates}
 NGINX_HOSTCONF=${NGINX_HOSTCONF:-/etc/nginx/hostconf}
 NGINX_SITES=${NGINX_SITES:-/etc/nginx/sites-available}
-# Every site config shipped in a release tag; regenerate with update-released-sites.sh
+# The stock site configs of the previous release; replaced by update-released-sites.sh
 RELEASED_SITES=${RELEASED_SITES:-$SELF_DIR/released-sites.sha256}
 NGINX_CUSTOM="$NGINX_HOSTCONF/custom"
 MIRROR_DOMAIN="${MIRROR_DOMAIN:-mirror.intra}"
 ESCAPED_DOMAIN=$(printf '%s' "$MIRROR_DOMAIN" | sed 's/[&/\]/\\&/g')
-STAMP=$(date +%Y%m%d%H%M%S)
 
 render_site() {
     sed "s/mirror\.intra/${ESCAPED_DOMAIN}/g" "$1"
 }
 
 # The domain a stock config on disk was rendered for, from its first server_name
-# (files.<domain> in files.mirror.intra.conf). Old setup.sh versions rendered the
-# domain into the file and never again, so it can differ from MIRROR_DOMAIN.
+# (files.<domain> in files.mirror.intra.conf): the domain may have changed since
+# the config was copied to custom/.
 site_domain() {
     local file=$1 name=$2 prefix server
     prefix=${name%mirror.intra.conf}
@@ -61,12 +60,12 @@ file_hashes() {
     done
 }
 
-# Is the file an unedited <name> config from a release?
+# Is the file the unedited <name> config of the previous release?
 released_stock() {
     local file=$1 name=$2 hash
     [ -f "$RELEASED_SITES" ] || return 1
     for hash in $(file_hashes "$file" "$name"); do
-        grep -qF "$hash $name " "$RELEASED_SITES" && return 0
+        grep -qxF "$hash $name" "$RELEASED_SITES" && return 0
     done
     return 1
 }
@@ -83,42 +82,17 @@ current_stock() {
 }
 
 mkdir -p "$NGINX_CUSTOM"
-[ -f "$RELEASED_SITES" ] || echo "⚠️  $RELEASED_SITES is missing; stock configs of older releases are not recognised."
 
-# One-time migration from releases before 2.4: edited site configs become custom
-# overrides; unedited ones (the stock config of any release) are replaced.
-LEGACY_SITES="$NGINX_HOSTCONF/sites-available"
-if [ -d "$LEGACY_SITES" ]; then
-    for legacy in "$LEGACY_SITES"/*.conf; do
-        [ -f "$legacy" ] || continue
-        name=$(basename "$legacy")
-        if released_stock "$legacy" "$name" || current_stock "$legacy" "$name"; then
-            echo "   $name: unedited stock config of an earlier release; using the current one"
-            continue
-        fi
-        if [ ! -e "$NGINX_CUSTOM/$name" ]; then
-            cp "$legacy" "$NGINX_CUSTOM/$name"
-            # Written against an older stock config; check_override offers the current one
-            echo legacy > "$NGINX_CUSTOM/.$name.stock-sha256"
-            echo "⚠️  Kept your modified nginx config as custom/$name (delete it to use the stock one)"
-        fi
-    done
-    mv "$LEGACY_SITES" "$NGINX_HOSTCONF/sites-available.migrated-$STAMP"
-fi
-
-# 2.4.x turned unedited configs into overrides too (any custom domain, or a stock
-# config that changed since); they would keep an old release's config forever.
-RETIRED="$NGINX_HOSTCONF/custom.unedited-$STAMP"
+# An override that is the previous release's stock config, unedited (copied from
+# the container, or rendered for another domain), would keep that release's config
+# forever: drop it so the current stock config is used.
 for custom in "$NGINX_CUSTOM"/*.conf; do
     [ -f "$custom" ] || continue
     name=$(basename "$custom")
     [ -f "$NGINX_TEMPLATES/$name" ] || continue
     if released_stock "$custom" "$name" && ! current_stock "$custom" "$name"; then
-        mkdir -p "$RETIRED"
-        mv "$custom" "$RETIRED/$name"
-        rm -f "$NGINX_CUSTOM/$name.stock" "$NGINX_CUSTOM/.$name.stock-sha256"
-        echo "⚠️  custom/$name was an unedited stock config of an earlier release; using the current one"
-        echo "   (moved to $(basename "$RETIRED")/$name)"
+        rm -f "$custom" "$NGINX_CUSTOM/$name.stock" "$NGINX_CUSTOM/.$name.stock-sha256"
+        echo "⚠️  custom/$name was the previous release's stock config, unedited; removed it to use the current one"
     fi
 done
 
@@ -161,5 +135,4 @@ for tpl in "$NGINX_TEMPLATES"/*.conf; do
     fi
 done
 
-find "$NGINX_CUSTOM" "$NGINX_HOSTCONF"/custom.unedited-* -user 0 \
-    -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true
+find "$NGINX_CUSTOM" -user 0 -exec chown --reference="$NGINX_HOSTCONF" {} + 2>/dev/null || true

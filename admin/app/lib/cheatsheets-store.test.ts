@@ -89,16 +89,6 @@ describe('addSource', () => {
     const stored = JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8')).sources;
     expect(stored.find((s: { url: string }) => s.url.endsWith('/long')).name).toBe(long.name);
   });
-
-  it('cleans names stored before names were cleaned', async () => {
-    fs.writeFileSync(
-      path.join(dir, 'sources.json'),
-      JSON.stringify({ sources: [{ ...source('a'), name: `Old\nname ${'y'.repeat(500)}` }] }),
-    );
-    const [s] = await listSources();
-    expect(s.name).toHaveLength(100);
-    expect(s.name.startsWith('Old name y')).toBe(true);
-  });
 });
 
 describe('giveTreeToOwner', () => {
@@ -139,21 +129,16 @@ describe('cleanLeftovers', () => {
 });
 
 describe('loadIndex', () => {
-  it('adds headings from the stored pages to an index written before they were indexed', async () => {
+  it('reads an index once while it is unchanged', async () => {
     const src = path.join(dir, 'sources', 'a');
-    fs.mkdirSync(path.join(src, 'files'), { recursive: true });
-    fs.writeFileSync(path.join(src, 'files', 'ch4.md'), '# Chapter 4\n\n## Tourniquets\n\nText.\n');
+    fs.mkdirSync(src, { recursive: true });
     fs.writeFileSync(
       path.join(src, 'index.json'),
-      JSON.stringify([
-        { path: 'ch4.md', title: 'Chapter 4', categories: ['General'], text: 'Text.' },
-        { path: 'gone.md', title: 'Gone', categories: ['General'], text: '' },
-        { path: 'new.md', title: 'New', categories: ['General'], text: '', headings: 'Kept' },
-      ]),
+      JSON.stringify([{ path: 'ch4.md', title: 'Chapter 4', categories: ['General'], text: 'Text.', headings: 'Tourniquets' }]),
     );
     const [first, second] = await Promise.all([loadIndex('a'), loadIndex('a')]);
     expect(first).toBe(second);
-    expect(first.map((e) => e.headings)).toEqual(['Tourniquets', '', 'Kept']);
+    expect(first.map((e) => e.headings)).toEqual(['Tourniquets']);
   });
 });
 

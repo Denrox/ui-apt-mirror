@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encodePathSegments, fileUrl, relativeTo, viewOfPath } from './file-links';
+import { canDelete, encodePathSegments, fileUrl, relativeTo, viewOfPath } from './file-links';
 
 const dirs = {
   filesDir: '/var/www/files',
@@ -65,5 +65,16 @@ describe('fileUrl (r2-files-9, r2-files-10)', () => {
     expect(fileUrl('/var/spool/apt-mirror/gpg/keys.json', dirs, hosts)).toBeNull();
     expect(fileUrl('/var/www/npm/public/accepts', dirs, hosts)).toBeNull();
     expect(fileUrl('/etc/passwd', dirs, hosts)).toBeNull();
+  });
+});
+
+describe('canDelete (r3-files-4)', () => {
+  it('offers deletion in the mirror dir only inside the published tree', () => {
+    for (const p of ['/var/spool/apt-mirror/gpg', '/var/spool/apt-mirror/gpg/keys.json', '/var/spool/apt-mirror/mirror', '/var/spool/apt-mirror/skel', '/var/spool/apt-mirror/var']) {
+      expect(canDelete(p, dirs)).toBe(false);
+    }
+    expect(canDelete('/var/spool/apt-mirror/mirror/deb.debian.org', dirs)).toBe(true);
+    expect(canDelete('/var/www/files/a', dirs)).toBe(true);
+    expect(canDelete('/var/www/npm/public', dirs)).toBe(true);
   });
 });

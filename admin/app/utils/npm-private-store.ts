@@ -6,21 +6,13 @@ import { isValidName, type PackageDoc } from '~/utils/npm-registry';
 /**
  * Private packages live in `<root>/_packages/<name>/`: the packument in `package.json` and the
  * tarballs under `-/`. Every package has a directory of its own, so no name can collide with the
- * files of another (`left-pad.json` used to land on `left-pad`'s document). Package names never
- * start with `_`, so the tree cannot clash with the old layout it replaces.
+ * files of another.
  */
 export const PACKAGES_SUBDIR = '_packages';
 const DOC_FILE = 'package.json';
 const TARBALL_DIR = '-';
 
 const errorCode = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
-
-async function exists(p: string): Promise<boolean> {
-  return fs.lstat(p).then(
-    () => true,
-    () => false,
-  );
-}
 
 export class PrivatePackageStore {
   readonly packagesDir: string;
@@ -49,13 +41,16 @@ export class PrivatePackageStore {
     return target;
   }
 
-  /** Creates the store and moves packages of the old layout into it, once per process. */
+  /** Creates the store, once per process. */
   ready(): Promise<void> {
-    this.layout ??= this.migrateLegacyLayout().catch((error) => {
-      // Try again on the next request; until then nothing is served that could miss a private name.
-      this.layout = null;
-      throw error;
-    });
+    this.layout ??= fs.mkdir(this.packagesDir, { recursive: true }).then(
+      () => {},
+      (error) => {
+        // Try again on the next request.
+        this.layout = null;
+        throw error;
+      },
+    );
     return this.layout;
   }
 
@@ -108,56 +103,5 @@ export class PrivatePackageStore {
     if (name.startsWith('@')) {
       await fs.rmdir(path.dirname(this.packageDir(name))).catch(() => {});
     }
-  }
-
-  /**
-   * The old layout kept `<root>/<name>.json` next to `<root>/<name>/-/<tarball>`. Each document
-   * found there is moved with its tarballs; tarballs go first, so an interrupted run resumes cleanly.
-   */
-  private async migrateLegacyLayout(): Promise<void> {
-    await fs.mkdir(this.packagesDir, { recursive: true });
-
-    const legacy: { name: string; dir: string; base: string }[] = [];
-    const collect = async (dir: string, scope?: string) => {
-      for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-        if (!scope && entry.isDirectory() && entry.name.startsWith('@')) {
-          await collect(path.join(dir, entry.name), entry.name);
-        } else if (entry.isFile() && entry.name.endsWith('.json')) {
-          const base = entry.name.slice(0, -'.json'.length);
-          const name = scope ? `${scope}/${base}` : base;
-          if (isValidName(name)) legacy.push({ name, dir, base });
-        }
-      }
-    };
-    await collect(this.root);
-
-    const failed: string[] = [];
-    for (const { name, dir, base } of legacy) {
-      try {
-        const target = this.packageDir(name);
-        if (await exists(path.join(target, DOC_FILE))) {
-          console.warn(`npm: ${name} exists in both package layouts; keeping ${path.join(dir, `${base}.json`)} as is`);
-          continue;
-        }
-        await fs.mkdir(target, { recursive: true });
-        const oldTarballs = path.join(dir, base, TARBALL_DIR);
-        const newTarballs = path.join(target, TARBALL_DIR);
-        if ((await exists(oldTarballs)) && !(await exists(newTarballs))) {
-          await fs.rename(oldTarballs, newTarballs);
-        }
-        await fs.rename(path.join(dir, `${base}.json`), path.join(target, DOC_FILE));
-        await fs.rmdir(path.join(dir, base)).catch(() => {});
-        console.log(`npm: moved private package ${name} to ${target}`);
-      } catch (error) {
-        console.error(`npm: could not move private package ${name}:`, error);
-        failed.push(name);
-      }
-    }
-    for (const entry of await fs.readdir(this.root, { withFileTypes: true })) {
-      if (entry.isDirectory() && entry.name.startsWith('@')) {
-        await fs.rmdir(path.join(this.root, entry.name)).catch(() => {});
-      }
-    }
-    if (failed.length) throw new Error(`Could not move private packages: ${failed.join(', ')}`);
   }
 }
