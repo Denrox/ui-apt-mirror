@@ -4,7 +4,13 @@ import { configuredHosts, withMirrorHost } from './hosts';
 describe('configuredHosts', () => {
   it('puts the install domain in place of mirror.intra', () => {
     const byId = Object.fromEntries(configuredHosts('uam.test').map((h) => [h.id, h.address]));
-    expect(byId).toEqual({ mirror: 'uam.test', admin: 'admin.uam.test', files: 'files.uam.test', npm: 'npm.uam.test' });
+    expect(byId).toEqual({
+      mirror: 'uam.test',
+      admin: 'admin.uam.test',
+      files: 'files.uam.test',
+      npm: 'npm.uam.test',
+      cheatsheets: 'cheatsheets.uam.test',
+    });
   });
 
   it('keeps the built-in names by default', () => {
