@@ -60,6 +60,12 @@ describe('getValidationError', () => {
     expect(getValidationError(`${char}name.txt`)).toMatch(/invisible/);
   });
 
+  it('keeps a variation selector right after an emoji', () => {
+    expect(getValidationError('\u2764\uFE0F notes.txt')).toBeNull();
+    expect(getValidationError('a\uFE0F\u2764.txt')).toMatch(/invisible/);
+    expect(getValidationError('\u2764\uFE0F\uFE0F.txt')).toMatch(/invisible/);
+  });
+
   it('rejects a name starting with a combining mark, but keeps accents on letters', () => {
     expect(getValidationError('\u0301name')).toMatch(/invisible/);
     expect(getValidationError('Cafe\u0301.txt')).toBeNull();

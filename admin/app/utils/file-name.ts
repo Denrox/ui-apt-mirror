@@ -9,6 +9,9 @@ export const MAX_NAME_BYTES = 255;
 const SPOOFING_CHARS =
   /[\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u115F\u1160\u180E\u2800\u3164\uFFA0\u{1D159}]/u;
 
+// The text/emoji variation selectors are fine right after an emoji, as in "❤️".
+const EMOJI_PRESENTATION = /(\p{Extended_Pictographic})[\uFE0E\uFE0F]/gu;
+
 // A combining mark with nothing to combine with, at the start of a name, renders on its own or not at all.
 const LEADING_MARK = /^\p{M}/u;
 
@@ -34,7 +37,7 @@ export function getValidationError(name: string): string | null {
     return 'Name contains invalid characters';
   }
 
-  if (SPOOFING_CHARS.test(name) || LEADING_MARK.test(name)) {
+  if (SPOOFING_CHARS.test(name.replace(EMOJI_PRESENTATION, '$1')) || LEADING_MARK.test(name)) {
     return 'Name contains invisible or text-direction characters';
   }
 
