@@ -274,6 +274,24 @@ describe('npm registry route', () => {
     expect(most).toBeLessThanOrEqual(32);
   });
 
+  it('runs a few audits at a time and turns away a crowd from one client', async () => {
+    const audit = (ip: string) =>
+      call(
+        request('/-/npm/v1/security/advisories/bulk', {
+          method: 'POST',
+          body: '{"ms":["2.1.3"]}',
+          headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+        }),
+      );
+    const crowd = await Promise.all(Array.from({ length: 10 }, () => audit('10.0.0.1')));
+    const statuses = crowd.map((res) => res.status).sort();
+    expect(statuses).toEqual([200, 200, 200, 200, 503, 503, 503, 503, 503, 503]);
+    expect(crowd.find((res) => res.status === 503)!.headers.get('retry-after')).toBe('1');
+    // Others, and the same client once its audits are done, are served.
+    expect((await audit('10.0.0.2')).status).toBe(200);
+    expect((await audit('10.0.0.1')).status).toBe(200);
+  });
+
   it('logs out locally: revokes the token and never sends it upstream', async () => {
     const del = (p: string, headers: Record<string, string> = {}) => call(request(p, { method: 'DELETE', headers }));
     const token = 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VybmFtZSI6ImFsaWNlIn0.sig';

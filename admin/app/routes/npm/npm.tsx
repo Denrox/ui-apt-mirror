@@ -13,7 +13,8 @@ import {
   revokeNpmToken,
   validateNpmAuthToken,
 } from '~/utils/server-auth';
-import { tooManyAttemptsMessage } from '~/utils/login-limiter';
+import { clientIp, tooManyAttemptsMessage } from '~/utils/login-limiter';
+import { BUSY_RETRY_AFTER, SearchLimiter } from '~/lib/search-limiter';
 import { PrivatePackageStore } from '~/utils/npm-private-store';
 import {
   applyDocUpdate,
@@ -810,6 +811,33 @@ const MAX_LOGIN_BODY_BYTES = 64 * 1024;
  */
 const JSON_LIMITS: JsonLimits = { values: 1_000_000, depth: 1000 };
 
+/**
+ * Audits hold their body, parsed, in memory, so only a few run at a time and a few more wait;
+ * past that the client is told to try again. An audit keeps its slot while npmjs answers it,
+ * which also bounds what clients can have this registry send there.
+ */
+const audits = new SearchLimiter(2, 16, 4);
+
+/**
+ * A slot of the limiter for this request: the function that releases it, or the answer to give
+ * instead (busy, or the client went away while it waited).
+ */
+async function takeSlot(limiter: SearchLimiter, request: Request, client: string): Promise<(() => void) | Response> {
+  let release: (() => void) | null;
+  try {
+    release = await limiter.acquire(request.signal, client);
+  } catch {
+    // The client went away; nobody reads this.
+    return new Response(null, { status: 499 });
+  }
+  return (
+    release ??
+    jsonResponse({ error: 'Service Unavailable', reason: 'The registry is busy; try again in a moment' }, 503, {
+      'Retry-After': String(BUSY_RETRY_AFTER),
+    })
+  );
+}
+
 function payloadTooLarge(reason: string): Response {
   return jsonResponse({ error: 'Payload Too Large', reason }, 413);
 }
@@ -1089,6 +1117,8 @@ export async function action({ request }: ActionFunctionArgs) {
       ? jsonResponse({})
       : new Response(message, { status, headers: { 'Content-Type': 'text/plain' } });
 
+  const release = await takeSlot(audits, request, clientIp(request));
+  if (release instanceof Response) return release;
   try {
     const sent = await readBody(request, MAX_AUDIT_BODY_BYTES);
     if (!sent) return payloadTooLarge('The audit request is too large');
@@ -1116,7 +1146,7 @@ export async function action({ request }: ActionFunctionArgs) {
       headers: forwardedHeaders,
     };
 
-    return new Promise((resolve) => {
+    return await new Promise<Response>((resolve) => {
       const req = https.request(options, (res) => {
         const chunks: Buffer[] = [];
 
@@ -1191,5 +1221,7 @@ export async function action({ request }: ActionFunctionArgs) {
   } catch (error) {
     console.error('NPM proxy action error:', error);
     return upstreamFailed(500, 'Internal Server Error');
+  } finally {
+    release();
   }
 }
