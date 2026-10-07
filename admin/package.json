@@ -5,7 +5,7 @@
   "scripts": {
     "build": "react-router build",
     "dev": "NODE_OPTIONS=\"--max-http-header-size=8192000000\" react-router dev",
-    "start": "NODE_OPTIONS=\"--max-http-header-size=8192000000\" react-router-serve ./build/server/index.js",
+    "start": "HOST=${HOST:-127.0.0.1} NODE_OPTIONS=\"--max-http-header-size=8192000000\" react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
     "test": "vitest run",
     "test:watch": "vitest",
