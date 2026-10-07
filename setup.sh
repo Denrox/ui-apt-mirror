@@ -19,6 +19,8 @@ DIST_DIR="dist"
 ENV_FILE=".env"
 COMPOSE_HAND_EDITED=""
 COMPOSE_HASH_FILE=".docker-compose.yml.sha256"
+# Written by setup.sh since 3.0; an install without it is a 2.x one (see refuse_2x_install)
+VERSION_FILE=".ui-apt-mirror-version"
 
 # Function to print colored output
 print_status() {
@@ -155,6 +157,38 @@ validate_dist() {
     fi
     
     print_success "Found image file: $tar_file"
+}
+
+# Stops before anything is changed if this directory holds a 2.x install: 3.0 can't
+# upgrade those. Every 2.x setup.sh wrote .env or docker-compose.yml; .htpasswd covers
+# an install whose settings files were deleted.
+refuse_2x_install() {
+    local mode=$1
+    [ -f "$VERSION_FILE" ] && return 0
+    [ -f "$ENV_FILE" ] || [ -f docker-compose.yml ] || [ -s data/auth/.htpasswd ] || return 0
+
+    print_error "This directory holds a ui-apt-mirror 2.x install. Version 3 can't upgrade it;"
+    print_error "your settings and data were not changed, and its container keeps running."
+    if [ "$mode" = "upgrade" ]; then
+        echo "The 2.x upgrade.sh already replaced the scripts, README.md and the image in dist/ with"
+        echo "version 3's. Delete ./tmp (the downloaded release)."
+    fi
+    cat <<'MSG'
+
+To move to version 3, install it fresh (also in README.md, "Moving from 2.x"):
+  1. Back up your settings, users, signing keys and files:
+       tar -czf ../ui-apt-mirror-2.x-backup.tar.gz .env docker-compose*.yml data/conf data/auth \
+           data/data/apt-mirror/gpg data/data/files data/data/files-private
+  2. Install version 3 in a new directory. It stops and replaces the 2.x container,
+     which has the same name and ports:
+       curl -fsSLO https://ui-apt-mirror.dbashkatov.com/downloads/install.sh && bash install.sh
+  3. Copy over what you want to keep with cp -a, then run docker restart ui-apt-mirror:
+       data/data/files, data/data/files-private    public and private files
+       data/data/apt-mirror                         mirrored packages and signing keys
+       data/conf/apt-mirror/mirror.list             repositories
+     Set up users, npm packages and cheatsheet sources again in the admin panel.
+MSG
+    exit 1
 }
 
 # Settings live in .env (read by docker compose); upgrades never touch it.
@@ -871,6 +905,9 @@ main() {
                 ;;
         esac
     done
+
+    refuse_2x_install "$mode"
+    echo 3 > "$VERSION_FILE"
 
     print_status "Starting ui-apt-mirror deployment..."
 
