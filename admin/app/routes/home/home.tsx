@@ -360,6 +360,7 @@ export default function Home() {
               <DropdownItem
                 key={`${i}:${section.title}`}
                 onClick={() => handleRestoreClick(section)}
+                title={section.title}
               >
                 Enable: {section.title}
               </DropdownItem>
@@ -595,7 +596,7 @@ export default function Home() {
                 key={`${i}:${section.title}`}
                 className="flex items-center justify-between gap-3 px-4 py-2"
               >
-                <span className="truncate text-sm text-on-surface-variant">
+                <span className="min-w-0 truncate text-sm text-on-surface-variant" title={section.title}>
                   {section.title}
                 </span>
                 <div className="flex shrink-0 items-center gap-3">
