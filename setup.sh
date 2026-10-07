@@ -418,7 +418,9 @@ generate_htpasswd() {
 backup_config() {
     local items=()
     local item
-    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth; do
+    # The GPG keys can't be replaced (apt clients pin them with Signed-By)
+    for item in .env docker-compose.yml docker-compose.override.yml data/conf data/auth \
+        data/data/apt-mirror/gpg data/data/cheatsheets/sources.json; do
         [ -e "$item" ] && items+=("$item")
     done
     if [ ${#items[@]} -eq 0 ]; then
@@ -429,7 +431,7 @@ backup_config() {
     local backup="backups/pre-upgrade-$(date +%Y%m%d-%H%M%S).tar.gz"
     print_status "Backing up configuration to $backup..."
     local skipped
-    if skipped=$(umask 077; tar -czf "$backup" --ignore-failed-read "${items[@]}" 2>&1 >/dev/null); then
+    if skipped=$(umask 077; tar -czf "$backup" --ignore-failed-read --exclude="data/data/apt-mirror/gpg/gnupg/S.*" "${items[@]}" 2>&1 >/dev/null); then
         chmod 600 "$backup"
         if [ -n "$skipped" ]; then
             print_warning "Some files could not be read and are not in the backup:"
@@ -739,24 +741,28 @@ show_status() {
         print_warning "docker-compose.override.yml, then run ./start.sh."
     fi
 
+    # The container migrates old nginx configs and writes the .stock copies while
+    # starting; list the overrides once it is done
+    local i
+    for i in $(seq 1 60); do
+        docker logs --since "${CONTAINER_STARTED_AT:-0}" "$CONTAINER_NAME" 2>&1 \
+            | grep -q "Starting admin server" && break
+        [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null)" = true ] || break
+        sleep 1
+    done
     local custom
     custom=$(ls data/conf/nginx/custom/*.conf 2>/dev/null || true)
     if [ -n "$custom" ]; then
         echo ""
         print_warning "Custom nginx configs in use (they replace the stock ones):"
         echo "$custom" | sed 's/^/  /'
-        # The container writes the .stock copies while starting
-        local i
-        for i in $(seq 1 30); do
-            docker logs "$CONTAINER_NAME" 2>&1 | grep -q "Starting admin server" && break
-            sleep 1
-        done
         local changed="" conf
         for conf in $custom; do
             [ -f "$conf.stock" ] && changed+="  $conf"$'\n'
         done
         if [ -n "$changed" ]; then
-            print_warning "The stock config changed since these were written; they may be missing fixes:"
+            print_warning "These may be missing fixes made to the stock config (it changed since they were"
+            print_warning "written, or it is not known which version they were written against):"
             printf '%s' "$changed"
             print_warning "Compare each with its .stock copy, merge what you need, then delete the .stock file."
         fi
@@ -920,6 +926,7 @@ main() {
 
     # Start container using start.sh
     print_status "Starting container..."
+    CONTAINER_STARTED_AT=$(date +%s)
     ./start.sh
 
     # Show status

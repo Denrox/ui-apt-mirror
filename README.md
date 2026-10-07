@@ -249,7 +249,8 @@ To upgrade to the latest version:
 The upgrade script will:
 - Check connectivity to the official website
 - Ask you to choose between current architecture or all architectures
-- Back up your configuration to `backups/pre-upgrade-<date>.tar.gz`
+- Back up your configuration, users, repository signing keys and cheatsheet
+  sources list to `backups/pre-upgrade-<date>.tar.gz`
 - Download the latest version and install the new image and scripts
 - Run `setup.sh --upgrade`, which asks nothing and keeps your configuration
 - Clean up temporary files
@@ -273,13 +274,16 @@ instead (same format, merged on top by `start.sh`). To change an nginx site,
 copy it from the running container (`docker exec ui-apt-mirror cat
 /etc/nginx/sites-available/files.mirror.intra.conf`) to
 `data/conf/nginx/custom/files.mirror.intra.conf` and edit it there; delete the
-file to go back to the stock config.
+file to go back to the stock config. An override that is an unedited stock
+config of an earlier release (2.4.x upgrades created those) is moved to
+`data/conf/nginx/custom.unedited-<date>/` and the current stock config is used.
 
 #### Upgrading from older versions
 
 The first upgrade of an install that predates `.env` migrates it automatically:
 settings are read from the old `docker-compose.yml`, nginx configs you had
-edited become overrides in `data/conf/nginx/custom/`, and private files are
+edited become overrides in `data/conf/nginx/custom/` (unedited ones, from any
+release, are replaced by the current stock configs), and private files are
 copied out of the old container (they were not stored on the host before). If
 the old `docker-compose.yml` had hand edits, it is saved under `backups/` and
 the upgrade tells you to move those edits to `docker-compose.override.yml`.
