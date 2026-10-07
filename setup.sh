@@ -316,11 +316,8 @@ write_env_file() {
     print_status "Saving settings to $ENV_FILE..."
     cat > "$ENV_FILE" <<ENVEOF
 # ui-apt-mirror settings. Change with ./setup.sh --reconfigure, or edit and run ./start.sh.
+# The admin, files, npm and cheatsheets hosts are subdomains of MIRROR_DOMAIN.
 MIRROR_DOMAIN=$MIRROR_DOMAIN
-ADMIN_DOMAIN=admin.$MIRROR_DOMAIN
-FILES_DOMAIN=files.$MIRROR_DOMAIN
-NPM_DOMAIN=npm.$MIRROR_DOMAIN
-CHEATSHEETS_DOMAIN=cheatsheets.$MIRROR_DOMAIN
 SYNC_FREQUENCY=$SYNC_FREQUENCY
 NPM_PROXY_ENABLED=$npm_enabled
 TZ=$HOST_TIMEZONE
