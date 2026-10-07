@@ -98,6 +98,8 @@ if [ -d "$LEGACY_SITES" ]; then
         fi
         if [ ! -e "$NGINX_CUSTOM/$name" ]; then
             cp "$legacy" "$NGINX_CUSTOM/$name"
+            # Written against an older stock config; check_override offers the current one
+            echo legacy > "$NGINX_CUSTOM/.$name.stock-sha256"
             echo "⚠️  Kept your modified nginx config as custom/$name (delete it to use the stock one)"
         fi
     done
@@ -121,6 +123,7 @@ for custom in "$NGINX_CUSTOM"/*.conf; do
 done
 
 # Overrides hide later stock fixes; keep the new stock copy until the user deletes it.
+# .<name>.stock-sha256 holds the template the site used before it was overridden.
 check_override() {
     local tpl=$1 name=$2
     local hash_file="$NGINX_CUSTOM/.$name.stock-sha256"
@@ -131,10 +134,14 @@ check_override() {
     if [ "$current" != "$recorded" ]; then
         render_site "$tpl" > "$stock_copy"
         echo "$current" > "$hash_file"
+        if [ -z "$recorded" ]; then
+            echo "⚠️  custom/$name: not known which version of the stock $name it was written against."
+        else
+            echo "⚠️  The stock $name changed since custom/$name was written; it may be missing fixes."
+        fi
     fi
     if [ -f "$stock_copy" ]; then
-        echo "⚠️  custom/$name may be missing fixes made to the stock $name since it was written."
-        echo "   Compare it with custom/$name.stock, merge what you need, then delete $name.stock."
+        echo "⚠️  Compare custom/$name with custom/$name.stock, merge what you need, then delete $name.stock."
     fi
 }
 
@@ -148,6 +155,9 @@ for tpl in "$NGINX_TEMPLATES"/*.conf; do
         check_override "$tpl" "$name"
     else
         render_site "$tpl" > "$NGINX_SITES/$name"
+        # An override copied from this config later starts from this record
+        sha256sum "$tpl" | cut -d' ' -f1 > "$NGINX_CUSTOM/.$name.stock-sha256"
+        rm -f "$NGINX_CUSTOM/$name.stock"
     fi
 done
 

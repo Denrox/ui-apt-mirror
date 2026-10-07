@@ -711,7 +711,8 @@ show_status() {
             [ -f "$conf.stock" ] && changed+="  $conf"$'\n'
         done
         if [ -n "$changed" ]; then
-            print_warning "The stock config changed since these were written; they may be missing fixes:"
+            print_warning "These may be missing fixes made to the stock config (it changed since they were"
+            print_warning "written, or it is not known which version they were written against):"
             printf '%s' "$changed"
             print_warning "Compare each with its .stock copy, merge what you need, then delete the .stock file."
         fi

@@ -79,6 +79,7 @@ check "edited: override is the user's file" 'cmp -s "$CASE/edited.conf" "$HOST/c
 check "edited: override is used" 'cmp -s "$CASE/edited.conf" "$SITES/files.mirror.intra.conf"'
 check "edited: other sites are stock" 'stock admin.mirror.intra.conf d.test | cmp -s - "$SITES/admin.mirror.intra.conf"'
 check "edited: stock copy offered" 'stock files.mirror.intra.conf d.test | cmp -s - "$HOST/custom/files.mirror.intra.conf.stock"'
+check "edited: says the stock changed" 'grep -q "The stock files.mirror.intra.conf changed" "$CASE/log"'
 
 # 4. Domain changed after install: files were rendered for the first domain only
 new_case domain-changed
@@ -129,6 +130,38 @@ for tag in $(git tag --sort=creatordate); do
     done < <(cat "$CASE/expect-retired" 2>/dev/null)
     check "$tag: sites are the current stock" "stock_everywhere c.test"
 done
+
+# 8. Copying the current stock to custom/ (as the README says) keeps it, with no warning
+new_case new-override
+render e.test
+check "first start records each site's stock" '[ -s "$HOST/custom/.files.mirror.intra.conf.stock-sha256" ]'
+cp "$SITES/files.mirror.intra.conf" "$HOST/custom/files.mirror.intra.conf"
+render e.test
+check "copy of current stock kept as override" '[ -f "$HOST/custom/files.mirror.intra.conf" ]'
+echo '# edit' >> "$HOST/custom/files.mirror.intra.conf"
+render e.test
+check "new override: no stock copy" '[ ! -e "$HOST/custom/files.mirror.intra.conf.stock" ]'
+check "new override: no warning" '! grep -q "⚠" "$CASE/log"'
+
+# 9. Override with no record (made before records existed): no claim that the stock changed
+new_case unknown-base
+mkdir -p "$HOST/custom"
+{ stock files.mirror.intra.conf mirror.intra; echo '# edit'; } > "$HOST/custom/files.mirror.intra.conf"
+render mirror.intra
+check "unknown base: says it is unknown" 'grep -q "not known which version" "$CASE/log"'
+check "unknown base: does not say the stock changed" '! grep -q "changed since" "$CASE/log"'
+check "unknown base: stock copy offered" '[ -f "$HOST/custom/files.mirror.intra.conf.stock" ]'
+
+# 10. Override recorded against an older template: stock changed
+new_case changed-base
+mkdir -p "$HOST/custom"
+{ stock files.mirror.intra.conf mirror.intra; echo '# edit'; } > "$HOST/custom/files.mirror.intra.conf"
+echo 0000 > "$HOST/custom/.files.mirror.intra.conf.stock-sha256"
+render mirror.intra
+check "changed base: says the stock changed" 'grep -q "The stock files.mirror.intra.conf changed" "$CASE/log"'
+render mirror.intra
+check "changed base: next start still reminds" 'grep -q "Compare custom/files.mirror.intra.conf" "$CASE/log"'
+check "changed base: next start does not repeat the claim" '! grep -q "changed since" "$CASE/log"'
 
 echo "$passes passed, $fails failed"
 [ "$fails" -eq 0 ]
