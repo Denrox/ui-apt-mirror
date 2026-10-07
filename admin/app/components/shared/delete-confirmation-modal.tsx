@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Modal from '~/components/shared/modal/modal';
 import FormButton from '~/components/shared/form/form-button';
 
@@ -11,6 +12,8 @@ interface DeleteConfirmationModalProps {
   isLoading?: boolean;
   message?: string;
   confirmLabel?: string;
+  /** Extra controls shown under the message (e.g. an option checkbox). */
+  children?: ReactNode;
 }
 
 export default function DeleteConfirmationModal({
@@ -23,6 +26,7 @@ export default function DeleteConfirmationModal({
   isLoading = false,
   message,
   confirmLabel = 'Delete',
+  children,
 }: DeleteConfirmationModalProps) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={title}>
@@ -30,6 +34,7 @@ export default function DeleteConfirmationModal({
         {message ??
           `Are you sure you want to delete ${itemType} "${itemName}"? This action cannot be undone.`}
       </p>
+      {children}
       <div className="flex justify-end gap-3">
         <FormButton onClick={onClose} type="secondary" disabled={isLoading}>
           Cancel

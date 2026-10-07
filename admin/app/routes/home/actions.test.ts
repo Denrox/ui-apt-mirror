@@ -58,6 +58,7 @@ async function post(fields: Record<string, string>) {
   return (await action({ request: new Request('http://admin/home.data', { method: 'POST', body }) })) as {
     success?: boolean;
     error?: string;
+    message?: string;
   };
 }
 
@@ -138,5 +139,48 @@ describe('deleteGpgKey', () => {
     const result = await post({ action: 'deleteGpgKey', host: 'nokey.example.com' });
     expect(result.success).toBeUndefined();
     expect(result.error).toMatch(/no signing key for nokey\.example\.com/);
+  });
+});
+
+describe('removeRepository with deleteData', () => {
+  const OTHER = [
+    '# ---start---Other---',
+    'deb http://example.com/debian testing main',
+    '# ---end---Other---',
+  ];
+  function seedData() {
+    for (const root of ['mirror', 'skel']) {
+      fs.mkdirSync(`${state.dir}/${root}/example.com/debian/dists/stable`, { recursive: true });
+      fs.writeFileSync(`${state.dir}/${root}/example.com/debian/dists/stable/Release`, 'x');
+      fs.mkdirSync(`${state.dir}/${root}/keep.org/debian`, { recursive: true });
+    }
+  }
+  const remove = (deleteData: boolean) =>
+    post({ action: 'removeRepository', sectionTitle: 'Simple', revision: revisionOf('Simple'), ...(deleteData ? { deleteData: 'true' } : {}) });
+
+  it('keeps the files unless asked', async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    expect((await remove(false)).success).toBe(true);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian`)).toBe(true);
+  });
+
+  it('deletes the mirrored and skel files of an upstream nothing else uses', async () => {
+    writeList(SIMPLE(true));
+    seedData();
+    const result = await remove(true);
+    expect(result.message).toMatch(/mirrored files deleted/);
+    for (const root of ['mirror', 'skel']) {
+      expect(fs.existsSync(`${state.dir}/${root}/example.com`)).toBe(false);
+      expect(fs.existsSync(`${state.dir}/${root}/keep.org/debian`)).toBe(true);
+    }
+  });
+
+  it('keeps files another enabled repository still uses', async () => {
+    writeList(SIMPLE(true), OTHER);
+    seedData();
+    const result = await remove(true);
+    expect(result.message).toMatch(/kept because another enabled repository/);
+    expect(fs.existsSync(`${state.dir}/mirror/example.com/debian/dists/stable/Release`)).toBe(true);
   });
 });

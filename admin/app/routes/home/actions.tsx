@@ -15,6 +15,8 @@ import {
 import { MirrorConfig, type RepositoryInput } from '~/utils/mirror-config';
 import { atomicWriteFile, validateRepositoryInput, withMirrorListLock } from '~/utils/mirror-list';
 import { checkLockFile } from '~/utils/sync';
+import { deleteMirrorDirs, unusedMirrorDirs } from '~/utils/mirror-data';
+import path from 'path';
 
 const execFileAsync = promisify(execFile);
 
@@ -137,9 +139,27 @@ export async function action({ request }: { request: Request }) {
         const staleError = revisionError(config, sectionTitle, formData);
         if (staleError) return { error: staleError };
 
+        const section = config.getSection(sectionTitle, formRevision(formData))!;
+        const uris = section.children.flatMap((c) => (c.kind === 'deb' ? [c.uri] : []));
         config.removeSection(sectionTitle, formRevision(formData));
         await atomicWriteFile(mirrorListPath, config.serialize());
-        return { success: true, message: `Repository "${sectionTitle}" removed` };
+        if (formData.get('deleteData') !== 'true') {
+          return { success: true, message: `Repository "${sectionTitle}" removed` };
+        }
+
+        // apt-mirror2 never cleans an upstream that is no longer configured, so its files
+        // would stay on disk (and served) for good.
+        const dirs = unusedMirrorDirs(config, uris);
+        const roots = [appConfig.mirrorRoot, path.join(path.dirname(appConfig.mirrorRoot), 'skel')];
+        const deleted = dirs.length ? await deleteMirrorDirs(dirs, roots) : [];
+        return {
+          success: true,
+          message: deleted.length
+            ? `Repository "${sectionTitle}" removed and its mirrored files deleted`
+            : dirs.length
+              ? `Repository "${sectionTitle}" removed; it had no mirrored files`
+              : `Repository "${sectionTitle}" removed; its mirrored files are kept because another enabled repository uses the same upstream`,
+        };
       });
     } catch (error) {
       console.error('Error removing repository section:', error);
