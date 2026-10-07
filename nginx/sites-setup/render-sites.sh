@@ -37,26 +37,15 @@ render_site() {
     sed "s/mirror\.intra/${ESCAPED_DOMAIN}/g" "$1"
 }
 
-# The domain a stock config on disk was rendered for, from its first server_name
-# (files.<domain> in files.mirror.intra.conf): the domain may have changed since
-# the config was copied to custom/.
-site_domain() {
-    local file=$1 name=$2 prefix server
-    prefix=${name%mirror.intra.conf}
-    server=$(sed -n 's/^[[:space:]]*server_name[[:space:]]\{1,\}\([^[:space:];]*\).*/\1/p' "$file" | head -n 1)
-    case $server in
-        "$prefix"?*) printf '%s' "${server#"$prefix"}" ;;
-    esac
-}
-
-# The hashes the file would have as a stock config, one per domain it may be rendered for
+# The hashes the file would have as a stock config. An override is compared only as
+# rendered for this install's domain or as the unrendered template (mirror.intra),
+# never for the domain in its own server_name: a copy whose only edit is another
+# host name is an edit, and must stay an override.
 file_hashes() {
-    local file=$1 name=$2 domain seen=" "
-    for domain in "$(site_domain "$file" "$name")" "$MIRROR_DOMAIN" mirror.intra; do
-        [ -n "$domain" ] || continue
-        case $seen in *" $domain "*) continue ;; esac
-        seen+="$domain "
+    local file=$1 domain
+    for domain in "$MIRROR_DOMAIN" mirror.intra; do
         site_hash "$domain" < "$file"
+        [ "$MIRROR_DOMAIN" != mirror.intra ] || break
     done
 }
 
@@ -64,7 +53,7 @@ file_hashes() {
 released_stock() {
     local file=$1 name=$2 hash
     [ -f "$RELEASED_SITES" ] || return 1
-    for hash in $(file_hashes "$file" "$name"); do
+    for hash in $(file_hashes "$file"); do
         grep -qxF "$hash $name" "$RELEASED_SITES" && return 0
     done
     return 1
@@ -75,7 +64,7 @@ current_stock() {
     local file=$1 name=$2 tpl="$NGINX_TEMPLATES/$2" current hash
     [ -f "$tpl" ] || return 1
     current=$(site_hash mirror.intra < "$tpl")
-    for hash in $(file_hashes "$file" "$name"); do
+    for hash in $(file_hashes "$file"); do
         [ "$hash" = "$current" ] && return 0
     done
     return 1
@@ -84,8 +73,8 @@ current_stock() {
 mkdir -p "$NGINX_CUSTOM"
 
 # An override that is the previous release's stock config, unedited (copied from
-# the container, or rendered for another domain), would keep that release's config
-# forever: drop it so the current stock config is used.
+# the container, or from the template), would keep that release's config forever:
+# drop it so the current stock config is used.
 for custom in "$NGINX_CUSTOM"/*.conf; do
     [ -f "$custom" ] || continue
     name=$(basename "$custom")

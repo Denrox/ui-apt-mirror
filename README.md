@@ -268,7 +268,7 @@ The upgrade script will:
 
 | What | Where | On upgrade |
 |------|-------|------------|
-| Settings (domain, sync frequency, timezone, npm proxy) | `.env` | kept |
+| Settings (domain, sync frequency, timezone, npm proxy) and your own lines | `.env` | kept |
 | Your own compose changes (ports, volumes, …) | `docker-compose.override.yml` | kept |
 | Repositories and package filters | `data/conf/apt-mirror/mirror.list` | kept |
 | Users and passwords | `data/auth/.htpasswd` | kept |
@@ -285,7 +285,8 @@ copy it from the running container (`docker exec ui-apt-mirror cat
 `data/conf/nginx/custom/files.mirror.intra.conf` and edit it there; delete the
 file to go back to the stock config. An override that is the previous
 release's stock config, unedited, is removed on upgrade and the current stock
-config is used.
+config is used. Any other change, even only a different host name, makes it
+your override, which is kept.
 
 #### Supported upgrades
 
