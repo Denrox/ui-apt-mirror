@@ -12,7 +12,7 @@ vi.mock('~/config/config.json', () => ({ default: { htpasswdPath } }));
 
 import { action } from './actions';
 import { createAuthToken, validateAuthToken } from '~/utils/server-auth';
-import { hashPassword, validAfterPath, writePrivateFile } from '~/utils/htpasswd';
+import { checkCredentials, hashPassword, validAfterPath, writePrivateFile } from '~/utils/htpasswd';
 
 afterAll(() => fs.rmSync(path.dirname(htpasswdPath), { recursive: true, force: true }));
 
@@ -49,6 +49,22 @@ describe('addUser', () => {
     const r = await post({ intent: 'addUser', username: 'u'.repeat(20008), password: 'abcd' });
     expect(r.error).toMatch(/at most 64/);
     expect(lines('u'.repeat(20008))).toBe(0);
+  });
+
+  it('refuses passwords openssl would cut short', async () => {
+    const r1 = await post({ intent: 'addUser', username: 'nl', password: 'Long\nSecretPart' });
+    expect(r1.error).toMatch(/control characters/);
+    const r2 = await post({ intent: 'addUser', username: 'long', password: 'k'.repeat(300) });
+    expect(r2.error).toMatch(/too long/);
+    expect(fs.readFileSync(htpasswdPath, 'utf-8')).not.toMatch(/^\$6\$/m);
+  });
+});
+
+describe('changePassword', () => {
+  it('refuses a password with a line break', async () => {
+    const r = await post({ intent: 'changePassword', username: 'bob', newPassword: 'ab\nxxxx' });
+    expect(r.error).toMatch(/control characters/);
+    expect(await checkCredentials(htpasswdPath, 'bob', 'bobpass')).toBe(true);
   });
 });
 

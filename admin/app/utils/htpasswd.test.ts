@@ -128,6 +128,16 @@ describe('hardening', () => {
     expect(() => revokeTokens(file, 'admin ', YEAR)).toThrow();
   });
 
+  it('does not hash or match passwords openssl would cut short', async () => {
+    await expect(hashPassword('Long\nSecretPart')).rejects.toThrow();
+    const hash = await hashPassword('Long');
+    expect(await verifyPassword('Long', hash)).toBe(true);
+    expect(await verifyPassword('Long\nanything', hash)).toBe(false);
+    const k256 = 'k'.repeat(256);
+    const longHash = await hashPassword(k256);
+    expect(await verifyPassword(`${k256}totally-different`, longHash)).toBe(false);
+  });
+
   it('runs locked sections one at a time', async () => {
     const order: string[] = [];
     await Promise.all([

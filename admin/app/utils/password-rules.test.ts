@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { passwordError, usernameError } from './password-rules';
+import { isHashablePassword, passwordError, usernameError } from './password-rules';
 
 describe('passwordError', () => {
   it('refuses passwords shorter than the minimum', () => {
@@ -10,6 +10,27 @@ describe('passwordError', () => {
   it('accepts passwords of the minimum length or longer', () => {
     expect(passwordError('abcd')).toBeNull();
     expect(passwordError('a-longer-password')).toBeNull();
+  });
+});
+
+describe('passwords openssl would not store as typed', () => {
+  it('refuses line breaks and other control characters', () => {
+    expect(passwordError('Long\nSecretPart')).toMatch(/control characters/);
+    expect(passwordError('\nabcd')).toMatch(/control characters/);
+    expect(passwordError('ab\nxxxx')).toMatch(/control characters/);
+    expect(passwordError('tab\there')).toMatch(/control characters/);
+    expect(isHashablePassword('Long\nSecretPart')).toBe(false);
+  });
+
+  it('refuses passwords over 256 bytes', () => {
+    expect(passwordError('k'.repeat(256))).toBeNull();
+    expect(passwordError('k'.repeat(257))).toMatch(/too long/);
+    expect(passwordError('é'.repeat(129))).toMatch(/too long/);
+    expect(isHashablePassword('k'.repeat(300))).toBe(false);
+  });
+
+  it('accepts spaces, backslashes and non-ASCII', () => {
+    expect(passwordError(' p\\ss wörd ')).toBeNull();
   });
 });
 

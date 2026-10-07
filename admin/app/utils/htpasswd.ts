@@ -10,6 +10,7 @@ import {
 } from 'fs';
 import path from 'path';
 import { giveToDirOwner } from './file-owner';
+import { isHashablePassword } from './password-rules';
 
 const cache = new Map<string, { key: string; value: unknown }>();
 
@@ -77,6 +78,11 @@ export function withAuthFileLock<T>(fn: () => T | Promise<T>): Promise<T> {
 }
 
 export function hashPassword(password: string, salt?: string): Promise<string> {
+  // openssl hashes only the first line, cut at 256 bytes: refuse rather than
+  // store (or check) something other than what was typed.
+  if (!isHashablePassword(password)) {
+    return Promise.reject(new Error('Password cannot be hashed as typed'));
+  }
   const args = ['passwd', '-6', '-stdin'];
   if (salt) args.push('-salt', salt);
   return new Promise((resolve, reject) => {
@@ -100,6 +106,7 @@ export async function verifyPassword(
 ): Promise<boolean> {
   const parts = hash.split('$');
   if (!hash.startsWith('$6$') || parts.length !== 4) return false;
+  if (!isHashablePassword(password)) return false;
   const computed = Buffer.from(await hashPassword(password, parts[2]));
   const expected = Buffer.from(hash);
   return (
