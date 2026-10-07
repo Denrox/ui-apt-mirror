@@ -208,6 +208,9 @@ export default function Cheatsheets() {
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
+        // The results of the previous query don't answer this one.
+        setResults([]);
+        setTotal(0);
         setSearchError(err instanceof Error ? err.message : 'Search failed');
       })
       .finally(() => {
@@ -404,75 +407,78 @@ export default function Cheatsheets() {
                 <div className="p-4 bg-error/10 text-error rounded-md">{searchError}</div>
               )}
 
-              <div className="border border-outline-variant rounded-md">
-                {results.length === 0 ? (
-                  <div className="p-8 text-center text-on-surface-variant">
-                    <FontAwesomeIcon
-                      icon={faFileAlt}
-                      className="text-4xl mb-4 text-on-surface-variant/40"
-                    />
-                    {searching ? (
-                      <p>Searching…</p>
-                    ) : hasQuery ? (
-                      <>
-                        <p>No cheatsheets found</p>
-                        <p className="text-sm mt-2">Try adjusting your search or filters</p>
-                      </>
-                    ) : (
-                      <p>
-                        Search all {plural(totalPages, 'page')}
-                        {categories.length > 0
-                          ? ' or pick a category'
-                          : browsable.length > 1
-                            ? ' or pick a source to see its categories'
-                            : ''}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <TableWrapper>
-                    {results.map((r) => (
-                      <TableRow
-                        key={`${r.source}/${r.path}`}
-                        onClick={() => showPage(r)}
-                        cursorClass="cursor-pointer min-w-0"
-                        icon={
-                          <FontAwesomeIcon
-                            icon={faFileAlt}
-                            className="text-on-surface-variant"
-                          />
-                        }
-                        title={
-                          <div className="flex flex-col min-w-0">
-                            <div className="font-medium text-on-surface">{r.title}</div>
-                            {r.snippet && (
-                              <div className="text-xs text-on-surface-variant mt-1 line-clamp-2">
-                                {r.snippet}
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {!activeSource && <Tag label={r.sourceName} size="small" />}
-                              {r.categories.slice(0, 3).map((category) => (
-                                <Tag key={category} label={category} size="small" />
-                              ))}
-                            </div>
-                          </div>
-                        }
-                        actions={
-                          <FormButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => showPage(r)}
-                            ariaLabel={`Open ${r.title}`}
-                          >
-                            <FontAwesomeIcon icon={faEye} />
-                          </FormButton>
-                        }
+              {/* A search that failed did not run: show its error, not "No cheatsheets found". */}
+              {!(searchError && results.length === 0) && (
+                <div className="border border-outline-variant rounded-md">
+                  {results.length === 0 ? (
+                    <div className="p-8 text-center text-on-surface-variant">
+                      <FontAwesomeIcon
+                        icon={faFileAlt}
+                        className="text-4xl mb-4 text-on-surface-variant/40"
                       />
-                    ))}
-                  </TableWrapper>
-                )}
-              </div>
+                      {searching ? (
+                        <p>Searching…</p>
+                      ) : hasQuery ? (
+                        <>
+                          <p>No cheatsheets found</p>
+                          <p className="text-sm mt-2">Try adjusting your search or filters</p>
+                        </>
+                      ) : (
+                        <p>
+                          Search all {plural(totalPages, 'page')}
+                          {categories.length > 0
+                            ? ' or pick a category'
+                            : browsable.length > 1
+                              ? ' or pick a source to see its categories'
+                              : ''}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <TableWrapper>
+                      {results.map((r) => (
+                        <TableRow
+                          key={`${r.source}/${r.path}`}
+                          onClick={() => showPage(r)}
+                          cursorClass="cursor-pointer min-w-0"
+                          icon={
+                            <FontAwesomeIcon
+                              icon={faFileAlt}
+                              className="text-on-surface-variant"
+                            />
+                          }
+                          title={
+                            <div className="flex flex-col min-w-0">
+                              <div className="font-medium text-on-surface">{r.title}</div>
+                              {r.snippet && (
+                                <div className="text-xs text-on-surface-variant mt-1 line-clamp-2">
+                                  {r.snippet}
+                                </div>
+                              )}
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {!activeSource && <Tag label={r.sourceName} size="small" />}
+                                {r.categories.slice(0, 3).map((category) => (
+                                  <Tag key={category} label={category} size="small" />
+                                ))}
+                              </div>
+                            </div>
+                          }
+                          actions={
+                            <FormButton
+                              type="secondary"
+                              size="small"
+                              onClick={() => showPage(r)}
+                              ariaLabel={`Open ${r.title}`}
+                            >
+                              <FontAwesomeIcon icon={faEye} />
+                            </FormButton>
+                          }
+                        />
+                      ))}
+                    </TableWrapper>
+                  )}
+                </div>
+              )}
 
               {!searching && results.length > 0 && results.length < total && (
                 <div className="flex justify-center">
