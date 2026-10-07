@@ -254,3 +254,61 @@ export async function restoreParkedMoves(root: string): Promise<void> {
   };
   await walk(root);
 }
+
+// Hard links aren't possible here: fall back to claiming the name, then renaming over the claim.
+const NO_HARD_LINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EMLINK']);
+
+/**
+ * Renames the entry `oldPath` (a symlink stays a link) to `newName` in the same directory;
+ * false if the name is taken or the rename fails. Never replaces an entry, even one created
+ * while this runs: a file or symlink gets a hard link at the new name (which fails if the name
+ * exists) before the old name is removed; a directory claims the new name with an empty
+ * directory first, and rename() refuses to replace one that is no longer empty.
+ */
+export async function renameEntry(oldPath: string, newName: string): Promise<boolean> {
+  const newPath = path.join(path.dirname(oldPath), newName);
+  if (newPath === oldPath) return false;
+
+  let stats;
+  try {
+    stats = await fs.lstat(oldPath);
+  } catch {
+    return false;
+  }
+
+  if (!stats.isDirectory()) {
+    try {
+      await fs.link(oldPath, newPath); // link(2) doesn't follow a symlink
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? '';
+      if (!NO_HARD_LINK.has(code)) return false;
+      return renameOverClaim(oldPath, newPath, false);
+    }
+    try {
+      // Only drop the old name while it is still the entry we linked.
+      if ((await fs.lstat(oldPath)).ino !== stats.ino) throw new Error('Replaced meanwhile');
+      await fs.unlink(oldPath);
+      return true;
+    } catch {
+      await fs.unlink(newPath).catch(() => {});
+      return false;
+    }
+  }
+  return renameOverClaim(oldPath, newPath, true);
+}
+
+async function renameOverClaim(oldPath: string, newPath: string, isDirectory: boolean): Promise<boolean> {
+  let claim: Claim;
+  try {
+    claim = await claimName(newPath, isDirectory);
+  } catch {
+    return false;
+  }
+  try {
+    await fs.rename(oldPath, newPath); // replaces only our empty placeholder
+    return true;
+  } catch {
+    await releaseClaim(claim);
+    return false;
+  }
+}

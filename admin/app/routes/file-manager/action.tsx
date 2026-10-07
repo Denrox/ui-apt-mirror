@@ -7,7 +7,7 @@ import appConfig from '~/config/config.json';
 import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import { resolveEntry, resolveInside, storageRoots, writeBlockedReason } from '~/utils/safe-path';
 import { checkLockFile } from '~/utils/sync';
-import { moveFile, restoreParkedMoves } from '~/utils/move-path';
+import { moveFile, renameEntry, restoreParkedMoves } from '~/utils/move-path';
 import {
   abortUpload,
   nameTakenError,
@@ -83,18 +83,8 @@ async function deleteFile(filePath: string): Promise<boolean> {
 }
 
 async function renameFile(oldPath: string, newName: string): Promise<boolean> {
-  try {
-    const dirPath = path.dirname(oldPath);
-    const newPath = path.join(dirPath, newName);
-
-    // lstat: a dangling symlink still takes the name
-    if (await pathExists(newPath)) return false;
-
-    await fs.rename(oldPath, newPath);
-    return true;
-  } catch (error) {
-    return false;
-  }
+  // Never replaces an entry, even one created after a taken-name check.
+  return renameEntry(oldPath, newName);
 }
 
 async function downloadFile(url: string, destPath: string): Promise<DownloadResult> {

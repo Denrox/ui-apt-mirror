@@ -1,36 +1,78 @@
-// Per client IP: a few guesses, then wait.
+import { readFileSync } from 'fs';
+
+// Failed logins are counted in sliding 15-minute windows, in two kinds of bucket:
+//
+// - Per client address (5): a few guesses from one address, then wait. Only
+//   the failures of the user who signs in are cleared by a success, so an
+//   attacker can't reset the count by signing in to an account of their own
+//   between guesses. It also caps what one address adds to the per-username
+//   bucket, so locking someone out takes several addresses.
+// - Per username, across all addresses (20): slows guessing spread over many
+//   addresses. It never applies to an address that has signed in as that user
+//   before, so a stranger can't lock the owner out of the places they use.
+//
+// Some addresses are shared by many clients the app can't tell apart: the
+// Docker gateway (every IPv6 client and every client on the Docker host
+// reaches nginx through docker-proxy from there) and loopback. A per-address
+// limit there would let one of them lock out all the others, so on a shared
+// address the limit is per address *and* username instead, and a login from
+// there never makes the address "known" for the user.
 const MAX_FAILURES = 5;
-// Per username across all IPs: slows guessing spread over many addresses.
-// It never applies to an IP that has signed in as that user before, so a
-// stranger can't lock the owner out of their own account.
 const MAX_USER_FAILURES = 20;
 const WINDOW_MS = 15 * 60 * 1000;
 const KNOWN_IP_MS = 30 * 24 * 60 * 60 * 1000;
-const MAX_KEYS = 10000;
+const MAX_KEYS = 50000;
 
-const attempts = new Map<string, number[]>();
+interface Failure {
+  t: number;
+  user: string;
+}
+
+const attempts = new Map<string, Failure[]>();
 // "<user>@<ip>" -> time of the last successful login from there.
 const knownIps = new Map<string, number>();
 
-function recent(key: string, now: number): number[] {
-  const list = (attempts.get(key) ?? []).filter((t) => t > now - WINDOW_MS);
+function recent(key: string, now: number): Failure[] {
+  const list = (attempts.get(key) ?? []).filter((f) => f.t > now - WINDOW_MS);
   if (list.length) attempts.set(key, list);
   else attempts.delete(key);
   return list;
 }
 
+function addressKey(ip: string, username: string): string {
+  return isSharedAddress(ip) ? `pair:${ip} ${username}` : `ip:${ip}`;
+}
+
 function keys(ip: string, username: string): string[] {
-  return [`ip:${ip}`, `user:${username}`];
+  return [addressKey(ip, username), `user:${username}`];
 }
 
 function isKnownIp(ip: string, username: string, now: number): boolean {
+  if (isSharedAddress(ip)) return false;
   const last = knownIps.get(`${username}@${ip}`);
   return last !== undefined && last > now - KNOWN_IP_MS;
 }
 
 function limitFor(key: string, ip: string, username: string, now: number): number {
-  if (key.startsWith('ip:')) return MAX_FAILURES;
+  if (!key.startsWith('user:')) return MAX_FAILURES;
   return isKnownIp(ip, username, now) ? Infinity : MAX_USER_FAILURES;
+}
+
+/**
+ * Makes room when the map is full. Buckets with the fewest failures go first
+ * (oldest first among equals), so a flood of one-off guesses at made-up names
+ * can't push out a bucket that is close to its limit.
+ */
+function makeRoom(now: number): void {
+  for (const key of [...attempts.keys()]) recent(key, now);
+  if (attempts.size < MAX_KEYS) return;
+  const byCount = [...attempts].map(([key, list], order) => ({ key, n: list.length, order }));
+  byCount.sort((a, b) => a.n - b.n || a.order - b.order);
+  const target = Math.floor(MAX_KEYS * 0.9);
+  for (const { key } of byCount) {
+    if (attempts.size <= target) break;
+    attempts.delete(key);
+  }
 }
 
 /**
@@ -49,19 +91,15 @@ export function beginLoginAttempt(
     if (list.length >= limit) {
       retryAfter = Math.max(
         retryAfter,
-        Math.ceil((list[list.length - limit] + WINDOW_MS - now) / 1000),
+        Math.ceil((list[list.length - limit].t + WINDOW_MS - now) / 1000),
       );
     }
   }
   if (retryAfter > 0) return retryAfter;
 
-  if (attempts.size >= MAX_KEYS) {
-    for (const key of [...attempts.keys()]) recent(key, now);
-    while (attempts.size >= MAX_KEYS)
-      attempts.delete(attempts.keys().next().value!);
-  }
+  if (attempts.size >= MAX_KEYS) makeRoom(now);
   for (const key of keys(ip, username)) {
-    attempts.set(key, [...recent(key, now), now]);
+    attempts.set(key, [...recent(key, now), { t: now, user: username }]);
   }
   return 0;
 }
@@ -71,7 +109,14 @@ export function loginSucceeded(
   username: string,
   now = Date.now(),
 ): void {
-  for (const key of keys(ip, username)) attempts.delete(key);
+  // The user's own mistakes from here are forgiven; guesses at other names stay.
+  const key = addressKey(ip, username);
+  const others = recent(key, now).filter((f) => f.user !== username);
+  if (others.length) attempts.set(key, others);
+  else attempts.delete(key);
+  attempts.delete(`user:${username}`);
+
+  if (isSharedAddress(ip)) return;
   const known = `${username}@${ip}`;
   knownIps.delete(known);
   if (knownIps.size >= MAX_KEYS) knownIps.delete(knownIps.keys().next().value!);
@@ -83,12 +128,57 @@ export function tooManyAttemptsMessage(retryAfter: number): string {
   return `Too many failed login attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
 }
 
+/**
+ * The client address as nginx saw it. Every nginx location that proxies to the
+ * app sets X-Real-IP to $remote_addr, replacing whatever the client sent, and
+ * the app listens on loopback only. X-Forwarded-For is never used: nginx
+ * appends to the client's own value.
+ */
 export function clientIp(request: Request): string {
-  // nginx sets X-Real-IP to the peer address; the app port isn't published.
   return request.headers.get('X-Real-IP')?.trim() || 'unknown';
 }
 
-export function resetLoginLimiter(): void {
+/** IPv4 default gateways in /proc/net/route format (little-endian hex). */
+export function parseDefaultGateways(routeTable: string): string[] {
+  const gateways: string[] = [];
+  for (const line of routeTable.split('\n').slice(1)) {
+    const [, destination, gateway] = line.trim().split(/\s+/);
+    if (destination !== '00000000' || !/^[0-9A-Fa-f]{8}$/.test(gateway ?? '')) continue;
+    const bytes = gateway.match(/../g)!.map((b) => parseInt(b, 16)).reverse();
+    if (bytes.some((b) => b !== 0)) gateways.push(bytes.join('.'));
+  }
+  return gateways;
+}
+
+let gateways: Set<string> | null = null;
+
+function dockerGateways(): Set<string> {
+  if (!gateways) {
+    try {
+      gateways = new Set(parseDefaultGateways(readFileSync('/proc/net/route', 'utf-8')));
+    } catch {
+      gateways = new Set();
+    }
+  }
+  return gateways;
+}
+
+/**
+ * True for an address many clients may share: the container's gateway (docker-proxy
+ * connects from there for IPv6 and host-local clients), loopback, or none at all.
+ */
+export function isSharedAddress(ip: string): boolean {
+  const v4 = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+  return (
+    ip === 'unknown' ||
+    ip === '::1' ||
+    v4.startsWith('127.') ||
+    dockerGateways().has(v4)
+  );
+}
+
+export function resetLoginLimiter(sharedGateways?: string[]): void {
   attempts.clear();
   knownIps.clear();
+  gateways = sharedGateways ? new Set(sharedGateways) : null;
 }
