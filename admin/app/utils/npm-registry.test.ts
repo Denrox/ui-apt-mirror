@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import zlib from 'zlib';
+import { createHash } from 'crypto';
 import {
   applyDocUpdate,
   auditPackageNames,
@@ -10,6 +11,7 @@ import {
   isValidVersion,
   isWebLoginPath,
   logoutPathToken,
+  matchesDist,
   tarballsAt,
   mergePublish,
   nextRev,
@@ -22,6 +24,7 @@ import {
   publicCachePath,
   revMatches,
   scopeListsPackage,
+  tarballDist,
   upstreamUrl,
   upstreamHeaders,
   withoutAuditPackages,
@@ -481,5 +484,33 @@ describe('decodeBody', () => {
     );
     await expect(decodeBody(Buffer.alloc(2048), undefined, 1024)).rejects.toBeInstanceOf(PayloadTooLargeError);
     expect((await decodeBody(zlib.gzipSync(Buffer.alloc(1024)), 'gzip', 1024)).length).toBe(1024);
+  });
+});
+
+describe('tarball integrity', () => {
+  const data = Buffer.from('tarball bytes');
+  const hash = (algorithm: string, encoding: 'hex' | 'base64') => createHash(algorithm).update(data).digest(encoding);
+
+  it('finds the dist of the version whose tarball it is', () => {
+    const doc = JSON.stringify({
+      versions: {
+        '1.0.0': { dist: { tarball: 'https://registry.npmjs.org/a/-/a-1.0.0.tgz', integrity: 'sha512-x' } },
+        '1.1.0': { dist: { tarball: 'https://registry.npmjs.org/a/-/a-1.1.0.tgz', shasum: 'abc' } },
+      },
+    });
+    expect(tarballDist(doc, 'a-1.0.0.tgz')).toEqual({ integrity: 'sha512-x', shasum: undefined });
+    expect(tarballDist(doc, 'a-1.1.0.tgz')).toEqual({ integrity: undefined, shasum: 'abc' });
+    expect(tarballDist(doc, 'a-2.0.0.tgz')).toBeNull();
+    expect(tarballDist('{"versions":', 'a-1.0.0.tgz')).toBeNull();
+  });
+
+  it('compares the SRI hashes, else the sha1 shasum', () => {
+    expect(matchesDist(data, { integrity: `sha512-${hash('sha512', 'base64')}` })).toBe(true);
+    expect(matchesDist(data, { integrity: `sha512-${hash('sha1', 'base64')}` })).toBe(false);
+    expect(matchesDist(data, { integrity: `md5-x sha1-${hash('sha1', 'base64')}` })).toBe(true);
+    expect(matchesDist(data, { integrity: `sha512-${hash('sha512', 'base64')}`, shasum: 'wrong' })).toBe(true);
+    expect(matchesDist(data, { shasum: hash('sha1', 'hex') })).toBe(true);
+    expect(matchesDist(data, { shasum: 'wrong' })).toBe(false);
+    expect(matchesDist(data, {})).toBe(true);
   });
 });

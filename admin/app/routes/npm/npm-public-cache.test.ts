@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { promises as fs } from 'fs';
+import { createHash } from 'crypto';
+import path from 'path';
 
 const env = vi.hoisted(() => {
   const { mkdtempSync } = require('fs') as typeof import('fs');
@@ -11,6 +13,8 @@ const env = vi.hoisted(() => {
     online: true,
     upstream: new Map<string, string>(),
     requests: [] as string[],
+    // Paths whose upstream connection closes before the whole body arrived.
+    cutShort: new Set<string>(),
     hosts: [] as string[],
   };
 });
@@ -41,6 +45,7 @@ const fakeHttp = vi.hoisted(() => (scheme: string) => {
           if (!env.online) return req.emit('error', new Error('offline'));
           const body = env.upstream.get(key);
           const res = Object.assign(new EventEmitter(), {
+            complete: !env.cutShort.has(key),
             statusCode: body === undefined ? 404 : 200,
             headers: { 'content-type': 'application/octet-stream', etag: `"${key}"` },
           });
@@ -80,6 +85,7 @@ beforeEach(() => {
   env.requests.length = 0;
   env.hosts.length = 0;
   env.upstream.clear();
+  env.cutShort.clear();
 });
 
 afterAll(async () => {
@@ -179,3 +185,55 @@ describe('tarball URLs of public packages', () => {
   });
 });
 
+
+describe('cached tarballs', () => {
+  const tarballFile = (name: string, file: string) => path.join(env.npm, 'public/_packages', name, '-', file);
+
+  it('are served only once written whole, with metadata of their size', async () => {
+    env.upstream.set('half/-/half-1.0.0.tgz', 'the whole tarball');
+    const file = tarballFile('half', 'half-1.0.0.tgz');
+    // What a write still going on, or one cut short by a crash, leaves behind.
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, 'the who');
+    let res = await get('/half/-/half-1.0.0.tgz');
+    expect([res.body, res.cache]).toEqual(['the whole tarball', 'MISS']);
+    expect(await fs.readFile(file, 'utf-8')).toBe('the whole tarball');
+    expect((await fs.readdir(path.dirname(file))).sort()).toEqual(['half-1.0.0.tgz', 'half-1.0.0.tgz.meta']);
+
+    // The metadata of an earlier, longer body.
+    await fs.writeFile(file, 'the whole');
+    res = await get('/half/-/half-1.0.0.tgz');
+    expect([res.body, res.cache]).toEqual(['the whole tarball', 'MISS']);
+    res = await get('/half/-/half-1.0.0.tgz');
+    expect([res.body, res.cache]).toEqual(['the whole tarball', 'HIT']);
+  });
+
+  it('are not cached when the upstream connection closed early', async () => {
+    env.upstream.set('cut/-/cut-1.0.0.tgz', 'the first part');
+    env.cutShort.add('cut/-/cut-1.0.0.tgz');
+    expect((await get('/cut/-/cut-1.0.0.tgz')).status).toBe(500);
+    await expect(fs.stat(tarballFile('cut', 'cut-1.0.0.tgz'))).rejects.toThrow();
+  });
+
+  it('are cached only when they match the integrity in the cached packument', async () => {
+    const body = 'signed tarball';
+    const sha512 = createHash('sha512').update(body).digest('base64');
+    const doc = {
+      name: 'checked',
+      versions: {
+        '1.0.0': { dist: { tarball: 'https://registry.npmjs.org/checked/-/checked-1.0.0.tgz', integrity: `sha512-${sha512}` } },
+      },
+    };
+    env.upstream.set('checked', JSON.stringify(doc));
+    expect((await get('/checked')).status).toBe(200);
+
+    env.upstream.set('checked/-/checked-1.0.0.tgz', 'signed tarbal');
+    expect((await get('/checked/-/checked-1.0.0.tgz')).status).toBe(500);
+    await expect(fs.stat(tarballFile('checked', 'checked-1.0.0.tgz'))).rejects.toThrow();
+
+    env.upstream.set('checked/-/checked-1.0.0.tgz', body);
+    const res = await get('/checked/-/checked-1.0.0.tgz');
+    expect([res.status, res.body]).toEqual([200, body]);
+    expect(await fs.readFile(tarballFile('checked', 'checked-1.0.0.tgz'), 'utf-8')).toBe(body);
+  });
+});

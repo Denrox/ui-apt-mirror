@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import https from 'https';
 import zlib from 'zlib';
+import { randomBytes } from 'crypto';
 import { isWithin } from '~/utils/safe-path';
 import { hostAddress } from '~/utils/hosts';
 import appConfig from '~/config/config.json';
@@ -26,6 +27,7 @@ import {
   isValidVersion,
   isWebLoginPath,
   logoutPathToken,
+  matchesDist,
   mergePublish,
   nextRev,
   packageScope,
@@ -37,6 +39,7 @@ import {
   publicCachePath,
   revMatches,
   scopeListsPackage,
+  tarballDist,
   tarballsAt,
   type DocResult,
   type NpmPath,
@@ -120,6 +123,7 @@ async function fetchFromNpm(
       res.on('data', (chunk) => {
         chunks.push(chunk);
       });
+      res.on('error', reject);
 
       res.on('end', () => {
         let data = Buffer.concat(chunks);
@@ -127,6 +131,13 @@ async function fetchFromNpm(
         if (res.statusCode === 304) {
           console.log(`304 Not Modified for ${packagePath} - using cached version`);
           reject(new Error('304_NOT_MODIFIED'));
+          return;
+        }
+
+        // A connection that closed early ends the body too; such a body must not be cached.
+        const declared = res.headers['content-length'];
+        if (res.complete === false || (declared !== undefined && Number(declared) !== data.length)) {
+          reject(new Error(`Incomplete response from npm registry for ${packagePath}`));
           return;
         }
         
@@ -199,6 +210,22 @@ async function fetchFromNpm(
   });
 }
 
+/** Write a file under a temporary name and rename it into place, so no reader sees it half written. */
+async function writeFileAtomic(filePath: string, data: string | Buffer) {
+  const tmp = `${filePath}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
+  try {
+    await fs.writeFile(tmp, data);
+    await fs.rename(tmp, filePath);
+  } catch (error) {
+    await fs.rm(tmp, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+/**
+ * Cache a complete upstream body. The body and then its .meta are each renamed into place whole;
+ * the .meta records the body's size, and a body without a .meta of its size is not served.
+ */
 async function saveToCache(
   filePath: string,
   data: Buffer,
@@ -211,11 +238,9 @@ async function saveToCache(
     }
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, data);
-
-    const metaPath = filePath + '.meta';
-    await fs.writeFile(
-      metaPath,
+    await writeFileAtomic(filePath, data);
+    await writeFileAtomic(
+      filePath + '.meta',
       JSON.stringify(
         {
           headers,
@@ -231,6 +256,10 @@ async function saveToCache(
   }
 }
 
+/**
+ * A cached body with its headers. A body whose .meta is missing or names another size (a write
+ * that is still going on, or one cut short by a crash before writes were atomic) is a miss.
+ */
 async function loadFromCache(
   filePath: string,
 ): Promise<{ data: Buffer; headers: Record<string, string> }> {
@@ -241,23 +270,30 @@ async function loadFromCache(
       throw new Error('Empty cached file');
     }
 
-    let headers: Record<string, string> = {};
-    try {
-      const metaPath = filePath + '.meta';
-      const metaData = await fs.readFile(metaPath, 'utf-8');
-      const meta = JSON.parse(metaData);
-      headers = meta.headers || {};
-
-      headers['x-cache'] = 'HIT';
-      headers['x-cached-at'] = meta.cachedAt;
-    } catch {
-      headers['x-cache'] = 'HIT';
+    const meta = JSON.parse(await fs.readFile(filePath + '.meta', 'utf-8'));
+    if (meta?.size !== data.length) {
+      throw new Error('Cached file does not match its metadata');
     }
+    const headers: Record<string, string> = { ...meta.headers };
+    headers['x-cache'] = 'HIT';
+    headers['x-cached-at'] = meta.cachedAt;
 
     return { data, headers };
   } catch (error) {
     throw new Error('Failed to load from cache');
   }
+}
+
+/**
+ * Whether a downloaded tarball matches what the cached packument of its package says about it
+ * (dist.integrity or dist.shasum). Without a cached packument, or a version naming the tarball,
+ * there is nothing to check against.
+ */
+async function matchesCachedPackument(tarballCachePath: string, data: Buffer): Promise<boolean> {
+  const packumentPath = path.join(path.dirname(path.dirname(tarballCachePath)), 'package.json');
+  const packument = await fs.readFile(packumentPath, 'utf-8').catch(() => null);
+  const dist = packument && tarballDist(packument, path.basename(tarballCachePath));
+  return !dist || matchesDist(data, dist);
 }
 
 async function isPrivatePackage(packageName: string): Promise<boolean> {
@@ -433,8 +469,9 @@ async function loadPublicPackage(
   cachePath: string,
   originalHeaders: Record<string, string>,
 ): Promise<Upstream> {
+  const isTarball = packagePath.includes('/-/');
   const cached = await loadFromCache(cachePath).catch(() => null);
-  if (cached && (packagePath.includes('/-/') || isFresh(cached.headers['x-cached-at']))) {
+  if (cached && (isTarball || isFresh(cached.headers['x-cached-at']))) {
     return { ...cached, status: 200 };
   }
 
@@ -443,6 +480,9 @@ async function loadPublicPackage(
 
   try {
     const fetched = await fetchFromNpm(packagePath, '', forwarded);
+    if (fetched.status === 200 && isTarball && !(await matchesCachedPackument(cachePath, fetched.data))) {
+      throw new Error(`${packagePath} does not match the integrity in its packument`);
+    }
     // Only successful responses are cached; a 404 or an error is passed on as is.
     if (fetched.status === 200) await saveToCache(cachePath, fetched.data, fetched.headers);
     else if (cached && fetched.status >= 500) throw new Error(`Upstream returned ${fetched.status}`);

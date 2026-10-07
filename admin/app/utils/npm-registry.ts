@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import zlib from 'zlib';
 
 // npm's own rules for package names; anything else could escape the storage dirs.
@@ -398,4 +398,45 @@ export function decodeBody(body: Buffer, encoding: string | undefined, maxBytes:
     decoder.on('end', () => resolve(Buffer.concat(chunks)));
     decoder.end(body);
   });
+}
+
+export interface TarballDist {
+  integrity?: string;
+  shasum?: string;
+}
+
+/** dist.integrity and dist.shasum of the version whose tarball is `file`, from a packument; or null. */
+export function tarballDist(packument: string, file: string): TarballDist | null {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(packument);
+  } catch {
+    return null;
+  }
+  if (!isObject(doc) || !isObject(doc.versions)) return null;
+  for (const version of Object.values(doc.versions)) {
+    const dist = isObject(version) && isObject(version.dist) ? version.dist : null;
+    if (typeof dist?.tarball !== 'string' || !dist.tarball.endsWith(`/-/${file}`)) continue;
+    return {
+      integrity: typeof dist.integrity === 'string' ? dist.integrity : undefined,
+      shasum: typeof dist.shasum === 'string' ? dist.shasum : undefined,
+    };
+  }
+  return null;
+}
+
+const SRI_ALGORITHMS = new Set(['sha512', 'sha384', 'sha256', 'sha1']);
+
+/**
+ * Whether data has the hashes of `dist`: one of the known algorithms in the SRI string
+ * (integrity), else the hex sha1 (shasum). With neither there is nothing to compare.
+ */
+export function matchesDist(data: Buffer, dist: TarballDist): boolean {
+  const sri = (dist.integrity ?? '')
+    .split(/\s+/)
+    .map((entry) => /^([a-z0-9]+)-([A-Za-z0-9+/=]+)(?:\?.*)?$/.exec(entry))
+    .filter((m): m is RegExpExecArray => !!m && SRI_ALGORITHMS.has(m[1]));
+  if (sri.length) return sri.some(([, algorithm, digest]) => createHash(algorithm).update(data).digest('base64') === digest);
+  if (dist.shasum) return createHash('sha1').update(data).digest('hex') === dist.shasum.toLowerCase();
+  return true;
 }
