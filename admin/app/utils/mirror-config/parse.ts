@@ -20,19 +20,21 @@ const FILTER_KEY_SET = new Set<string>(FILTER_KEYS);
  * matches nothing becomes a {@link RawNode} and is preserved verbatim.
  */
 
-const SECTION_START = /^#\s*---start---(.+?)---\s*$/;
-const SECTION_END = /^#\s*---end---(.+?)---\s*$/;
+// The `s` flag on every pattern with `.`: lines are split on \n only, so a line may still hold
+// U+2028/U+2029 (which `.` does not match without it). No line may make parsing fail.
+const SECTION_START = /^#\s*---start---(.+?)---\s*$/s;
+const SECTION_END = /^#\s*---end---(.+?)---\s*$/s;
 const USAGE_START = /^#\s*Usage start\s*$/i;
 const USAGE_END = /^#\s*Usage end\s*$/i;
 
 // `set <key> <value>`. Value keeps trailing-trimmed remainder (may hold spaces
 // or quotes, e.g. `set _user_agent "apt-mirror2/14"`).
-const SET = /^set\s+(\S+)\s+(.*?)\s*$/;
+const SET = /^set\s+(\S+)\s+(.*?)\s*$/s;
 
 // `deb` / `deb-src`, optionally commented and with `[opt ...]`. The trailing
 // `\S` after the keyword's whitespace ensures `# Debian ...` does not match.
 const DEB =
-  /^(#\s*)?(deb-src|deb)\s+(?:\[([^\]]*)\]\s+)?(\S+)(?:\s+(\S+)(?:\s+(.*?))?)?\s*$/i;
+  /^(#\s*)?(deb-src|deb)\s+(?:\[([^\]]*)\]\s+)?(\S+)(?:\s+(\S+)(?:\s+(.*?))?)?\s*$/is;
 
 // `clean <uri>`, optionally commented.
 const CLEAN = /^(#\s*)?clean\s+(\S+)\s*$/i;
@@ -73,13 +75,13 @@ function parseSet(line: string): SetNode | null {
 
 // `<filter_key> <repo-url> <value> <value> ...` (apt-mirror2 package filters), optionally commented.
 function parseFilter(line: string): FilterNode | null {
-  const m = /^(#\s*)?(.*)$/.exec(line)!;
-  const tokens = m[2].split(/\s+/).filter(Boolean);
+  const commentPrefix = /^#\s*/.exec(line)?.[0] ?? '';
+  const tokens = line.slice(commentPrefix.length).split(/\s+/).filter(Boolean);
   if (tokens.length < 2 || !FILTER_KEY_SET.has(tokens[0])) return null;
   return {
     kind: 'filter',
     key: tokens[0] as FilterKey,
-    enabled: !m[1],
+    enabled: !commentPrefix,
     uri: tokens[1],
     values: tokens.slice(2),
     raw: line,

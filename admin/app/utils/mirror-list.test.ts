@@ -26,6 +26,11 @@ describe('validateRepositoryInput', () => {
     ['title', { title: 'Repo\nclean http://x' }],
     ['filter value', { filters: { include_binary_packages: ['pkg\nset x y'] } }],
     ['other control characters', { description: 'bell\u0007' }],
+    ['description (U+2028 line separator)', { description: 'x\u2028deb http://evil/ trixie main' }],
+    ['description (U+2029 paragraph separator)', { description: 'x\u2029y' }],
+    ['title (U+2028 line separator)', { title: 'Repo\u2028x' }],
+    ['base URL (U+0085 next line)', { baseUrl: 'http://deb.debian.org/debian\u0085' }],
+    ['filter value (U+2029)', { filters: { include_binary_packages: ['pkg\u2029x'] } }],
   ])('rejects a line break or control character in the %s', (_name, change) => {
     expect(validateRepositoryInput({ ...valid, ...change }, [])).toMatch(/line breaks|control/);
   });

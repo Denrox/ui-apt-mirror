@@ -52,7 +52,9 @@ export function getSectionTitles(content: string): string[] {
  * Validate user input for a new repository. Returns an error string, or null
  * when the input is valid.
  */
-const CONTROL_RE = /[\u0000-\u001f\u007f]/;
+// C0/C1 controls (incl. U+0085 NEL) and the Unicode line/paragraph separators U+2028/U+2029:
+// line terminators to some readers (Python's splitlines, JS `.`), so none may reach the file.
+const CONTROL_RE = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 const TOKEN_RE = /^[A-Za-z0-9._+~\/-]+$/;
 
 export function validateRepositoryInput(
