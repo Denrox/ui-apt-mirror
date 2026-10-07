@@ -146,12 +146,13 @@ async function storeChunk(opts: ChunkOptions): Promise<'chunk' | 'done'> {
 
   if (upload.nextIndex < totalChunks) return 'chunk';
   uploads.delete(fileId);
-  if (await pathExists(destPath)) {
-    await fs.rm(upload.tempDir, { recursive: true, force: true });
-    throw new NameTakenError(fileName);
-  }
   try {
-    await fs.rename(upload.tempFile, destPath);
+    // link(2), unlike rename(2), fails when the name exists, so nothing stored under it after
+    // the check at chunk 0 (another upload, a rename, a move) is ever replaced.
+    await fs.link(upload.tempFile, destPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new NameTakenError(fileName);
+    throw error;
   } finally {
     await fs.rm(upload.tempDir, { recursive: true, force: true });
   }
