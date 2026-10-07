@@ -209,6 +209,22 @@ describe('request body size (r3-files-3)', () => {
   });
 });
 
+describe('folder paths (r3-files-5)', () => {
+  it('redirects another spelling of a folder to its canonical path', async () => {
+    fs.mkdirSync(path.join(dirs.files, 'base'));
+    for (const spelling of [`${dirs.files}/base/`, `${dirs.files}//base`, `${dirs.files}/./base`]) {
+      const thrown = await loader({
+        request: new Request(`http://admin.mirror.intra/file-manager?path=${encodeURIComponent(spelling)}&page=2`),
+      }).catch((e: unknown) => e);
+      expect(thrown).toBeInstanceOf(Response);
+      const location = new URL((thrown as Response).headers.get('Location')!, 'http://admin.mirror.intra');
+      expect(location.pathname).toBe('/file-manager');
+      expect(location.searchParams.get('path')).toBe(`${dirs.files}/base`);
+      expect(location.searchParams.get('page')).toBe('2');
+    }
+  });
+});
+
 describe('URL download (r2-files-4)', () => {
   it('cancelling ends the pending request and leaves nothing behind', async () => {
     const http = await import('http');
