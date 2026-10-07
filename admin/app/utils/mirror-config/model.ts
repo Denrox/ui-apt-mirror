@@ -128,6 +128,42 @@ export class MirrorConfig {
     );
   }
 
+  /**
+   * apt-mirror2 keeps one package filter per upstream (base URL): the filters of every enabled
+   * section on that URL are combined and restrict all of them. The other enabled sections on
+   * the same upstream as this one, with whether each is filtered.
+   */
+  upstreamNeighbours(section: SectionNode): { title: string; filtered: boolean }[] {
+    const urls = new Set(baseUrlsOf(section, true).map(canonicalBaseUrl));
+    if (!urls.size) return [];
+    return this.sections()
+      .filter(
+        (other) =>
+          other !== section &&
+          this.isSectionEnabled(other) &&
+          baseUrlsOf(other, true).some((u) => urls.has(canonicalBaseUrl(u))),
+      )
+      .map((other) => ({ title: other.title, filtered: this.isSectionFiltered(other) }));
+  }
+
+  /**
+   * Why an enabled section cannot be mirrored as configured: it shares its upstream with an
+   * enabled section that is filtered while it is not (or the other way round), so one
+   * repository's filter would silently restrict the other. Null when there is no such clash.
+   */
+  filterConflict(section: SectionNode): string | null {
+    if (!this.isSectionEnabled(section)) return null;
+    const filtered = this.isSectionFiltered(section);
+    const clash = this.upstreamNeighbours(section).find((n) => n.filtered !== filtered);
+    if (!clash) return null;
+    const [unfiltered, withFilter] = filtered ? [clash.title, section.title] : [section.title, clash.title];
+    return (
+      `"${unfiltered}" has no package filter but shares its upstream with "${withFilter}", which has one. ` +
+      `apt-mirror2 applies package filters to the whole upstream (base URL), so "${unfiltered}" would only get ` +
+      `the packages "${withFilter}" selects. Give both the same filters, or disable or remove one of them.`
+    );
+  }
+
   /** A section is enabled when at least one of its deb directives is active. */
   isSectionEnabled(section: SectionNode): boolean {
     return debChildren(section).some((d) => d.enabled);
@@ -195,10 +231,15 @@ export class MirrorConfig {
     const trustedOption = debs.some((d) =>
       d.options.some((o) => /^trusted=yes$/i.test(o)),
     );
+    // deb822 `Trusted: yes`, or a one-line `deb [trusted=yes] ...` snippet (the stock Docker sections).
     const trustedUsage = section.children.some(
       (c) =>
         c.kind === 'usage' &&
-        c.lines.some((l) => /^#?\s*Trusted:\s*yes\b/i.test(l)),
+        c.lines.some(
+          (l) =>
+            /^#?\s*Trusted:\s*yes\b/i.test(l) ||
+            /^#?\s*deb(?:-src)?\s+\[[^\]]*\btrusted=yes\b[^\]]*\]/i.test(l),
+        ),
     );
 
     const firstComment = section.children.find(
@@ -383,10 +424,12 @@ function debChildren(section: SectionNode): DebNode[] {
   return section.children.filter((c): c is DebNode => c.kind === 'deb');
 }
 
-/** Distinct normalized base URLs referenced by a section's deb directives. */
-function baseUrlsOf(section: SectionNode): string[] {
+/** Distinct normalized base URLs referenced by a section's deb directives (only active ones if asked). */
+function baseUrlsOf(section: SectionNode, enabledOnly = false): string[] {
   const urls = new Set<string>();
-  for (const deb of debChildren(section)) urls.add(normalizeUrl(deb.uri));
+  for (const deb of debChildren(section)) {
+    if (!enabledOnly || deb.enabled) urls.add(normalizeUrl(deb.uri));
+  }
   return Array.from(urls);
 }
 
@@ -442,7 +485,8 @@ function buildUsage(
 ): UsageNode {
   const comps = input.components.join(' ');
   const url = new URL(base);
-  const mirrorPath = normalizeUrl(`${url.hostname}${url.pathname}`);
+  // apt-mirror2 keeps a non-default port in the folder name (host:port).
+  const mirrorPath = normalizeUrl(`${url.host}${url.pathname}`);
   const lines = [
     `#Types: deb${input.includeSrc ? ' deb-src' : ''}`,
     `#URIs: http://${mirrorDomain}/${mirrorPath}`,

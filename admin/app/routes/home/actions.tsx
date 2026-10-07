@@ -56,6 +56,22 @@ function revisionError(config: MirrorConfig, title: string, formData: FormData):
   return section && revision !== config.sectionRevision(section) ? STALE_ERROR : null;
 }
 
+/**
+ * Delete the mirrored (and skel) files of the given upstream URIs that no enabled repository
+ * uses any more: apt-mirror2 never cleans an upstream that is no longer synced, so its files
+ * would stay on disk (and served) for good. Returns the end of the message for the user.
+ */
+async function deleteUnusedData(config: MirrorConfig, uris: string[]): Promise<string> {
+  const dirs = unusedMirrorDirs(config, uris);
+  const roots = [appConfig.mirrorRoot, path.join(path.dirname(appConfig.mirrorRoot), 'skel')];
+  const deleted = dirs.length ? await deleteMirrorDirs(dirs, roots) : [];
+  return deleted.length
+    ? ' and its mirrored files deleted'
+    : dirs.length
+      ? '; it had no mirrored files'
+      : '; its mirrored files are kept because another enabled repository uses the same upstream';
+}
+
 function signedMessage(count: number): string {
   return count
     ? ` and signed ${count} Release file(s)`
@@ -147,18 +163,9 @@ export async function action({ request }: { request: Request }) {
           return { success: true, message: `Repository "${sectionTitle}" removed` };
         }
 
-        // apt-mirror2 never cleans an upstream that is no longer configured, so its files
-        // would stay on disk (and served) for good.
-        const dirs = unusedMirrorDirs(config, uris);
-        const roots = [appConfig.mirrorRoot, path.join(path.dirname(appConfig.mirrorRoot), 'skel')];
-        const deleted = dirs.length ? await deleteMirrorDirs(dirs, roots) : [];
         return {
           success: true,
-          message: deleted.length
-            ? `Repository "${sectionTitle}" removed and its mirrored files deleted`
-            : dirs.length
-              ? `Repository "${sectionTitle}" removed; it had no mirrored files`
-              : `Repository "${sectionTitle}" removed; its mirrored files are kept because another enabled repository uses the same upstream`,
+          message: `Repository "${sectionTitle}" removed${await deleteUnusedData(config, uris)}`,
         };
       });
     } catch (error) {
@@ -188,9 +195,21 @@ export async function action({ request }: { request: Request }) {
 
         // Toggle only the deb and filter directives in the section; comments (the
         // description) and the client-facing Usage snippet are left untouched.
-        config.setSectionEnabled(sectionTitle, enable, formRevision(formData));
+        const section = config.getSection(sectionTitle, formRevision(formData))!;
+        config.setEnabled(section, enable);
+        // Enabling can put an unfiltered and a filtered repository on one upstream.
+        const conflict = config.filterConflict(section);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
+        if (!enable && formData.get('deleteData') === 'true') {
+          // Disabling keeps the files unless asked: enabling again then needs no full download.
+          const uris = section.children.flatMap((c) => (c.kind === 'deb' ? [c.uri] : []));
+          return {
+            success: true,
+            message: `Repository section "${sectionTitle}" disabled${await deleteUnusedData(config, uris)}`,
+          };
+        }
         return {
           success: true,
           message: `Repository section "${sectionTitle}" ${
@@ -221,6 +240,9 @@ export async function action({ request }: { request: Request }) {
         if (validationError) return { error: validationError };
 
         config.addSection(input, mirrorDomain());
+        const added = config.sections().filter((s) => s.title === input.title.trim()).pop();
+        const conflict = added && config.filterConflict(added);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {
@@ -270,6 +292,8 @@ export async function action({ request }: { request: Request }) {
         config.editSection(originalTitle, input, mirrorDomain(), formRevision(formData));
         // Editing never enables a disabled repository (the next sync would download it).
         if (!wasEnabled) config.setEnabled(section, false);
+        const conflict = config.filterConflict(section);
+        if (conflict) return { error: conflict };
         await atomicWriteFile(mirrorListPath, config.serialize());
 
         return {
@@ -337,8 +361,9 @@ export async function action({ request }: { request: Request }) {
       if (!(await getKey(host))) return { error: `There is no signing key for ${host}` };
       // Before the key goes: Release files signed with it would fail on every client.
       let restored = true;
+      let unrestored = 0;
       try {
-        await restoreUpstreamSignatures(host);
+        unrestored = await restoreUpstreamSignatures(host);
       } catch (restoreError) {
         console.error('Restoring upstream signatures failed:', restoreError);
         restored = false;
@@ -346,9 +371,11 @@ export async function action({ request }: { request: Request }) {
       if (!(await deleteKey(host))) return { error: `There is no signing key for ${host}` };
       return {
         success: true,
-        message: restored
-          ? `Deleted signing key for ${host} and restored the upstream signatures`
-          : `Deleted signing key for ${host}; restoring the upstream signatures failed, run a sync to fix them`,
+        message: !restored
+          ? `Deleted signing key for ${host}; restoring the upstream signatures failed, run a sync to fix them`
+          : unrestored
+            ? `Deleted signing key for ${host}. ${unrestored} Release file(s) had no saved upstream signature and stay signed with the deleted key until the next sync; run a sync to restore them`
+            : `Deleted signing key for ${host} and restored the upstream signatures`,
       };
     } catch (error) {
       console.error('Error deleting GPG key:', error);
