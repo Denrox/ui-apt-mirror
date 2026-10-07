@@ -9,6 +9,7 @@ import { requireAuthMiddleware } from '~/utils/auth-middleware';
 import {
   documentationSections,
   findDocumentationSection,
+  npmLoginCommand,
 } from '~/utils/documentation-sections';
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -412,8 +413,7 @@ export default function Documentation() {
               </p>
               <div className="space-y-2 text-sm">
                 <div className="bg-surface-container-lowest p-2 rounded font-mono text-xs">
-                  npm login --registry=http://{npmHost}
-                  --auth-type=legacy
+                  {npmLoginCommand(npmHost)}
                 </div>
                 <p className="text-on-surface-variant">
                   Enter your username and password when prompted, then verify:

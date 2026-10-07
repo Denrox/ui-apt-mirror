@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findDocumentationSection } from './documentation-sections';
+import { findDocumentationSection, npmLoginCommand } from './documentation-sections';
 
 describe('findDocumentationSection', () => {
   it('finds the known sections', () => {
@@ -13,5 +13,13 @@ describe('findDocumentationSection', () => {
     expect(findDocumentationSection('anything', true)).toBeUndefined();
     expect(findDocumentationSection(undefined, true)).toBeUndefined();
     expect(findDocumentationSection('npm-proxy', false)).toBeUndefined();
+  });
+});
+
+describe('npmLoginCommand', () => {
+  it('separates the registry from the auth type', () => {
+    expect(npmLoginCommand('npm.mirror.intra')).toBe(
+      'npm login --registry=http://npm.mirror.intra --auth-type=legacy',
+    );
   });
 });

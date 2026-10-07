@@ -32,3 +32,8 @@ export function findDocumentationSection(
 ): DocumentationSection | undefined {
   return documentationSections(isNpmProxyEnabled).find((s) => s.id === id);
 }
+
+/** One line, so it can be copied as shown (npm 9+ needs the legacy auth type). */
+export function npmLoginCommand(npmHost: string): string {
+  return `npm login --registry=http://${npmHost} --auth-type=legacy`;
+}
