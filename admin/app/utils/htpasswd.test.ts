@@ -7,10 +7,12 @@ import {
   hashPassword,
   isTokenCurrent,
   parseHtpasswd,
+  parseValidAfter,
   readHtpasswd,
   revokeTokens,
   validAfterPath,
   verifyPassword,
+  withAuthFileLock,
   writePrivateFile,
 } from './htpasswd';
 
@@ -107,5 +109,41 @@ describe('token revocation', () => {
     fs.appendFileSync(validAfterPath(file), 'admin 3000\n');
     expect(isTokenCurrent(file, 'admin', 2000)).toBe(false);
     expect(isTokenCurrent(file, 'admin', 3000)).toBe(true);
+  });
+});
+
+describe('hardening', () => {
+  const YEAR = 365 * 24 * 60 * 60 * 1000;
+
+  it('ignores revocation times far in the future', () => {
+    writePrivateFile(file, 'admin:x\nbob:y\n');
+    writePrivateFile(validAfterPath(file), 'x 1\nbob 99999999999999\n');
+    expect(isTokenCurrent(file, 'bob', Date.now())).toBe(true);
+    expect(parseValidAfter('bob 99999999999999\nbob 5\n', 10).get('bob')).toBe(5);
+  });
+
+  it('refuses to write revocation lines for names with whitespace', () => {
+    writePrivateFile(file, 'admin:x\n');
+    expect(() => revokeTokens(file, 'x 1\nadmin 99999999999999', YEAR)).toThrow();
+    expect(() => revokeTokens(file, 'admin ', YEAR)).toThrow();
+  });
+
+  it('runs locked sections one at a time', async () => {
+    const order: string[] = [];
+    await Promise.all([
+      withAuthFileLock(async () => {
+        order.push('a1');
+        await new Promise((r) => setTimeout(r, 20));
+        order.push('a2');
+      }),
+      withAuthFileLock(() => {
+        order.push('b');
+      }),
+      withAuthFileLock(() => {
+        throw new Error('boom');
+      }).catch(() => order.push('c failed')),
+      withAuthFileLock(() => order.push('d')),
+    ]);
+    expect(order).toEqual(['a1', 'a2', 'b', 'c failed', 'd']);
   });
 });

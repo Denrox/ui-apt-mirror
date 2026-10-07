@@ -64,6 +64,18 @@ export function readHtpasswd(file: string): Map<string, string> {
   return readCached(file, parseHtpasswd, new Map());
 }
 
+/**
+ * Runs `fn` after every earlier call has finished. Read-modify-write of the
+ * auth files goes through here, so two requests can't both pass a check and
+ * then both write (duplicate users, lost updates).
+ */
+let authFileQueue: Promise<unknown> = Promise.resolve();
+export function withAuthFileLock<T>(fn: () => T | Promise<T>): Promise<T> {
+  const run = authFileQueue.then(fn, fn);
+  authFileQueue = run.catch(() => {});
+  return run;
+}
+
 export function hashPassword(password: string, salt?: string): Promise<string> {
   const args = ['passwd', '-6', '-stdin'];
   if (salt) args.push('-salt', salt);
@@ -113,19 +125,24 @@ export function validAfterPath(htpasswdFile: string): string {
   return path.join(path.dirname(htpasswdFile), '.tokens-valid-after');
 }
 
-export function parseValidAfter(content: string): Map<string, number> {
+// A time this far ahead can't have come from revokeTokens; such a line would
+// refuse every token of the user, fresh logins included, until then.
+const MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
+
+export function parseValidAfter(content: string, now = Date.now()): Map<string, number> {
   const entries = new Map<string, number>();
   for (const line of content.split('\n')) {
-    const [user, ms] = line.trim().split(/\s+/);
-    if (user && /^\d+$/.test(ms ?? '')) {
-      entries.set(user, Math.max(Number(ms), entries.get(user) ?? 0));
-    }
+    const [user, ms, ...rest] = line.trim().split(/\s+/);
+    if (!user || rest.length || !/^\d+$/.test(ms ?? '')) continue;
+    const since = Number(ms);
+    if (since > now + MAX_FUTURE_SKEW_MS) continue;
+    entries.set(user, Math.max(since, entries.get(user) ?? 0));
   }
   return entries;
 }
 
 export function readValidAfter(htpasswdFile: string): Map<string, number> {
-  return readCached(validAfterPath(htpasswdFile), parseValidAfter, new Map());
+  return readCached(validAfterPath(htpasswdFile), (c) => parseValidAfter(c), new Map());
 }
 
 export function revokeTokens(
@@ -134,6 +151,10 @@ export function revokeTokens(
   maxTokenAgeMs: number,
   now = Date.now(),
 ): void {
+  // One "<user> <ms>" per line: a name with whitespace would add lines of its own.
+  if (!username || /[\s:]/.test(username)) {
+    throw new Error(`Refusing to revoke tokens of invalid username ${JSON.stringify(username)}`);
+  }
   const entries = new Map(readValidAfter(htpasswdFile)).set(username, now);
   const lines = [...entries]
     .filter(([, since]) => since >= now - maxTokenAgeMs)
