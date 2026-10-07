@@ -31,10 +31,15 @@ export function parseGithubUrl(input: string): GithubSource {
     throw new Error('Only github.com URLs are supported');
   }
 
-  const parts = url.pathname
-    .split('/')
-    .filter(Boolean)
-    .map((p) => decodeURIComponent(p));
+  let parts: string[];
+  try {
+    parts = url.pathname
+      .split('/')
+      .filter(Boolean)
+      .map((p) => decodeURIComponent(p));
+  } catch {
+    throw new Error('Not a valid URL');
+  }
   if (parts.length < 2) {
     throw new Error('URL must point to a repository: github.com/<owner>/<repo>');
   }
@@ -56,13 +61,25 @@ export function parseGithubUrl(input: string): GithubSource {
     ref = parts[3];
     if (!REF_RE.test(ref)) throw new Error('Invalid branch or tag name');
     const folder = parts.slice(4);
-    if (folder.some((s) => s === '.' || s === '..' || /[\\/]/.test(s))) {
+    // Only-dots names ("...") and control characters (%00) are refused too.
+    if (folder.some((s) => /^\.+$/.test(s) || /[\\/]/.test(s) || /\p{Cc}/u.test(s))) {
       throw new Error('Invalid folder path');
     }
     path = folder.join('/');
   }
 
   return { owner, repo, ref, path };
+}
+
+export const MAX_SOURCE_NAME = 100;
+
+/** A source name on one line: no control or bidi-override characters, at most 100 characters. */
+export function cleanSourceName(name: string): string {
+  const flat = name
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return Array.from(flat).slice(0, MAX_SOURCE_NAME).join('').trim();
 }
 
 export function githubWebUrl(s: GithubSource): string {

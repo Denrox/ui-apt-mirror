@@ -11,6 +11,7 @@ import { promisify } from 'util';
 import appConfig from '~/config/config.json';
 import {
   categoriesFor,
+  cleanSourceName,
   defaultSourceName,
   extractHeadings,
   extractTitle,
@@ -70,7 +71,9 @@ let registryLock: Promise<unknown> = Promise.resolve();
 async function readRegistry(): Promise<CheatsheetSource[]> {
   try {
     const data = JSON.parse(await fs.readFile(registryPath(), 'utf-8'));
-    return Array.isArray(data?.sources) ? data.sources : [];
+    if (!Array.isArray(data?.sources)) return [];
+    // Names stored before they were cleaned (any length, newlines) are cleaned here.
+    return (data.sources as CheatsheetSource[]).map((s) => ({ ...s, name: cleanSourceName(s.name ?? '') || s.id }));
   } catch {
     return [];
   }
@@ -142,10 +145,11 @@ export async function addSource(url: string, name?: string): Promise<CheatsheetS
       throw new Error('This source has already been added');
     }
     const id = sourceIdFor(gh, (id) => sources.some((s) => s.id === id));
+    const userName = cleanSourceName(name ?? '');
     const s: CheatsheetSource = {
       id,
-      name: name?.trim() || defaultSourceName(gh),
-      nameFromUser: !!name?.trim(),
+      name: userName || cleanSourceName(defaultSourceName(gh)),
+      nameFromUser: !!userName,
       url: webUrl,
       ...gh,
       status: 'downloading',
@@ -358,7 +362,7 @@ async function downloadSource(id: string) {
     let title: string | null = null;
     try {
       const readme = await fs.readFile(path.join(base, 'README.md'), 'utf-8');
-      title = readme.match(/^#[ \t]+(.+?)[ \t#]*$/m)?.[1].trim().slice(0, 100) || null;
+      title = cleanSourceName(readme.match(/^#[ \t]+(.+?)[ \t#]*$/m)?.[1] ?? '') || null;
     } catch {}
 
     return { fileCount: index.length, revision, title };

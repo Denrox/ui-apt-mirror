@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   categoriesFor,
+  cleanSourceName,
   onlySheetChanged,
   parseSheetParam,
   sheetSearch,
@@ -69,8 +70,22 @@ describe('parseGithubUrl', () => {
     ['https://github.com/tldr-pages/tldr/tree/main/../..', '".."'],
     ['https://github.com/o/r/tree/main/pages/%2e%2E/x', '".."'],
     ['github.com/o/r/tree/main/./pages', '".."'],
+    ['https://github.com/tldr-pages/tldr/tree/main/pages/..%00', 'folder path'],
+    ['https://github.com/o/r/tree/main/pages/%0Ax', 'folder path'],
+    ['https://github.com/tldr-pages/tldr/tree/main/pages/...', 'folder path'],
+    ['https://github.com/o/r/tree/main/%E0%A4%A', 'valid URL'],
   ])('rejects %s', (input, message) => {
     expect(() => parseGithubUrl(input)).toThrow(message);
+  });
+});
+
+describe('cleanSourceName', () => {
+  it('keeps one trimmed line of at most 100 characters', () => {
+    expect(cleanSourceName('  First\naid\r\n manual\t')).toBe('First aid manual');
+    expect(cleanSourceName('evil\u202Etxt.exe\u2066x\u0000y')).toBe('evil txt.exe x y');
+    expect(cleanSourceName('x'.repeat(200_000))).toHaveLength(100);
+    expect(Array.from(cleanSourceName('😀'.repeat(150)))).toHaveLength(100);
+    expect(cleanSourceName(' \n\u202E ')).toBe('');
   });
 });
 

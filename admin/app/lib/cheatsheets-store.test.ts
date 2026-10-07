@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import appConfig from '~/config/config.json';
 import {
+  addSource,
   cleanLeftovers,
   isPublicCheatsheetsRequest,
   listSources,
@@ -66,6 +67,35 @@ describe('refreshSource', () => {
     await waitFor(() => JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8')).sources[0].status === 'error');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await removeSource('a');
+  });
+});
+
+describe('addSource', () => {
+  it('stores a cleaned, length-capped name', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ status: 404, ok: false })));
+    const long = await addSource('https://github.com/o/long', `Line one\nline\u202Etwo ${'x'.repeat(200_000)}`);
+    expect(long.name).toMatch(/^Line one line two x+$/);
+    expect(long.name).toHaveLength(100);
+    expect(long.nameFromUser).toBe(true);
+    const blank = await addSource('https://github.com/o/blank', ' \n ');
+    expect(blank).toMatchObject({ name: 'o/blank', nameFromUser: false });
+    await waitFor(() =>
+      JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8'))
+        .sources.filter((s: { id: string }) => s.id !== 'a')
+        .every((s: { status: string }) => s.status === 'error'),
+    );
+    const stored = JSON.parse(fs.readFileSync(path.join(dir, 'sources.json'), 'utf-8')).sources;
+    expect(stored.find((s: { url: string }) => s.url.endsWith('/long')).name).toBe(long.name);
+  });
+
+  it('cleans names stored before names were cleaned', async () => {
+    fs.writeFileSync(
+      path.join(dir, 'sources.json'),
+      JSON.stringify({ sources: [{ ...source('a'), name: `Old\nname ${'y'.repeat(500)}` }] }),
+    );
+    const [s] = await listSources();
+    expect(s.name).toHaveLength(100);
+    expect(s.name.startsWith('Old name y')).toBe(true);
   });
 });
 
