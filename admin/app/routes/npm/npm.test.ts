@@ -138,8 +138,9 @@ describe('npm registry route', () => {
   });
 
   it('refuses a scoped name that is in the public cache, also when npmjs cannot be reached', async () => {
+    // Cached by an older version, in the old layout.
     await fs.mkdir(path.join(dirs.npm, 'public/@babel'), { recursive: true });
-    await fs.writeFile(path.join(dirs.npm, 'public/@babel/core'), '{}');
+    await fs.writeFile(path.join(dirs.npm, 'public/@babel/core'), JSON.stringify({ name: '@babel/core' }));
     fetchMock.mockRejectedValue(new Error('offline'));
     expect((await publish('@babel/core', '99.0.0')).status).toBe(403);
   });

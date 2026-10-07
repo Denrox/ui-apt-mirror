@@ -262,10 +262,29 @@ export function withoutAuditPackages(payload: Record<string, any>, bulk: boolean
   return out;
 }
 
-/** Where an upstream response is cached, relative to the public dir; null for paths never cached. */
+/**
+ * Where an upstream response is cached, relative to the public dir; null for paths never cached.
+ * Every package has a directory of its own (`_packages/<name>/`, like the private store) with the
+ * packument in `package.json` and the tarballs under `-/`; `.meta` files sit next to each. Only
+ * `*.tgz` tarballs are cached, so no tarball can be named like the `.meta` file of another.
+ */
 export function publicCachePath(route: NpmPath): string | null {
-  if (route.kind === 'package' && route.rev === undefined) return route.name;
-  if (route.kind === 'tarball' && route.rev === undefined) {
+  if (route.kind === 'package' && route.rev === undefined) return `_packages/${route.name}/package.json`;
+  if (route.kind === 'tarball' && route.rev === undefined && /^[^/]+\.tgz$/.test(route.file)) {
+    return `_packages/${route.name}/-/${route.file}`;
+  }
+  return null;
+}
+
+/**
+ * Where older versions cached the same response: packuments at `<name>`, tarballs at
+ * `<scope or name>-tarballs/…/-/<file>`. Names could collide there (`x.meta` with x's metadata,
+ * `x-tarballs` with x's tarballs), so whatever is found must be checked before it is used.
+ */
+export function legacyPublicCachePath(route: NpmPath): string | null {
+  if (publicCachePath(route) === null) return null;
+  if (route.kind === 'package') return route.name;
+  if (route.kind === 'tarball') {
     const [first, ...rest] = route.name.split('/');
     return [`${first}-tarballs`, ...rest, '-', route.file].join('/');
   }

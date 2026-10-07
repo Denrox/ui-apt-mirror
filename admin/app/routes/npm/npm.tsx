@@ -26,6 +26,7 @@ import {
   isValidName,
   isValidVersion,
   isWebLoginPath,
+  legacyPublicCachePath,
   mergePublish,
   nextRev,
   packageScope,
@@ -37,6 +38,7 @@ import {
   revMatches,
   scopeListsPackage,
   type DocResult,
+  type NpmPath,
   upstreamHeaders,
   withoutAuditPackages,
   type PackageDoc,
@@ -208,10 +210,6 @@ async function saveToCache(
     }
 
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    // Older versions cached /<pkg>/<version> under a <pkg>/ directory, which blocks the packument.
-    if ((await fs.stat(filePath).catch(() => null))?.isDirectory()) {
-      await fs.rm(filePath, { recursive: true });
-    }
     await fs.writeFile(filePath, data);
 
     const metaPath = filePath + '.meta';
@@ -327,7 +325,8 @@ function tarballUrl(request: Request, packageName: string, tarballFile: string):
  * name is looked up in that list here. Unscoped names have no such list and are checked directly.
  */
 async function isPublicPackageName(packageName: string): Promise<boolean> {
-  if (await isCached(path.join(PUBLIC_PACKAGES_DIR, packageName))) return true;
+  const cached = await publicCacheFile({ kind: 'package', name: packageName });
+  if (cached && (await isCached(cached))) return true;
   try {
     const scope = packageScope(packageName);
     if (scope) {
@@ -382,13 +381,50 @@ async function loadPrivatePackage(
   };
 }
 
+/**
+ * Moves a response cached by an older version into the current layout, so a mirror that is offline
+ * after the upgrade still has it. The old layout let names collide, so a packument is taken over only
+ * if it names this package (`x.meta` used to hold x's metadata) and a tarball only if it is a file.
+ */
+async function adoptLegacyCache(route: NpmPath, cachePath: string): Promise<void> {
+  const legacy = legacyPublicCachePath(route);
+  if (!legacy || (await isCached(cachePath))) return;
+  const from = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, legacy));
+  if (!(await fs.lstat(from).catch(() => null))?.isFile()) return;
+  if (route.kind === 'package') {
+    const doc = parseJsonObject(await fs.readFile(from, 'utf-8'));
+    if (doc?.name !== route.name) return;
+  }
+
+  await fs.mkdir(path.dirname(cachePath), { recursive: true });
+  // Metadata first: if this is interrupted, the data is still found in the old place next time.
+  await fs.rename(`${from}.meta`, `${cachePath}.meta`).catch(() => {});
+  await fs.rename(from, cachePath).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  });
+  // Drop the directories the old layout leaves empty (<name>-tarballs/…/-/).
+  for (let dir = path.dirname(from); dir !== path.resolve(PUBLIC_PACKAGES_DIR); dir = path.dirname(dir)) {
+    if (!(await fs.rmdir(dir).then(() => true, () => false))) break;
+  }
+}
+
+/** The cache file of a route in the public dir, or null for paths that are never cached. */
+async function publicCacheFile(route: NpmPath): Promise<string | null> {
+  const cacheFile = publicCachePath(route);
+  if (!cacheFile) return null;
+  const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cacheFile));
+  await adoptLegacyCache(route, cachePath).catch((error) => {
+    console.error(`Could not move the cached ${cacheFile} into the current layout:`, error);
+  });
+  return cachePath;
+}
+
 /** Cached upstream response; metadata is revalidated after a TTL, tarballs never change. */
 async function loadPublicPackage(
   packagePath: string,
-  cacheFile: string,
+  cachePath: string,
   originalHeaders: Record<string, string>,
 ): Promise<Upstream> {
-  const cachePath = insideDir(PUBLIC_PACKAGES_DIR, path.join(PUBLIC_PACKAGES_DIR, cacheFile));
   const cached = await loadFromCache(cachePath).catch(() => null);
   if (cached && (packagePath.includes('/-/') || isFresh(cached.headers['x-cached-at']))) {
     return { ...cached, status: 200 };
@@ -503,9 +539,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
       return version ? jsonResponse(version) : notFound();
     } else {
       // Packuments and tarballs are cached; anything else (search, /<pkg>/<version>, …) is proxied.
-      const cacheFile = publicCachePath(route);
-      ({ data, headers, status } = cacheFile
-        ? await loadPublicPackage(packagePath, cacheFile, originalHeaders)
+      const cachePath = await publicCacheFile(route);
+      ({ data, headers, status } = cachePath
+        ? await loadPublicPackage(packagePath, cachePath, originalHeaders)
         : await fetchFromNpm(packagePath + url.search));
       headers['x-cache'] ??= 'BYPASS';
     }

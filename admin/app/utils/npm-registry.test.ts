@@ -14,6 +14,7 @@ import {
   parseNpmPath,
   pathPackage,
   privateVersion,
+  legacyPublicCachePath,
   publicCachePath,
   revMatches,
   scopeListsPackage,
@@ -303,15 +304,39 @@ describe('audit payloads', () => {
 });
 
 describe('publicCachePath', () => {
-  it('caches packuments and tarballs in the existing layout', () => {
-    expect(publicCachePath(parseNpmPath('left-pad'))).toBe('left-pad');
-    expect(publicCachePath(parseNpmPath('@babel%2fcore'))).toBe('@babel/core');
+  it('caches each package in a directory of its own', () => {
+    expect(publicCachePath(parseNpmPath('left-pad'))).toBe('_packages/left-pad/package.json');
+    expect(publicCachePath(parseNpmPath('@babel%2fcore'))).toBe('_packages/@babel/core/package.json');
     expect(publicCachePath(parseNpmPath('left-pad/-/left-pad-1.3.0.tgz'))).toBe(
-      'left-pad-tarballs/-/left-pad-1.3.0.tgz',
+      '_packages/left-pad/-/left-pad-1.3.0.tgz',
     );
     expect(publicCachePath(parseNpmPath('@babel/core/-/core-7.0.0.tgz'))).toBe(
+      '_packages/@babel/core/-/core-7.0.0.tgz',
+    );
+  });
+
+  it('gives names that collided in the old layout paths that do not overlap', () => {
+    const names = ['x', 'x.meta', 'x-tarballs', '@s/y', '@s-tarballs/y', '@s/y.meta'];
+    const files = names.flatMap((n) => [
+      publicCachePath(parseNpmPath(n))!,
+      publicCachePath(parseNpmPath(`${n}/-/${n.split('/').pop()}-1.0.0.tgz`))!,
+    ]);
+    const all = files.flatMap((f) => [f, `${f}.meta`]);
+    expect(new Set(all).size).toBe(all.length);
+    for (const a of all) for (const b of all) expect(b.startsWith(`${a}/`), `${a} / ${b}`).toBe(false);
+  });
+
+  it('caches only .tgz tarballs, so none can be named like a .meta file', () => {
+    expect(publicCachePath(parseNpmPath('x/-/x-1.0.0.tgz.meta'))).toBeNull();
+    expect(publicCachePath(parseNpmPath('x/-/sub/x-1.0.0.tgz'))).toBeNull();
+  });
+
+  it('knows where older versions cached the same response', () => {
+    expect(legacyPublicCachePath(parseNpmPath('left-pad'))).toBe('left-pad');
+    expect(legacyPublicCachePath(parseNpmPath('@babel/core/-/core-7.0.0.tgz'))).toBe(
       '@babel-tarballs/core/-/core-7.0.0.tgz',
     );
+    expect(legacyPublicCachePath(parseNpmPath('left-pad/latest'))).toBeNull();
   });
 
   it('does not cache paths that would collide with a packument or depend on the query', () => {
