@@ -13,10 +13,9 @@ export class BodyTooLargeError extends Error {
  */
 export async function readFormData(request: Request, limit = MAX_FORM_BYTES): Promise<FormData> {
   const declared = Number(request.headers.get('content-length'));
-  if (declared > limit) {
-    await request.body?.cancel().catch(() => undefined);
-    throw new BodyTooLargeError(limit);
-  }
+  // The rest of a refused body is left unread rather than cancelled: cancelling resets the
+  // connection, so the client would never see the answer.
+  if (declared > limit) throw new BodyTooLargeError(limit);
   const parts: Uint8Array[] = [];
   let size = 0;
   if (request.body) {
@@ -26,7 +25,7 @@ export async function readFormData(request: Request, limit = MAX_FORM_BYTES): Pr
       if (done) break;
       size += value.byteLength;
       if (size > limit) {
-        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
         throw new BodyTooLargeError(limit);
       }
       parts.push(value);
