@@ -133,7 +133,10 @@ public GitHub URL:
 Every `.md` file under that location becomes a page (README/LICENSE/CONTRIBUTING
 files are skipped). The first `# Heading` is the page title. Sub-folders become
 categories, unless the folder contains a `categories.json` mapping
-`{"Category": ["relative/path.md", ...]}`. Downloading needs internet access;
+`{"Category": ["relative/path.md", ...]}`. Pages are GitHub-flavoured markdown;
+formulas written as TeX between double dollars (`$$x_1 + x_2$$` inline, or `$$`
+on lines of their own for a block) are rendered with KaTeX, offline. Single
+dollars stay plain text. Downloading needs internet access;
 **Update** re-downloads a source and keeps the previous copy if it fails.
 Content is stored under `data/data/cheatsheets/` and is not part of this repository.
 
